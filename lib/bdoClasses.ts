@@ -48,6 +48,9 @@ export const CLASSES: { nome: string; tipos: SpecTipo[] }[] = [
 
 export const CLASSE_NOMES: string[] = CLASSES.map((c) => c.nome);
 
-/** Tipos válidos para uma classe (todos, se a classe não for reconhecida). */
+/**
+ * Tipos válidos para uma classe. Fallback = Despertar+Sucessão (NÃO todos):
+ * só classes mapeadas como Ascensão mostram Ascensão; só a Shai mostra Talento.
+ */
 export const tiposDe = (classe: string | null | undefined): SpecTipo[] =>
-  CLASSES.find((c) => c.nome === classe)?.tipos ?? TIPOS;
+  CLASSES.find((c) => c.nome === classe)?.tipos ?? PADRAO;
