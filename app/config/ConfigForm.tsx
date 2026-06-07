@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { Config } from "@/lib/config";
+import type { Vagas } from "@/lib/vagas";
 import { C } from "@/lib/theme";
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
@@ -12,12 +13,15 @@ const initGm = (c: Config): Record<string, Set<string>> => Object.fromEntries(c.
 const snap = (cs: Set<string>, g: Record<string, Set<string>>) =>
   JSON.stringify({ c: [...cs].sort(), g: Object.fromEntries(Object.entries(g).map(([k, v]) => [k, [...v].sort()])) });
 
-export default function ConfigForm({ initial, canEdit = true }: { initial: Config; canEdit?: boolean }) {
+export default function ConfigForm({ initial, canEdit = true, vagasInit }: { initial: Config; canEdit?: boolean; vagasInit: Vagas }) {
   const ro = !canEdit; // somente leitura
   const [cfg, setCfg] = useState<Config>(initial);
   const [cores, setCores] = useState<Set<string>>(() => initCores(initial));
   const [gm, setGm] = useState<Record<string, Set<string>>>(() => initGm(initial));
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [vagas, setVagas] = useState<Vagas>(vagasInit);
+  const [vagasSaved, setVagasSaved] = useState(() => JSON.stringify(vagasInit));
+  const vagasDirty = JSON.stringify(vagas) !== vagasSaved;
 
   const metricas = cfg.metricas;
   const baseSnap = useMemo(() => snap(initCores(cfg), initGm(cfg)), [cfg]);
@@ -44,6 +48,22 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
     } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
   }
 
+  // ---- vagas fora do bot ----
+  const setVaga = (g: "MANI" | "RESO", patch: Partial<{ hidden: number; texto: string }>) => {
+    if (ro) return;
+    setVagas((prev) => ({ ...prev, [g]: { ...prev[g], ...patch } }));
+  };
+  async function salvarVagas() {
+    setStatus({ kind: "saving" });
+    try {
+      const res = await fetch("/api/vagas", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(vagas) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "falha ao salvar vagas");
+      setVagas(d); setVagasSaved(JSON.stringify(d));
+      setStatus({ kind: "ok", msg: "Vagas salvas." });
+    } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
+  }
+
   // ---- grupos ----
   async function grupoOp(init: RequestInit, url: string, msg: string) {
     setStatus({ kind: "saving" });
@@ -63,6 +83,7 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
 
   const card = { border: `1px solid ${C.border}`, borderRadius: 16, background: C.surface, padding: 18 } as const;
   const btn = (color: string = C.verde) => ({ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" } as const);
+  const inp = { background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "6px 8px", fontSize: 13 } as const;
 
   return (
     <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
@@ -116,6 +137,41 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
           <p style={{ color: C.mute, fontSize: 11, marginTop: 10, marginBottom: 0 }}>
             Renomear propaga pra todos os membros + config de métricas. Pra trocar o grupo de UMA pessoa, use a coluna “Grupo” em <Link className="navlink" href="/membros" style={{ color: C.verde }}>Membros</Link>.
           </p>
+        </div>
+
+        {/* vagas fora do bot (Apollo) */}
+        <div style={{ ...card, marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <h2 style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 17, margin: 0, color: C.verde }}>Vagas fora do bot</h2>
+            {canEdit && (
+              <button onClick={salvarVagas} disabled={!vagasDirty || status.kind === "saving"} style={{ ...btn(C.amarelo), opacity: vagasDirty ? 1 : 0.6 }}>
+                {status.kind === "saving" ? "Salvando…" : `Salvar vagas${vagasDirty ? " •" : ""}`}
+              </button>
+            )}
+          </div>
+          <p style={{ color: C.mute, fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+            Vagas que não passam pelo bot (Apollo). <b style={{ color: C.texto }}>Reservadas</b> = nº de vagas ocultas por guilda. <b style={{ color: C.texto }}>Nomes</b> = quem ocupa vaga fora do bot (1 por linha) — esses <b style={{ color: C.texto }}>não</b> caem no “deve retirar” da conferência de Participar.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+            {(["MANI", "RESO"] as const).map((g) => (
+              <div key={g} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.inputBg, padding: "12px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <img src={g === "MANI" ? "/guilds/manicomio.png" : "/guilds/resonance.png"} alt="" width={18} height={18} style={{ borderRadius: 4 }} />
+                  <span style={{ color: C.texto, fontWeight: 700 }}>{g === "MANI" ? "Manicômio" : "Resonance"}</span>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: C.mute }}>
+                  Vagas reservadas
+                  <input type="number" min={0} value={vagas[g].hidden} disabled={ro}
+                    onChange={(e) => setVaga(g, { hidden: Math.max(0, Math.trunc(Number(e.target.value) || 0)) })}
+                    style={{ ...inp, width: 70 }} />
+                </label>
+                <div style={{ fontSize: 11, color: C.mute, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>Nomes fora do bot (1 por linha)</div>
+                <textarea value={vagas[g].texto} disabled={ro} rows={4} placeholder={"Fulano\nBeltrano"}
+                  onChange={(e) => setVaga(g, { texto: e.target.value })}
+                  style={{ ...inp, width: "100%", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* editor de métricas + cores por grupo */}

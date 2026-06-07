@@ -26,16 +26,20 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 export default function ParticiparReconcile({
-  confirmados, espera, canEdit,
-}: { confirmados: string[]; espera: string[]; canEdit: boolean }) {
+  confirmados, espera, offBot, canEdit,
+}: { confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
   const [rec, setRec] = useState<Reconc | null>(null);
 
-  const confSet = new Set(confirmados.map((s) => s.toLowerCase()));
   const espSet = new Set(espera.map((s) => s.toLowerCase()));
+  // "esperado" = quem tem vaga: confirmados no bot + nomes em vagas fora do bot
+  const esperadoMap = new Map<string, string>();
+  for (const n of confirmados) esperadoMap.set(n.toLowerCase(), n);
+  for (const n of offBot) if (n && !esperadoMap.has(n.toLowerCase())) esperadoMap.set(n.toLowerCase(), n);
+  const esperadoSet = new Set(esperadoMap.keys());
 
   async function rodar(files: FileList) {
     setBusy(true); setErro(""); setRec(null);
@@ -63,13 +67,13 @@ export default function ParticiparReconcile({
       const participarSet = new Set(participarRows.map((m) => m.familia.toLowerCase()));
 
       const certo: string[] = [], faltaMarcar: string[] = [];
-      for (const nome of confirmados) {
+      for (const nome of esperadoMap.values()) {
         (participarSet.has(nome.toLowerCase()) ? certo : faltaMarcar).push(nome);
       }
       const retirarEspera: string[] = [], retirarFora: string[] = [];
       for (const m of participarRows) {
         const k = m.familia.toLowerCase();
-        if (confSet.has(k)) continue; // está confirmado no bot → ok
+        if (esperadoSet.has(k)) continue; // tem vaga (bot ou fora do bot) → ok
         (espSet.has(k) ? retirarEspera : retirarFora).push(m.familia);
       }
       setRec({ certo, faltaMarcar, retirarEspera, retirarFora, totalParticipar: participarRows.length, lidos: map.size });
@@ -128,8 +132,8 @@ export default function ParticiparReconcile({
             Li <b style={{ color: C.texto }}>{rec.lidos}</b> membros do(s) print(s); <b style={{ color: C.texto }}>{rec.totalParticipar}</b> com “Participar”.
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-            <Col titulo="✅ Certo" cor={C.verde} nomes={rec.certo} hint="No bot e com Participar" />
-            <Col titulo="⚠ Falta marcar" cor={C.amarelo} nomes={rec.faltaMarcar} hint="No bot, mas sem Participar in-game → avisar p/ MARCAR" />
+            <Col titulo="✅ Certo" cor={C.verde} nomes={rec.certo} hint="Tem vaga (bot/fora) e marcou Participar" />
+            <Col titulo="⚠ Falta marcar" cor={C.amarelo} nomes={rec.faltaMarcar} hint="Tem vaga, mas sem Participar → avisar p/ MARCAR" />
             <Col titulo="⚠ Deve retirar (espera)" cor={C.amarelo} nomes={rec.retirarEspera} hint="Participar in-game, mas na lista de espera → avisar p/ RETIRAR" />
             <Col titulo="⛔ Deve retirar (fora)" cor={C.vermelho} nomes={rec.retirarFora} hint="Participar in-game, mas fora do bot → avisar p/ RETIRAR" />
           </div>

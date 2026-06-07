@@ -35,6 +35,15 @@ CREATE TABLE grupos_metricas (
   PRIMARY KEY (grupo, metrica)
 );
 
+-- Vagas que não passam pelo bot (Apollo), por guilda da aliança.
+-- hidden = nº de vagas reservadas; texto = nomes que ocupam vaga fora do bot (1 por linha).
+CREATE TABLE IF NOT EXISTS vagas_config (
+  guilda TEXT PRIMARY KEY CHECK (guilda IN ('MANI','RESO')),
+  hidden INT  NOT NULL DEFAULT 0,
+  texto  TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO vagas_config (guilda) VALUES ('MANI'), ('RESO') ON CONFLICT DO NOTHING;
+
 -- ============ FATO CRU (a extração dos prints) ============
 
 CREATE TABLE wars (

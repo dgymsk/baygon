@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { fetchConfirmados, type PlayerConf } from "@/lib/confirmados";
+import { getVagas, nomesDoTexto } from "@/lib/vagas";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
@@ -22,10 +23,11 @@ function fmtData(unix?: number): string {
 }
 
 export default async function ConfirmadosPage() {
-  const [conf, rosterRows, canEdit] = await Promise.all([
+  const [conf, rosterRows, canEdit, vagas] = await Promise.all([
     fetchConfirmados(),
     sql`SELECT lower(nome_familia) AS n FROM players`,
     canEditNow(),
+    getVagas(),
   ]);
   const roster = new Set((rosterRows as { n: string }[]).map((r) => r.n));
   const conhecido = (p: PlayerConf) => roster.has(p.nome.toLowerCase());
@@ -35,6 +37,10 @@ export default async function ConfirmadosPage() {
   const nR = totalConf - nM;
   const confirmadosNomes = conf.grupos.flatMap((g) => g.players.map((p) => p.nome));
   const esperaNomes = conf.listaEspera.map((p) => p.nome);
+  const offBotMani = nomesDoTexto(vagas.MANI.texto);
+  const offBotReso = nomesDoTexto(vagas.RESO.texto);
+  const offBotNomes = [...offBotMani, ...offBotReso];
+  const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
@@ -97,11 +103,36 @@ export default async function ConfirmadosPage() {
               <Stat><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nM}</Stat>
               <Stat><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nR}</Stat>
               <Stat>{conf.listaEspera.length} na lista de espera</Stat>
+              {hiddenTotal > 0 && <Stat>{hiddenTotal} reservada(s) fora do bot</Stat>}
               {conf.messageTs && <Stat>atualizado {fmtData(Math.floor(new Date(conf.messageTs).getTime() / 1000))}</Stat>}
             </div>
 
+            {/* vagas fora do bot (configuradas em /config) */}
+            {(hiddenTotal > 0 || offBotNomes.length > 0) && (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px", marginBottom: 18 }}>
+                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Vagas fora do bot</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
+                  {(["MANI", "RESO"] as const).map((g) => {
+                    const nomes = g === "MANI" ? offBotMani : offBotReso;
+                    return (
+                      <div key={g} style={{ minWidth: 200 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.texto, marginBottom: 4 }}>
+                          <img src={g === "MANI" ? "/guilds/manicomio.png" : "/guilds/resonance.png"} alt="" width={14} height={14} style={{ borderRadius: 3 }} />
+                          {g === "MANI" ? "Manicômio" : "Resonance"} · <span style={{ color: C.mute }}>{vagas[g].hidden} reservada(s)</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px" }}>
+                          {nomes.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : nomes.map((n) => <span key={n} style={{ fontSize: 12.5, color: C.texto }}>{n}</span>)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p style={{ color: C.mute, fontSize: 11, marginTop: 8, marginBottom: 0 }}>Configurado em ⚙ Config. Esses nomes contam como vaga válida (não caem no “deve retirar”).</p>
+              </div>
+            )}
+
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} canEdit={canEdit} />
+            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} />
 
             {/* grupos */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
