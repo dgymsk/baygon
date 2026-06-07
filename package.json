@@ -10,7 +10,8 @@
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "db:seed": "node --env-file=.env.local scripts/seed.mjs",
     "db:seed-history": "node --env-file=.env.local scripts/seed_history.mjs",
-    "db:reset": "npm run db:migrate && npm run db:seed && npm run db:seed-history"
+    "db:seed-config": "node --env-file=.env.local scripts/seed_config.mjs",
+    "db:reset": "npm run db:migrate && npm run db:seed && npm run db:seed-history && npm run db:seed-config"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
