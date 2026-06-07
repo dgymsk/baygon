@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRow } from "@/lib/players";
 import { C } from "@/lib/theme";
 
@@ -55,7 +55,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
     setBaseline(new Map(ps.map((p) => [p.nome_familia, editKey(p)])));
   }
 
-  async function salvar() {
+  async function salvar(auto = false) {
     if (!dirty.length) return;
     setStatus({ kind: "saving" });
     try {
@@ -63,9 +63,18 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "falha");
       setBaseline(new Map(rows.map((p) => [p.nome_familia, editKey(p)])));
-      setStatus({ kind: "ok", msg: `${dirty.length} alteração(ões) salva(s).` });
+      setStatus({ kind: "ok", msg: auto ? `salvo automaticamente (${dirty.length})` : `${dirty.length} alteração(ões) salva(s).` });
     } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
   }
+
+  // auto-save: a cada 10s grava as alterações pendentes (se não estiver salvando)
+  const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
+  const savingRef = useRef(false); savingRef.current = status.kind === "saving";
+  const salvarRef = useRef(salvar); salvarRef.current = salvar;
+  useEffect(() => {
+    const id = setInterval(() => { if (dirtyRef.current.length && !savingRef.current) salvarRef.current(true); }, 10000);
+    return () => clearInterval(id);
+  }, []);
 
   async function adicionar() {
     const nome = novo.nome.trim();
@@ -176,9 +185,13 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
             <button onClick={() => setGf("RESO")} style={chip(gf === "RESO")}><img src={GUILD.RESO.icon} alt="" width={16} height={16} style={{ borderRadius: 3 }} />RESO</button>
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span style={{ color: C.mute, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: dirty.length ? C.amarelo : C.verde, boxShadow: `0 0 6px ${dirty.length ? C.amarelo : C.verde}` }} />
+              auto-save 10s
+            </span>
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ {status.msg}</span>}
             {status.kind === "err" && <span style={{ color: C.vermelho, fontSize: 13 }}>⚠ {status.msg}</span>}
-            <button onClick={salvar} disabled={!dirty.length || status.kind === "saving"} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: dirty.length ? C.verdeTint : C.inputBg, color: C.verde, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: dirty.length ? "pointer" : "default", opacity: dirty.length ? 1 : 0.5 }}>
+            <button onClick={() => salvar()} disabled={!dirty.length || status.kind === "saving"} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: dirty.length ? C.verdeTint : C.inputBg, color: C.verde, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: dirty.length ? "pointer" : "default", opacity: dirty.length ? 1 : 0.5 }}>
               {status.kind === "saving" ? "Salvando…" : `Salvar${dirty.length ? ` (${dirty.length})` : ""}`}
             </button>
           </div>
@@ -203,7 +216,11 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
                 return (
                   <tr key={r.nome_familia} style={{ background: isDirty ? "rgba(255,210,30,.06)" : undefined }}>
                     <td style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
-                    <td><input list="dl-grupos" value={r.grupo} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 120 }} /></td>
+                    <td>
+                      <select value={r.grupo} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: "pointer" }}>
+                        {[...new Set([...grupos, "Indefinido", r.grupo])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
+                      </select>
+                    </td>
                     <td><input list="dl-classes" value={r.classe_bdo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value })} style={{ ...inp, width: 120 }} /></td>
                     <td style={{ textAlign: "center" }}>
                       <button onClick={() => patch(r.nome_familia, { guilda: r.guilda === "MANI" ? "RESO" : "MANI" })} title={`${g.label} — clique pra trocar`}
