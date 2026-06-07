@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConfig, saveConfig } from "@/lib/config";
+import { requireSession } from "@/lib/requireAuth";
 
 // GET /api/config — estado atual (grupos, players/cores, métricas)
 export async function GET() {
@@ -13,6 +14,8 @@ export async function GET() {
 // PUT /api/config — grava cores + métricas por grupo
 // body: { cores: string[], gruposMetricas: Record<grupo, metrica[]> }
 export async function PUT(req: Request) {
+  const unauth = await requireSession();
+  if (unauth) return unauth;
   let body: unknown;
   try {
     body = await req.json();

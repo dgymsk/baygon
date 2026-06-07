@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { addPlayer, listPlayers, updatePlayers, type PlayerUpdate } from "@/lib/players";
+import { requireSession } from "@/lib/requireAuth";
 
 // GET /api/players — todos os membros (com nº de wars)
 export async function GET() {
@@ -12,6 +13,8 @@ export async function GET() {
 
 // POST /api/players — adiciona membro { nome_familia, grupo, classe_bdo?, ativo? }
 export async function POST(req: Request) {
+  const unauth = await requireSession();
+  if (unauth) return unauth;
   let b: { nome_familia?: unknown; grupo?: unknown; classe_bdo?: unknown; classe_tipo?: unknown; guilda?: unknown; ativo?: unknown };
   try {
     b = await req.json();
@@ -36,6 +39,8 @@ export async function POST(req: Request) {
 
 // PATCH /api/players — atualiza em lote { updates: PlayerUpdate[] }
 export async function PATCH(req: Request) {
+  const unauth = await requireSession();
+  if (unauth) return unauth;
   let b: { updates?: unknown };
   try {
     b = await req.json();
