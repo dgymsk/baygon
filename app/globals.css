@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  /* base BAYGON (escuro azul-esverdeado) */
-  --background: #060d0b;
-  --foreground: #e9f3ec;
+  /* base BAYGON (preto esverdeado / terminal) */
+  --background: #050a07;
+  --foreground: #d6f0dd;
 }
 
 @theme inline {

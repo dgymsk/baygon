@@ -9,6 +9,7 @@ export type PlayerRow = {
   nome_familia: string;
   grupo: string;
   classe_bdo: string | null;
+  classe_tipo: string | null;
   is_core: boolean;
   ativo: boolean;
   guilda: Guilda;
@@ -19,12 +20,12 @@ export type PlayerRow = {
 
 export async function listPlayers(): Promise<PlayerRow[]> {
   return (await sql`
-    SELECT p.nome_familia, p.grupo, p.classe_bdo, p.is_core, p.ativo, p.guilda,
+    SELECT p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda,
            p.saida_tipo, p.saida_data::text AS saida_data,
            count(DISTINCT d.war_id)::int AS n_wars
     FROM players p
     LEFT JOIN desempenho d ON d.nome_familia = p.nome_familia
-    GROUP BY p.nome_familia, p.grupo, p.classe_bdo, p.is_core, p.ativo, p.guilda, p.saida_tipo, p.saida_data
+    GROUP BY p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.saida_tipo, p.saida_data
     ORDER BY p.grupo, p.nome_familia
   `) as PlayerRow[];
 }
@@ -34,11 +35,11 @@ const guildaOr = (g: string): Guilda => ((g ?? "").trim().toUpperCase() === "RES
 
 /** Retorna false se já existia (nome_familia é PK). */
 export async function addPlayer(
-  nome: string, grupo: string, classe: string | null, ativo: boolean, guilda: string,
+  nome: string, grupo: string, classe: string | null, ativo: boolean, guilda: string, tipo: string | null = null,
 ): Promise<boolean> {
   const rows = await sql`
-    INSERT INTO players (nome_familia, grupo, is_core, classe_bdo, guilda, ativo)
-    VALUES (${nome.trim()}, ${grupoOr(grupo)}, FALSE, ${classe?.trim() || null}, ${guildaOr(guilda)}, ${ativo})
+    INSERT INTO players (nome_familia, grupo, is_core, classe_bdo, classe_tipo, guilda, ativo)
+    VALUES (${nome.trim()}, ${grupoOr(grupo)}, FALSE, ${classe?.trim() || null}, ${tipo?.trim() || null}, ${guildaOr(guilda)}, ${ativo})
     ON CONFLICT (nome_familia) DO NOTHING
     RETURNING nome_familia
   `;
@@ -50,6 +51,7 @@ export type PlayerUpdate = {
   nome_familia: string;
   grupo: string;
   classe_bdo: string | null;
+  classe_tipo: string | null;
   is_core: boolean;
   guilda: string;
 };
@@ -59,7 +61,7 @@ export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
   const queries = updates.map((u) => sql`
     UPDATE players
     SET grupo = ${grupoOr(u.grupo)}, classe_bdo = ${u.classe_bdo?.trim() || null},
-        is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)}
+        classe_tipo = ${u.classe_tipo?.trim() || null}, is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)}
     WHERE nome_familia = ${u.nome_familia}
   `);
   await sql.transaction(queries);

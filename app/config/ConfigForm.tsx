@@ -65,7 +65,7 @@ export default function ConfigForm({ initial }: { initial: Config }) {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Chakra+Petch:wght@400;500;600&display=swap');
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
 
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
@@ -73,7 +73,7 @@ export default function ConfigForm({ initial }: { initial: Config }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img src="/mascot.png" alt="" width={38} height={38} style={{ filter: "drop-shadow(0 0 10px rgba(126,224,70,.45))" }} />
-            <h1 style={{ fontFamily: "'Cinzel',serif", fontWeight: 800, fontSize: 26, letterSpacing: 1, margin: 0, color: C.amarelo }}>
+            <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 26, letterSpacing: 1, margin: 0, color: C.amarelo }}>
               BAYGON <span style={{ color: C.mute, fontSize: 14, letterSpacing: 2 }}>· CONFIGURAÇÃO</span>
             </h1>
           </div>
@@ -95,7 +95,7 @@ export default function ConfigForm({ initial }: { initial: Config }) {
         {/* gerenciar grupos */}
         <div style={{ ...card, marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <h2 style={{ fontFamily: "'Cinzel',serif", fontSize: 17, margin: 0, color: C.verde }}>Grupos</h2>
+            <h2 style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 17, margin: 0, color: C.verde }}>Grupos</h2>
             <button onClick={criarGrupo} style={btn(C.amarelo)}>+ Criar grupo</button>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -122,7 +122,7 @@ export default function ConfigForm({ initial }: { initial: Config }) {
             return (
               <section key={g.grupo} style={card}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
-                  <h2 style={{ fontFamily: "'Cinzel',serif", fontSize: 18, margin: 0, color: indef ? C.mute : C.texto }}>{g.grupo}</h2>
+                  <h2 style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 18, margin: 0, color: indef ? C.mute : C.texto }}>{g.grupo}</h2>
                   <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>{g.players.length} players · {sel.size} métricas</span>
                 </div>
                 {indef ? (

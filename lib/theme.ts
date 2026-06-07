@@ -1,33 +1,32 @@
 /**
- * Paleta BAYGON (marca de inseticida) — base escura azul-esverdeada,
- * VERDE TÓXICO (veneno / mascote) como acento principal e AMARELO da marca
- * como destaque. Sem o dourado/marrom medieval anterior.
+ * Paleta BAYGON — terminal/veneno: preto esverdeado + VERDE NEON (mascote/veneno)
+ * como acento dominante, no estilo do app de avaliação. Amarelo só p/ avisos.
  */
 export const C = {
   // base
-  bg0: "#060d0b",
-  bgGlow: "radial-gradient(1200px 600px at 70% -10%, #103326 0%, #060d0b 60%)",
-  surface: "linear-gradient(180deg,#0f1f18 0%,#0b1611 100%)",
-  surfaceSolid: "#0e1c16",
-  inputBg: "#091310",
-  border: "#21402f",
-  border2: "#2a4a37",
-  borderSoft: "#172e22",
-  tooltipBg: "#0b1611",
+  bg0: "#050a07",
+  bgGlow: "radial-gradient(1100px 600px at 70% -10%, #0c2417 0%, #050a07 65%)",
+  surface: "linear-gradient(180deg,#0a1610 0%,#070f0a 100%)",
+  surfaceSolid: "#0a140e",
+  inputBg: "#06100b",
+  border: "#1c3a28",
+  border2: "#2a5a3c",
+  borderSoft: "#142b1d",
+  tooltipBg: "#07120c",
 
   // acentos
-  verde: "#7ee046", // verde tóxico — principal / positivo
-  verdeBright: "#a6ff5e",
-  amarelo: "#ffd21e", // amarelo Baygon — marca / destaque
+  verde: "#34e06a", // verde neon — principal / positivo
+  verdeBright: "#5cff8a",
+  amarelo: "#ffd21e", // amarelo — avisos pontuais / pendente
   laranja: "#f4881f",
-  vermelho: "#ff5240", // perigo / negativo
+  vermelho: "#ff4d4d", // perigo / negativo
 
   // texto
-  texto: "#e9f3ec",
-  mute: "#82a08f",
+  texto: "#d6f0dd",
+  mute: "#6f9a80",
   branco: "#ffffff",
 
   // tints
-  verdeTint: "rgba(126,224,70,.15)",
+  verdeTint: "rgba(52,224,106,.15)",
   amareloTint: "rgba(255,210,30,.15)",
 } as const;

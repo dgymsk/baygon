@@ -9,7 +9,8 @@ CREATE TABLE players (
   nome_familia TEXT PRIMARY KEY,
   grupo        TEXT    NOT NULL,                 -- classificação do BOT (Ranged, etc.) — NÃO é classe do BDO
   is_core      BOOLEAN NOT NULL DEFAULT FALSE,   -- sua marcação de "core"
-  classe_bdo   TEXT,                             -- opcional, só informativo
+  classe_bdo   TEXT,                             -- classe do BDO (ex: Guerreiro)
+  classe_tipo  TEXT,                             -- especialização: Despertar/Sucessão/Ascensão/Talento
   guilda       TEXT    NOT NULL DEFAULT 'MANI' CHECK (guilda IN ('MANI','RESO')),  -- guilda da aliança
   ativo        BOOLEAN NOT NULL DEFAULT TRUE,    -- FALSE = ex-membro (aba "membros antigos")
   saida_tipo   TEXT CHECK (saida_tipo IS NULL OR saida_tipo IN ('Saiu','Kikado')),  -- motivo da saída

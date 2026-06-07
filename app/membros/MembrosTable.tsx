@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRow } from "@/lib/players";
+import { CLASSE_NOMES, tiposDe } from "@/lib/bdoClasses";
 import { C } from "@/lib/theme";
 
 const GUILD: Record<string, { label: string; icon: string }> = {
@@ -11,7 +12,7 @@ const GUILD: Record<string, { label: string; icon: string }> = {
 };
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.is_core, p.guilda]);
+const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda]);
 
 export default function MembrosTable({ initial, gruposExtra = [] }: { initial: PlayerRow[]; gruposExtra?: string[] }) {
   const [rows, setRows] = useState<PlayerRow[]>(initial);
@@ -21,7 +22,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
   const [tab, setTab] = useState<"ativos" | "ex">("ativos");
   const [q, setQ] = useState("");
   const [gf, setGf] = useState<"" | "MANI" | "RESO">("");
-  const [novo, setNovo] = useState({ nome: "", grupo: "", classe: "", guilda: "MANI" });
+  const [novo, setNovo] = useState({ nome: "", grupo: "", classe: "", tipo: "", guilda: "MANI" });
   const [arq, setArq] = useState<string | null>(null); // nome em processo de arquivar
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
@@ -81,11 +82,11 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
     if (!nome) return;
     setStatus({ kind: "saving" });
     try {
-      const res = await fetch("/api/players", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome_familia: nome, grupo: novo.grupo, classe_bdo: novo.classe, guilda: novo.guilda }) });
+      const res = await fetch("/api/players", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome_familia: nome, grupo: novo.grupo, classe_bdo: novo.classe, classe_tipo: novo.tipo, guilda: novo.guilda }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "falha");
       const g = novo.guilda;
-      setNovo({ nome: "", grupo: "", classe: "", guilda: g });
+      setNovo({ nome: "", grupo: "", classe: "", tipo: "", guilda: g });
       await refresh();
       setTab("ativos");
       if (gf && gf !== g) setGf("");
@@ -117,7 +118,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
 
   return (
     <div style={{ background: C.bgGlow, minHeight: "100vh", padding: "26px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Chakra+Petch:wght@400;500;600;700&display=swap');
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600;700&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}
         input:focus,select:focus{border-color:${C.verde}}
         table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;text-align:left;border-bottom:1px solid ${C.borderSoft};font-size:13px}
@@ -132,7 +133,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img src="/mascot.png" alt="BAYGON" width={40} height={40} style={{ filter: "drop-shadow(0 0 10px rgba(126,224,70,.45))" }} />
             <div>
-              <h1 style={{ fontFamily: "'Cinzel',serif", fontWeight: 800, fontSize: 26, letterSpacing: 1, margin: 0, color: C.amarelo }}>
+              <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 26, letterSpacing: 1, margin: 0, color: C.amarelo }}>
                 BAYGON <span style={{ color: C.mute, fontSize: 14, fontFamily: "inherit", letterSpacing: 2 }}>· MEMBROS</span>
               </h1>
               <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
@@ -167,7 +168,14 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
             <span style={{ color: C.mute, fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>Adicionar</span>
             <input placeholder="Nome de família" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} style={{ ...inp, width: 170 }} />
             <input placeholder="Grupo" list="dl-grupos" value={novo.grupo} onChange={(e) => setNovo({ ...novo, grupo: e.target.value })} style={{ ...inp, width: 130 }} />
-            <input placeholder="Classe" list="dl-classes" value={novo.classe} onChange={(e) => setNovo({ ...novo, classe: e.target.value })} style={{ ...inp, width: 130 }} />
+            <select value={novo.classe} onChange={(e) => setNovo({ ...novo, classe: e.target.value, tipo: "" })} style={{ ...inp, width: 130, cursor: "pointer" }}>
+              <option value="">Classe…</option>
+              {CLASSE_NOMES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={novo.tipo} onChange={(e) => setNovo({ ...novo, tipo: e.target.value })} disabled={!novo.classe} style={{ ...inp, width: 120, cursor: "pointer", opacity: novo.classe ? 1 : 0.5 }}>
+              <option value="">Tipo…</option>
+              {tiposDe(novo.classe).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
             <select value={novo.guilda} onChange={(e) => setNovo({ ...novo, guilda: e.target.value })} style={{ ...inp, width: 130, cursor: "pointer" }}>
               <option value="MANI">Manicômio</option>
               <option value="RESO">Resonance</option>
@@ -202,7 +210,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
           <table>
             <thead>
               <tr>
-                <th>Família</th><th>Grupo</th><th>Classe</th>
+                <th>Família</th><th>Grupo</th><th>Classe</th><th>Tipo</th>
                 <th style={{ textAlign: "center" }}>Guilda</th>
                 {tab === "ativos" ? <th style={{ textAlign: "center" }}>Core</th> : <th>Saída</th>}
                 <th style={{ textAlign: "center" }}>Wars</th>
@@ -221,7 +229,18 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
                         {[...new Set([...grupos, "Indefinido", r.grupo])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
                       </select>
                     </td>
-                    <td><input list="dl-classes" value={r.classe_bdo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value })} style={{ ...inp, width: 120 }} /></td>
+                    <td>
+                      <select value={r.classe_bdo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value || null, classe_tipo: null })} style={{ ...inp, width: 130, cursor: "pointer" }}>
+                        <option value="">—</option>
+                        {[...new Set([...CLASSE_NOMES, ...(r.classe_bdo ? [r.classe_bdo] : [])])].map((cx) => <option key={cx} value={cx}>{cx}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select value={r.classe_tipo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_tipo: e.target.value || null })} disabled={!r.classe_bdo} style={{ ...inp, width: 115, cursor: "pointer", opacity: r.classe_bdo ? 1 : 0.5 }}>
+                        <option value="">—</option>
+                        {[...new Set([...tiposDe(r.classe_bdo), ...(r.classe_tipo ? [r.classe_tipo] : [])])].map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
                     <td style={{ textAlign: "center" }}>
                       <button onClick={() => patch(r.nome_familia, { guilda: r.guilda === "MANI" ? "RESO" : "MANI" })} title={`${g.label} — clique pra trocar`}
                         style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12 }}>
@@ -248,16 +267,16 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
                         ) : (
                           <button onClick={() => reativar(r.nome_familia)} style={btn(C.verde)}>Reativar</button>
                         )}
-                        {r.n_wars === 0
+                        {tab === "ex" && (r.n_wars === 0
                           ? <button title="excluir definitivamente" onClick={() => excluir(r.nome_familia)} style={{ background: "none", border: "none", color: C.vermelho, cursor: "pointer", fontSize: 15 }}>🗑</button>
-                          : <span title="tem histórico — arquive em vez de excluir" style={{ color: C.borderSoft, fontSize: 12, width: 18, display: "inline-block", textAlign: "center" }}>—</span>}
+                          : <span title="tem histórico — não dá pra excluir (fica arquivado)" style={{ color: C.borderSoft, fontSize: 12, width: 18, display: "inline-block", textAlign: "center" }}>—</span>)}
                       </div>
                     </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={7} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
+                <tr><td colSpan={8} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
               )}
             </tbody>
           </table>
