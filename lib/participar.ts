@@ -10,6 +10,8 @@ export type ParticiparRow = { familia: string; participar: boolean };
 // Modelo de visão — trocável por env (claude-opus-4-8 / claude-sonnet-4-6 / claude-haiku-4-5)
 // p/ comparar custo vs precisão sem redeploy de código.
 const MODEL = process.env.PARTICIPAR_MODEL ?? "claude-sonnet-4-6";
+// adaptive thinking só existe em opus 4.6+/4.7/4.8 e sonnet 4.6; haiku 4.5 / sonnet 4.5 dão 400.
+const USA_ADAPTIVE = /claude-(opus-4-(6|7|8)|sonnet-4-6)/.test(MODEL);
 
 type MediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 export type ImagemEntrada = { mediaType: string; data: string };
@@ -42,7 +44,8 @@ export async function lerParticipar(img: ImagemEntrada): Promise<ParticiparRow[]
   const res = await client.messages.create({
     model: MODEL,
     max_tokens: 16000,
-    thinking: { type: "adaptive" }, // mantém o bloco de texto final limpo (só o JSON)
+    // adaptive (quando suportado) mantém o bloco de texto final limpo (só o JSON)
+    ...(USA_ADAPTIVE ? { thinking: { type: "adaptive" as const } } : {}),
     messages: [
       {
         role: "user",
