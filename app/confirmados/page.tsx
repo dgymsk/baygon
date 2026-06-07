@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { fetchConfirmados, type PlayerConf } from "@/lib/confirmados";
 import { sql } from "@/lib/db";
+import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
 import RefreshButton from "./RefreshButton";
+import ParticiparReconcile from "./ParticiparReconcile";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
@@ -20,9 +22,10 @@ function fmtData(unix?: number): string {
 }
 
 export default async function ConfirmadosPage() {
-  const [conf, rosterRows] = await Promise.all([
+  const [conf, rosterRows, canEdit] = await Promise.all([
     fetchConfirmados(),
     sql`SELECT lower(nome_familia) AS n FROM players`,
+    canEditNow(),
   ]);
   const roster = new Set((rosterRows as { n: string }[]).map((r) => r.n));
   const conhecido = (p: PlayerConf) => roster.has(p.nome.toLowerCase());
@@ -30,6 +33,8 @@ export default async function ConfirmadosPage() {
   const totalConf = conf.grupos.reduce((s, g) => s + g.players.length, 0);
   const nM = conf.grupos.reduce((s, g) => s + g.players.filter((p) => p.tag === "M").length, 0);
   const nR = totalConf - nM;
+  const confirmadosNomes = conf.grupos.flatMap((g) => g.players.map((p) => p.nome));
+  const esperaNomes = conf.listaEspera.map((p) => p.nome);
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
@@ -94,6 +99,9 @@ export default async function ConfirmadosPage() {
               <Stat>{conf.listaEspera.length} na lista de espera</Stat>
               {conf.messageTs && <Stat>atualizado {fmtData(Math.floor(new Date(conf.messageTs).getTime() / 1000))}</Stat>}
             </div>
+
+            {/* reconciliação bot x in-game (Participar) */}
+            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} canEdit={canEdit} />
 
             {/* grupos */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
