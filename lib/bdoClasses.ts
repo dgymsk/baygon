@@ -1,10 +1,10 @@
 /**
  * Classes do Black Desert (PT-BR) e seus tipos de especialização.
- * Regra (fontes: BDFoundry / Black Desert class guides):
+ * Regra:
  *  - maioria: Despertar (Awakening) + Sucessão (Succession)
- *  - Arqueiro: Ascensão (no lugar de Despertar) + Sucessão
+ *  - Classes de Ascensão: Arqueiro, Erudita, Deadeye, Wukong, Seraph
  *  - Shai: Talento (classe "única")
- * Os tipos por classe são editáveis no /membros caso o jogo mude.
+ * Editável aqui caso o jogo/guilda mude.
  */
 
 export type SpecTipo = "Despertar" | "Sucessão" | "Ascensão" | "Talento";
@@ -29,7 +29,7 @@ export const CLASSES: { nome: string; tipos: SpecTipo[] }[] = [
   { nome: "Striker", tipos: PADRAO },
   { nome: "Mística", tipos: PADRAO },
   { nome: "Lahn", tipos: PADRAO },
-  { nome: "Arqueiro", tipos: ["Ascensão", "Sucessão"] },
+  { nome: "Arqueiro", tipos: ["Ascensão"] },
   { nome: "Shai", tipos: ["Talento"] },
   { nome: "Guardiã", tipos: PADRAO },
   { nome: "Hashashin", tipos: PADRAO },
@@ -39,10 +39,11 @@ export const CLASSES: { nome: string; tipos: SpecTipo[] }[] = [
   { nome: "Drakania", tipos: PADRAO },
   { nome: "Woosa", tipos: PADRAO },
   { nome: "Maegu", tipos: PADRAO },
-  { nome: "Erudita", tipos: PADRAO },
+  { nome: "Erudita", tipos: ["Ascensão"] },
   { nome: "DoSa", tipos: PADRAO },
-  { nome: "Deadeye", tipos: PADRAO },
-  { nome: "Wukong", tipos: PADRAO },
+  { nome: "Deadeye", tipos: ["Ascensão"] },
+  { nome: "Wukong", tipos: ["Ascensão"] },
+  { nome: "Seraph", tipos: ["Ascensão"] },
 ];
 
 export const CLASSE_NOMES: string[] = CLASSES.map((c) => c.nome);
