@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRow } from "@/lib/players";
 import { CLASSE_NOMES, tiposDe } from "@/lib/bdoClasses";
+import type { MediasMap } from "@/lib/stats";
 import { C } from "@/lib/theme";
 
 const GUILD: Record<string, { label: string; icon: string }> = {
@@ -11,10 +12,18 @@ const GUILD: Record<string, { label: string; icon: string }> = {
   RESO: { label: "Resonance", icon: "/guilds/resonance.png" },
 };
 
+const STATS = [
+  { m: "dano_em_player", l: "PvP" },
+  { m: "dano_do_pino", l: "Pino" },
+  { m: "ccs", l: "CC" },
+  { m: "cura_aliados", l: "Cura" },
+  { m: "tempo_morto", l: "Morto↓" },
+];
+
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
 const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda]);
 
-export default function MembrosTable({ initial, gruposExtra = [] }: { initial: PlayerRow[]; gruposExtra?: string[] }) {
+export default function MembrosTable({ initial, gruposExtra = [], medias = {} }: { initial: PlayerRow[]; gruposExtra?: string[]; medias?: MediasMap }) {
   const [rows, setRows] = useState<PlayerRow[]>(initial);
   const [baseline, setBaseline] = useState<Map<string, string>>(
     () => new Map(initial.map((p) => [p.nome_familia, editKey(p)])),
@@ -127,7 +136,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
         input[type=checkbox]{accent-color:${C.verde}}
       `}</style>
 
-      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1320, margin: "0 auto" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -206,7 +215,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
         </div>
 
         {/* tabela */}
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: C.surface }}>
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflowX: "auto", background: C.surface }}>
           <table>
             <thead>
               <tr>
@@ -214,6 +223,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
                 <th style={{ textAlign: "center" }}>Guilda</th>
                 {tab === "ativos" ? <th style={{ textAlign: "center" }}>Core</th> : <th>Saída</th>}
                 <th style={{ textAlign: "center" }}>Wars</th>
+                <th>Médias vs core (últ. 5)</th>
                 <th style={{ textAlign: "right" }}>Ações</th>
               </tr>
             </thead>
@@ -251,6 +261,24 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
                       ? <td style={{ textAlign: "center" }}><input type="checkbox" checked={r.is_core} onChange={(e) => patch(r.nome_familia, { is_core: e.target.checked })} /></td>
                       : <td style={{ color: C.mute, fontSize: 12 }}>{r.saida_tipo === "Kikado" ? <span style={{ color: C.vermelho }}>Kikado</span> : "Saiu"}{r.saida_data ? ` · ${r.saida_data.split("-").reverse().join("/")}` : ""}</td>}
                     <td style={{ textAlign: "center", color: C.mute }}>{r.n_wars}</td>
+                    <td>
+                      {(() => {
+                        const md = medias[r.nome_familia];
+                        if (!md) return <span style={{ color: C.borderSoft }}>—</span>;
+                        return (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", maxWidth: 220, fontSize: 11 }}>
+                            {STATS.map((s) => {
+                              const v = md[s.m];
+                              return v == null ? null : (
+                                <span key={s.m} style={{ color: v >= 100 ? C.verde : C.vermelho, whiteSpace: "nowrap" }}>
+                                  {s.l} <b>{v.toFixed(0)}%</b>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td style={{ textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
                         {tab === "ativos" ? (
@@ -276,7 +304,7 @@ export default function MembrosTable({ initial, gruposExtra = [] }: { initial: P
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
+                <tr><td colSpan={9} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
               )}
             </tbody>
           </table>

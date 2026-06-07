@@ -48,9 +48,25 @@ export const CLASSES: { nome: string; tipos: SpecTipo[] }[] = [
 
 export const CLASSE_NOMES: string[] = CLASSES.map((c) => c.nome);
 
+/** Apelidos/abreviações usados pela guilda → nome canônico. */
+export const ALIASES: Record<string, string> = {
+  "Caçadora": "Ranger",
+  "Zerk": "Berserker",
+  "MeGu": "Maegu",
+  "Musah": "Musa",
+  "DK": "Cavaleira das Trevas",
+  "Valquiria": "Valquíria",
+};
+
+export const canonicalClasse = (nome: string | null | undefined): string =>
+  (nome ? ALIASES[nome] : undefined) || nome || "";
+
 /**
- * Tipos válidos para uma classe. Fallback = Despertar+Sucessão (NÃO todos):
- * só classes mapeadas como Ascensão mostram Ascensão; só a Shai mostra Talento.
+ * Tipos válidos para uma classe (resolve apelido antes). Fallback =
+ * Despertar+Sucessão (NÃO todos): só classes de Ascensão mostram Ascensão;
+ * só a Shai mostra Talento.
  */
-export const tiposDe = (classe: string | null | undefined): SpecTipo[] =>
-  CLASSES.find((c) => c.nome === classe)?.tipos ?? PADRAO;
+export const tiposDe = (classe: string | null | undefined): SpecTipo[] => {
+  const c = canonicalClasse(classe);
+  return CLASSES.find((x) => x.nome === c)?.tipos ?? PADRAO;
+};
