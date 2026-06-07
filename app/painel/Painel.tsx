@@ -105,6 +105,8 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
             Sala de Guerra{grupo ? ` · ${grupo}` : ""}
           </h1>
           <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
+            <Link className="navlink" href="/evolucao">Evolução</Link>
+            <Link className="navlink" href="/membros">Membros</Link>
             <Link className="navlink" href="/config">⚙ Configuração</Link>
             <span style={{ color: MUTE, fontSize: 13, letterSpacing: 2, textTransform: "uppercase" }}>
               {fmtData(war?.data)}{war?.resultado ? ` · ${war.resultado}` : ""}
