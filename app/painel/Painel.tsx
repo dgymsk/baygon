@@ -105,6 +105,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
             BAYGON{grupo ? ` · ${grupo}` : ""}
           </h1>
           <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
+            <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/evolucao">Evolução</Link>
             <Link className="navlink" href="/membros">Membros</Link>
             <Link className="navlink" href="/config">⚙ Configuração</Link>

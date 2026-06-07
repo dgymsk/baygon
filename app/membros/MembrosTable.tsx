@@ -158,6 +158,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             <Link className="navlink" href="/painel">← Painel</Link>
+            <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/evolucao">Evolução</Link>
             <Link className="navlink" href="/config">⚙ Config</Link>
           </div>
