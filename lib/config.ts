@@ -27,7 +27,10 @@ export async function getConfig(): Promise<Config> {
       nome_familia: p.nome_familia, is_core: p.is_core, classe_bdo: p.classe_bdo, ativo: p.ativo,
     });
   }
-  for (const r of gm) byGrupo.get(r.grupo)?.metricas.push(r.metrica);
+  for (const r of gm) {
+    if (!byGrupo.has(r.grupo)) byGrupo.set(r.grupo, { grupo: r.grupo, metricas: [], players: [] });
+    byGrupo.get(r.grupo)!.metricas.push(r.metrica);
+  }
 
   // Indefinido por último; demais em ordem alfabética
   const grupos = [...byGrupo.values()].sort((a, b) =>
@@ -44,7 +47,11 @@ export async function getConfig(): Promise<Config> {
  */
 export async function saveConfig(cores: string[], gruposMetricas: Record<string, string[]>) {
   const metricasValidas = new Set(((await sql`SELECT metrica FROM metricas`) as { metrica: string }[]).map((r) => r.metrica));
-  const gruposValidos = new Set(((await sql`SELECT DISTINCT grupo FROM players`) as { grupo: string }[]).map((r) => r.grupo));
+  // grupos válidos = quem tem player OU já tem config de métricas (grupos criados sem player)
+  const gruposValidos = new Set([
+    ...((await sql`SELECT DISTINCT grupo FROM players`) as { grupo: string }[]).map((r) => r.grupo),
+    ...((await sql`SELECT DISTINCT grupo FROM grupos_metricas`) as { grupo: string }[]).map((r) => r.grupo),
+  ]);
 
   const grupos: string[] = [];
   const mets: string[] = [];

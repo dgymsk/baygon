@@ -13,7 +13,7 @@ const GUILD: Record<string, { label: string; icon: string }> = {
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
 const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.is_core, p.guilda]);
 
-export default function MembrosTable({ initial }: { initial: PlayerRow[] }) {
+export default function MembrosTable({ initial, gruposExtra = [] }: { initial: PlayerRow[]; gruposExtra?: string[] }) {
   const [rows, setRows] = useState<PlayerRow[]>(initial);
   const [baseline, setBaseline] = useState<Map<string, string>>(
     () => new Map(initial.map((p) => [p.nome_familia, editKey(p)])),
@@ -25,7 +25,7 @@ export default function MembrosTable({ initial }: { initial: PlayerRow[] }) {
   const [arq, setArq] = useState<string | null>(null); // nome em processo de arquivar
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
-  const grupos = useMemo(() => [...new Set(rows.map((r) => r.grupo))].sort(), [rows]);
+  const grupos = useMemo(() => [...new Set([...rows.map((r) => r.grupo), ...gruposExtra])].sort(), [rows, gruposExtra]);
   const classes = useMemo(() => [...new Set(rows.map((r) => r.classe_bdo).filter(Boolean) as string[])].sort(), [rows]);
   const dirty = useMemo(() => rows.filter((r) => baseline.get(r.nome_familia) !== editKey(r)), [rows, baseline]);
 
