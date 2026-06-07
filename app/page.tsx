@@ -29,6 +29,7 @@ export default function Home() {
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
         <Tile href="/painel" titulo="Painel" desc="Radar e ranking por war/grupo" />
+        <Tile href="/membros" titulo="Membros" desc="Adicionar, remover e gerenciar grupos/classes" />
         <Tile href="/config" titulo="Configuração" desc="Cores e métricas de cada grupo" />
       </div>
     </main>
