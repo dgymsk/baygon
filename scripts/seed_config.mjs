@@ -19,7 +19,8 @@ try {
     `SELECT DISTINCT grupo FROM players WHERE grupo <> 'Indefinido' ORDER BY grupo`
   );
 
-  // grupos_metricas baseline (3 metricas por grupo)
+  // grupos_metricas baseline (3 metricas por grupo) — limpa antes p/ ficar exato
+  await client.query(`DELETE FROM grupos_metricas`);
   for (const { grupo } of grupos) {
     for (const metrica of METRICAS_BASE) {
       await client.query(
