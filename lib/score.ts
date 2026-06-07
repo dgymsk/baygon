@@ -23,6 +23,8 @@ export type DiscrepanciaRow = {
   nome_familia: string;
   grupo: string;
   metrica: string;
+  rotulo: string;
+  direcao: string;
   populacao: Populacao;
   valor: number;
   media: number;
@@ -33,7 +35,7 @@ export async function discrepanciaPorWar(warId: number): Promise<DiscrepanciaRow
   const rows = await sql`
     WITH war_desemp AS (
       SELECT d.nome_familia, p.grupo, p.is_core, d.metrica, d.valor,
-             m.direcao, m.universal
+             m.rotulo, m.direcao, m.universal
       FROM desempenho d
       JOIN players  p ON p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
@@ -46,19 +48,19 @@ export async function discrepanciaPorWar(warId: number): Promise<DiscrepanciaRow
     bench_core   AS (SELECT grupo, metrica, AVG(valor) AS media FROM war_desemp WHERE is_core   GROUP BY grupo, metrica),
     bench_grupo  AS (SELECT grupo, metrica, AVG(valor) AS media FROM war_desemp                 GROUP BY grupo, metrica),
     bench_guilda AS (SELECT metrica, AVG(valor) AS media        FROM war_desemp WHERE universal GROUP BY metrica)
-    SELECT s.nome_familia, s.grupo, s.metrica, 'core_grupo' AS populacao,
+    SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'core_grupo' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100
                            ELSE NULLIF(b.media,0) / NULLIF(s.valor,0) * 100 END)::float8 AS pct
     FROM scoped s JOIN bench_core b ON b.grupo = s.grupo AND b.metrica = s.metrica
     UNION ALL
-    SELECT s.nome_familia, s.grupo, s.metrica, 'grupo' AS populacao,
+    SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'grupo' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100
                            ELSE NULLIF(b.media,0) / NULLIF(s.valor,0) * 100 END)::float8 AS pct
     FROM scoped s JOIN bench_grupo b ON b.grupo = s.grupo AND b.metrica = s.metrica
     UNION ALL
-    SELECT s.nome_familia, s.grupo, s.metrica, 'guilda' AS populacao,
+    SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'guilda' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100
                            ELSE NULLIF(b.media,0) / NULLIF(s.valor,0) * 100 END)::float8 AS pct
@@ -66,4 +68,25 @@ export async function discrepanciaPorWar(warId: number): Promise<DiscrepanciaRow
     ORDER BY nome_familia, metrica, populacao
   `;
   return rows as DiscrepanciaRow[];
+}
+
+export type WarInfo = {
+  war_id: number;
+  data: string;
+  resultado: string | null;
+  tier: number | null;
+  territorio: string | null;
+  n_players: number;
+};
+
+export async function listWars(): Promise<WarInfo[]> {
+  const rows = await sql`
+    SELECT w.war_id::int AS war_id, w.data::text AS data, w.resultado, w.tier, w.territorio,
+           count(DISTINCT d.nome_familia)::int AS n_players
+    FROM wars w
+    LEFT JOIN desempenho d ON d.war_id = w.war_id
+    GROUP BY w.war_id, w.data, w.resultado, w.tier, w.territorio
+    ORDER BY w.data DESC, w.war_id DESC
+  `;
+  return rows as WarInfo[];
 }
