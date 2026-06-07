@@ -21,6 +21,7 @@ export default function ConfigForm({ initial, canEdit = true, vagasInit }: { ini
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [vagas, setVagas] = useState<Vagas>(vagasInit);
   const [vagasSaved, setVagasSaved] = useState(() => JSON.stringify(vagasInit));
+  const [statusVagas, setStatusVagas] = useState<Status>({ kind: "idle" });
   const vagasDirty = JSON.stringify(vagas) !== vagasSaved;
 
   const metricas = cfg.metricas;
@@ -29,8 +30,13 @@ export default function ConfigForm({ initial, canEdit = true, vagasInit }: { ini
 
   function resetEditors(c: Config) { setCores(initCores(c)); setGm(initGm(c)); }
   async function reload() {
-    const c = (await fetch("/api/config").then((r) => r.json())) as Config;
+    const [c, v] = await Promise.all([
+      fetch("/api/config").then((r) => r.json()) as Promise<Config>,
+      fetch("/api/vagas").then((r) => r.json()) as Promise<Vagas>,
+    ]);
     setCfg(c); resetEditors(c);
+    // rebaselina vagas do servidor SEM descartar edições locais não salvas
+    if (!vagasDirty) { setVagas(v); setVagasSaved(JSON.stringify(v)); }
   }
 
   const toggleCore = (nome: string) => { if (ro) return; setCores((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; }); };
@@ -54,14 +60,14 @@ export default function ConfigForm({ initial, canEdit = true, vagasInit }: { ini
     setVagas((prev) => ({ ...prev, [g]: { ...prev[g], ...patch } }));
   };
   async function salvarVagas() {
-    setStatus({ kind: "saving" });
+    setStatusVagas({ kind: "saving" });
     try {
       const res = await fetch("/api/vagas", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(vagas) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "falha ao salvar vagas");
       setVagas(d); setVagasSaved(JSON.stringify(d));
-      setStatus({ kind: "ok", msg: "Vagas salvas." });
-    } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
+      setStatusVagas({ kind: "ok", msg: "Vagas salvas." });
+    } catch (e) { setStatusVagas({ kind: "err", msg: (e as Error).message }); }
   }
 
   // ---- grupos ----
@@ -143,11 +149,15 @@ export default function ConfigForm({ initial, canEdit = true, vagasInit }: { ini
         <div style={{ ...card, marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
             <h2 style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 17, margin: 0, color: C.verde }}>Vagas fora do bot</h2>
-            {canEdit && (
-              <button onClick={salvarVagas} disabled={!vagasDirty || status.kind === "saving"} style={{ ...btn(C.amarelo), opacity: vagasDirty ? 1 : 0.6 }}>
-                {status.kind === "saving" ? "Salvando…" : `Salvar vagas${vagasDirty ? " •" : ""}`}
-              </button>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {statusVagas.kind === "ok" && <span style={{ color: C.verde, fontSize: 12 }}>✓ {statusVagas.msg}</span>}
+              {statusVagas.kind === "err" && <span style={{ color: C.vermelho, fontSize: 12 }}>⚠ {statusVagas.msg}</span>}
+              {canEdit && (
+                <button onClick={salvarVagas} disabled={!vagasDirty || statusVagas.kind === "saving"} style={{ ...btn(C.amarelo), opacity: vagasDirty ? 1 : 0.6 }}>
+                  {statusVagas.kind === "saving" ? "Salvando…" : `Salvar vagas${vagasDirty ? " •" : ""}`}
+                </button>
+              )}
+            </div>
           </div>
           <p style={{ color: C.mute, fontSize: 12, marginTop: 0, marginBottom: 12 }}>
             Vagas que não passam pelo bot (Apollo). <b style={{ color: C.texto }}>Reservadas</b> = nº de vagas ocultas por guilda. <b style={{ color: C.texto }}>Nomes</b> = quem ocupa vaga fora do bot (1 por linha) — esses <b style={{ color: C.texto }}>não</b> caem no “deve retirar” da conferência de Participar.
@@ -161,8 +171,8 @@ export default function ConfigForm({ initial, canEdit = true, vagasInit }: { ini
                 </div>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: C.mute }}>
                   Vagas reservadas
-                  <input type="number" min={0} value={vagas[g].hidden} disabled={ro}
-                    onChange={(e) => setVaga(g, { hidden: Math.max(0, Math.trunc(Number(e.target.value) || 0)) })}
+                  <input type="number" min={0} max={999} value={vagas[g].hidden} disabled={ro}
+                    onChange={(e) => setVaga(g, { hidden: Math.max(0, Math.min(999, Math.trunc(Number(e.target.value) || 0))) })}
                     style={{ ...inp, width: 70 }} />
                 </label>
                 <div style={{ fontSize: 11, color: C.mute, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>Nomes fora do bot (1 por linha)</div>

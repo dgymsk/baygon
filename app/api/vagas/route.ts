@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getVagas, saveVagas, type Vagas } from "@/lib/vagas";
+import { getVagas, saveVagas } from "@/lib/vagas";
 import { requireEditor } from "@/lib/requireAuth";
 
 export async function GET() {
@@ -10,7 +10,7 @@ export async function GET() {
   }
 }
 
-// PUT /api/vagas  { MANI: {hidden, texto}, RESO: {hidden, texto} }
+// PUT /api/vagas  { MANI?: {hidden?, texto?}, RESO?: {hidden?, texto?} }  (merge: só altera o que vier)
 export async function PUT(req: Request) {
   const unauth = await requireEditor();
   if (unauth) return unauth;
@@ -20,9 +20,11 @@ export async function PUT(req: Request) {
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "body deve ser um objeto { MANI?, RESO? }" }, { status: 400 });
+  }
   try {
-    await saveVagas(body as Vagas);
-    return NextResponse.json(await getVagas());
+    return NextResponse.json(await saveVagas(body));
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

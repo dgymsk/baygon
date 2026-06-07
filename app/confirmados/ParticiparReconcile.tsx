@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
 
 type Reconc = {
@@ -34,11 +35,11 @@ export default function ParticiparReconcile({
   const [erro, setErro] = useState("");
   const [rec, setRec] = useState<Reconc | null>(null);
 
-  const espSet = new Set(espera.map((s) => s.toLowerCase()));
-  // "esperado" = quem tem vaga: confirmados no bot + nomes em vagas fora do bot
+  const espSet = new Set(espera.map(chaveNome));
+  // "esperado" = quem tem vaga: confirmados no bot + nomes em vagas fora do bot (chave canônica)
   const esperadoMap = new Map<string, string>();
-  for (const n of confirmados) esperadoMap.set(n.toLowerCase(), n);
-  for (const n of offBot) if (n && !esperadoMap.has(n.toLowerCase())) esperadoMap.set(n.toLowerCase(), n);
+  for (const n of confirmados) esperadoMap.set(chaveNome(n), n);
+  for (const n of offBot) { const k = chaveNome(n); if (k && !esperadoMap.has(k)) esperadoMap.set(k, n); }
   const esperadoSet = new Set(esperadoMap.keys());
 
   async function rodar(files: FileList) {
@@ -56,23 +57,24 @@ export default function ParticiparReconcile({
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || `erro ${res.status}`);
         for (const m of (j.membros ?? []) as { familia: string; participar: boolean }[]) {
-          const k = m.familia.trim().toLowerCase();
+          const nome = (m.familia ?? "").replace(/\s+/g, " ").trim();
+          const k = chaveNome(nome);
           if (!k) continue;
           const prev = map.get(k);
-          if (!prev || (m.participar && !prev.participar)) map.set(k, { familia: m.familia.trim(), participar: !!m.participar });
+          if (!prev || (m.participar && !prev.participar)) map.set(k, { familia: nome, participar: !!m.participar });
         }
       }
       // reconcilia
       const participarRows = [...map.values()].filter((m) => m.participar);
-      const participarSet = new Set(participarRows.map((m) => m.familia.toLowerCase()));
+      const participarSet = new Set(participarRows.map((m) => chaveNome(m.familia)));
 
       const certo: string[] = [], faltaMarcar: string[] = [];
       for (const nome of esperadoMap.values()) {
-        (participarSet.has(nome.toLowerCase()) ? certo : faltaMarcar).push(nome);
+        (participarSet.has(chaveNome(nome)) ? certo : faltaMarcar).push(nome);
       }
       const retirarEspera: string[] = [], retirarFora: string[] = [];
       for (const m of participarRows) {
-        const k = m.familia.toLowerCase();
+        const k = chaveNome(m.familia);
         if (esperadoSet.has(k)) continue; // tem vaga (bot ou fora do bot) → ok
         (espSet.has(k) ? retirarEspera : retirarFora).push(m.familia);
       }
