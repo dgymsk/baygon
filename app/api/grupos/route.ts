@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { createGrupo, renameGrupo } from "@/lib/grupos";
-import { requireSession } from "@/lib/requireAuth";
+import { requireEditor } from "@/lib/requireAuth";
 
 // POST /api/grupos { nome } — cria grupo (com métricas baseline)
 export async function POST(req: Request) {
-  const unauth = await requireSession();
+  const unauth = await requireEditor();
   if (unauth) return unauth;
   let b: { nome?: unknown };
   try { b = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
 
 // PATCH /api/grupos { from, to } — renomeia (ou funde, se 'to' já existir)
 export async function PATCH(req: Request) {
-  const unauth = await requireSession();
+  const unauth = await requireEditor();
   if (unauth) return unauth;
   let b: { from?: unknown; to?: unknown };
   try { b = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }

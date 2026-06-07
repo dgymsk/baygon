@@ -12,7 +12,8 @@ const initGm = (c: Config): Record<string, Set<string>> => Object.fromEntries(c.
 const snap = (cs: Set<string>, g: Record<string, Set<string>>) =>
   JSON.stringify({ c: [...cs].sort(), g: Object.fromEntries(Object.entries(g).map(([k, v]) => [k, [...v].sort()])) });
 
-export default function ConfigForm({ initial }: { initial: Config }) {
+export default function ConfigForm({ initial, canEdit = true }: { initial: Config; canEdit?: boolean }) {
+  const ro = !canEdit; // somente leitura
   const [cfg, setCfg] = useState<Config>(initial);
   const [cores, setCores] = useState<Set<string>>(() => initCores(initial));
   const [gm, setGm] = useState<Record<string, Set<string>>>(() => initGm(initial));
@@ -28,8 +29,8 @@ export default function ConfigForm({ initial }: { initial: Config }) {
     setCfg(c); resetEditors(c);
   }
 
-  const toggleCore = (nome: string) => setCores((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; });
-  const toggleMetric = (grupo: string, metrica: string) => setGm((prev) => { const s = new Set(prev[grupo] ?? []); s.has(metrica) ? s.delete(metrica) : s.add(metrica); return { ...prev, [grupo]: s }; });
+  const toggleCore = (nome: string) => { if (ro) return; setCores((prev) => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; }); };
+  const toggleMetric = (grupo: string, metrica: string) => { if (ro) return; setGm((prev) => { const s = new Set(prev[grupo] ?? []); s.has(metrica) ? s.delete(metrica) : s.add(metrica); return { ...prev, [grupo]: s }; }); };
 
   async function salvar() {
     setStatus({ kind: "saving" });
@@ -81,11 +82,14 @@ export default function ConfigForm({ initial }: { initial: Config }) {
             <Link className="navlink" href="/painel">← Painel</Link>
             <Link className="navlink" href="/membros">Membros</Link>
             <Link className="navlink" href="/evolucao">Evolução</Link>
+            {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ {status.msg}</span>}
             {status.kind === "err" && <span style={{ color: C.vermelho, fontSize: 13 }}>⚠ {status.msg}</span>}
-            <button onClick={salvar} disabled={status.kind === "saving"} style={{ ...btn(C.amarelo), padding: "8px 16px", fontSize: 13, opacity: dirtyConfig ? 1 : 0.7 }}>
-              {status.kind === "saving" ? "Salvando…" : "Salvar config"}
-            </button>
+            {canEdit && (
+              <button onClick={salvar} disabled={status.kind === "saving"} style={{ ...btn(C.amarelo), padding: "8px 16px", fontSize: 13, opacity: dirtyConfig ? 1 : 0.7 }}>
+                {status.kind === "saving" ? "Salvando…" : "Salvar config"}
+              </button>
+            )}
           </div>
         </div>
         <p style={{ color: C.mute, fontSize: 13, marginTop: 2, marginBottom: 18 }}>
@@ -96,15 +100,15 @@ export default function ConfigForm({ initial }: { initial: Config }) {
         <div style={{ ...card, marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <h2 style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 17, margin: 0, color: C.verde }}>Grupos</h2>
-            <button onClick={criarGrupo} style={btn(C.amarelo)}>+ Criar grupo</button>
+            {canEdit && <button onClick={criarGrupo} style={btn(C.amarelo)}>+ Criar grupo</button>}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {cfg.grupos.filter((g) => g.grupo !== "Indefinido").map((g) => (
               <div key={g.grupo} style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${C.border}`, borderRadius: 10, padding: "6px 10px", background: C.inputBg }}>
                 <span style={{ color: C.texto, fontWeight: 600, fontSize: 13 }}>{g.grupo}</span>
                 <span style={{ color: C.mute, fontSize: 11 }}>{g.players.length}p · {g.metricas.length}m</span>
-                <button onClick={() => renomear(g.grupo)} title="renomear" style={{ background: "none", border: "none", color: C.amarelo, cursor: "pointer", fontSize: 13 }}>✎</button>
-                <button onClick={() => excluir(g.grupo)} title="excluir (membros → Indefinido)" style={{ background: "none", border: "none", color: C.vermelho, cursor: "pointer", fontSize: 13 }}>🗑</button>
+                {canEdit && <button onClick={() => renomear(g.grupo)} title="renomear" style={{ background: "none", border: "none", color: C.amarelo, cursor: "pointer", fontSize: 13 }}>✎</button>}
+                {canEdit && <button onClick={() => excluir(g.grupo)} title="excluir (membros → Indefinido)" style={{ background: "none", border: "none", color: C.vermelho, cursor: "pointer", fontSize: 13 }}>🗑</button>}
               </div>
             ))}
             {cfg.grupos.filter((g) => g.grupo !== "Indefinido").length === 0 && <span style={{ color: C.mute, fontSize: 13 }}>Nenhum grupo ainda — crie um.</span>}

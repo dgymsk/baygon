@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { archivePlayer, deletePlayer, reactivatePlayer } from "@/lib/players";
-import { requireSession } from "@/lib/requireAuth";
+import { requireEditor } from "@/lib/requireAuth";
 
 // PATCH /api/players/[nome] — arquivar (vira ex-membro) ou reativar
 // body: { action: "arquivar", saida_tipo: "Saiu"|"Kikado" }  |  { action: "reativar" }
 export async function PATCH(req: Request, { params }: { params: Promise<{ nome: string }> }) {
-  const unauth = await requireSession();
+  const unauth = await requireEditor();
   if (unauth) return unauth;
   const { nome } = await params;
   const alvo = decodeURIComponent(nome);
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ nome: 
 
 // DELETE /api/players/[nome] — exclui definitivamente (só se não tiver histórico)
 export async function DELETE(_req: Request, { params }: { params: Promise<{ nome: string }> }) {
-  const unauth = await requireSession();
+  const unauth = await requireEditor();
   if (unauth) return unauth;
   const { nome } = await params;
   try {

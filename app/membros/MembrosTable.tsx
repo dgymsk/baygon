@@ -23,7 +23,8 @@ const STATS = [
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
 const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda]);
 
-export default function MembrosTable({ initial, gruposExtra = [], medias = {} }: { initial: PlayerRow[]; gruposExtra?: string[]; medias?: MediasMap }) {
+export default function MembrosTable({ initial, gruposExtra = [], medias = {}, canEdit = true }: { initial: PlayerRow[]; gruposExtra?: string[]; medias?: MediasMap; canEdit?: boolean }) {
+  const ro = !canEdit; // somente leitura
   const [rows, setRows] = useState<PlayerRow[]>(initial);
   const [baseline, setBaseline] = useState<Map<string, string>>(
     () => new Map(initial.map((p) => [p.nome_familia, editKey(p)])),
@@ -82,7 +83,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
   const savingRef = useRef(false); savingRef.current = status.kind === "saving";
   const salvarRef = useRef(salvar); salvarRef.current = salvar;
   useEffect(() => {
-    const id = setInterval(() => { if (dirtyRef.current.length && !savingRef.current) salvarRef.current(true); }, 10000);
+    const id = setInterval(() => { if (canEdit && dirtyRef.current.length && !savingRef.current) salvarRef.current(true); }, 10000);
     return () => clearInterval(id);
   }, []);
 
@@ -154,7 +155,8 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             <Link className="navlink" href="/painel">← Painel</Link>
             <Link className="navlink" href="/evolucao">Evolução</Link>
             <Link className="navlink" href="/config">⚙ Config</Link>
@@ -171,8 +173,8 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
           ))}
         </div>
 
-        {/* adicionar (só na aba ativos) */}
-        {tab === "ativos" && (
+        {/* adicionar (só na aba ativos, e só quem edita) */}
+        {tab === "ativos" && canEdit && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 14, padding: "12px 14px", border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface }}>
             <span style={{ color: C.mute, fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>Adicionar</span>
             <input placeholder="Nome de família" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} style={{ ...inp, width: 170 }} />
@@ -202,15 +204,19 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
             <button onClick={() => setGf("RESO")} style={chip(gf === "RESO")}><img src={GUILD.RESO.icon} alt="" width={16} height={16} style={{ borderRadius: 3 }} />RESO</button>
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <span style={{ color: C.mute, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: dirty.length ? C.amarelo : C.verde, boxShadow: `0 0 6px ${dirty.length ? C.amarelo : C.verde}` }} />
-              auto-save 10s
-            </span>
+            {canEdit && (
+              <span style={{ color: C.mute, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: dirty.length ? C.amarelo : C.verde, boxShadow: `0 0 6px ${dirty.length ? C.amarelo : C.verde}` }} />
+                auto-save 10s
+              </span>
+            )}
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ {status.msg}</span>}
             {status.kind === "err" && <span style={{ color: C.vermelho, fontSize: 13 }}>⚠ {status.msg}</span>}
-            <button onClick={() => salvar()} disabled={!dirty.length || status.kind === "saving"} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: dirty.length ? C.verdeTint : C.inputBg, color: C.verde, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: dirty.length ? "pointer" : "default", opacity: dirty.length ? 1 : 0.5 }}>
-              {status.kind === "saving" ? "Salvando…" : `Salvar${dirty.length ? ` (${dirty.length})` : ""}`}
-            </button>
+            {canEdit && (
+              <button onClick={() => salvar()} disabled={!dirty.length || status.kind === "saving"} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: dirty.length ? C.verdeTint : C.inputBg, color: C.verde, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: dirty.length ? "pointer" : "default", opacity: dirty.length ? 1 : 0.5 }}>
+                {status.kind === "saving" ? "Salvando…" : `Salvar${dirty.length ? ` (${dirty.length})` : ""}`}
+              </button>
+            )}
           </div>
         </div>
 
@@ -235,30 +241,30 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
                   <tr key={r.nome_familia} style={{ background: isDirty ? "rgba(255,210,30,.06)" : undefined }}>
                     <td style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
                     <td>
-                      <select value={r.grupo} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: "pointer" }}>
+                      <select value={r.grupo} disabled={ro} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
                         {[...new Set([...grupos, "Indefinido", r.grupo])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
                       </select>
                     </td>
                     <td>
-                      <select value={r.classe_bdo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value || null, classe_tipo: null })} style={{ ...inp, width: 130, cursor: "pointer" }}>
+                      <select value={r.classe_bdo ?? ""} disabled={ro} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value || null, classe_tipo: null })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
                         <option value="">—</option>
                         {[...new Set([...CLASSE_NOMES, ...(r.classe_bdo ? [r.classe_bdo] : [])])].map((cx) => <option key={cx} value={cx}>{cx}</option>)}
                       </select>
                     </td>
                     <td>
-                      <select value={r.classe_tipo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_tipo: e.target.value || null })} disabled={!r.classe_bdo} style={{ ...inp, width: 115, cursor: "pointer", opacity: r.classe_bdo ? 1 : 0.5 }}>
+                      <select value={r.classe_tipo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_tipo: e.target.value || null })} disabled={ro || !r.classe_bdo} style={{ ...inp, width: 115, cursor: ro ? "default" : "pointer", opacity: r.classe_bdo ? 1 : 0.5 }}>
                         <option value="">—</option>
                         {[...new Set([...tiposDe(r.classe_bdo), ...(r.classe_tipo ? [r.classe_tipo] : [])])].map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
                     <td style={{ textAlign: "center" }}>
-                      <button onClick={() => patch(r.nome_familia, { guilda: r.guilda === "MANI" ? "RESO" : "MANI" })} title={`${g.label} — clique pra trocar`}
-                        style={{ background: "none", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12 }}>
+                      <button onClick={() => patch(r.nome_familia, { guilda: r.guilda === "MANI" ? "RESO" : "MANI" })} disabled={ro} title={ro ? g.label : `${g.label} — clique pra trocar`}
+                        style={{ background: "none", border: "none", cursor: ro ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12 }}>
                         <img src={g.icon} alt={r.guilda} width={22} height={22} style={{ borderRadius: 4 }} />{r.guilda}
                       </button>
                     </td>
                     {tab === "ativos"
-                      ? <td style={{ textAlign: "center" }}><input type="checkbox" checked={r.is_core} onChange={(e) => patch(r.nome_familia, { is_core: e.target.checked })} /></td>
+                      ? <td style={{ textAlign: "center" }}><input type="checkbox" checked={r.is_core} disabled={ro} onChange={(e) => patch(r.nome_familia, { is_core: e.target.checked })} /></td>
                       : <td style={{ color: C.mute, fontSize: 12 }}>{r.saida_tipo === "Kikado" ? <span style={{ color: C.vermelho }}>Kikado</span> : "Saiu"}{r.saida_data ? ` · ${r.saida_data.split("-").reverse().join("/")}` : ""}</td>}
                     <td style={{ textAlign: "center", color: C.mute }}>{r.n_wars}</td>
                     <td>
@@ -280,6 +286,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
                       })()}
                     </td>
                     <td style={{ textAlign: "right" }}>
+                      {!canEdit ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : (
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
                         {tab === "ativos" ? (
                           arq === r.nome_familia ? (
@@ -299,6 +306,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {} }:
                           ? <button title="excluir definitivamente" onClick={() => excluir(r.nome_familia)} style={{ background: "none", border: "none", color: C.vermelho, cursor: "pointer", fontSize: 15 }}>🗑</button>
                           : <span title="tem histórico — não dá pra excluir (fica arquivado)" style={{ color: C.borderSoft, fontSize: 12, width: 18, display: "inline-block", textAlign: "center" }}>—</span>)}
                       </div>
+                      )}
                     </td>
                   </tr>
                 );
