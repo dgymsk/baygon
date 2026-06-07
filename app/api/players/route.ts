@@ -12,7 +12,7 @@ export async function GET() {
 
 // POST /api/players — adiciona membro { nome_familia, grupo, classe_bdo?, ativo? }
 export async function POST(req: Request) {
-  let b: { nome_familia?: unknown; grupo?: unknown; classe_bdo?: unknown; ativo?: unknown };
+  let b: { nome_familia?: unknown; grupo?: unknown; classe_bdo?: unknown; guilda?: unknown; ativo?: unknown };
   try {
     b = await req.json();
   } catch {
@@ -21,10 +21,11 @@ export async function POST(req: Request) {
   const nome = typeof b.nome_familia === "string" ? b.nome_familia.trim() : "";
   const grupo = typeof b.grupo === "string" ? b.grupo : "";
   const classe = typeof b.classe_bdo === "string" ? b.classe_bdo : null;
+  const guilda = typeof b.guilda === "string" ? b.guilda : "MANI";
   const ativo = b.ativo === undefined ? true : Boolean(b.ativo);
   if (!nome) return NextResponse.json({ error: "nome_familia obrigatório" }, { status: 400 });
   try {
-    const ok = await addPlayer(nome, grupo, classe, ativo);
+    const ok = await addPlayer(nome, grupo, classe, ativo, guilda);
     if (!ok) return NextResponse.json({ error: `"${nome}" já existe` }, { status: 409 });
     return NextResponse.json({ ok: true });
   } catch (e) {
@@ -51,6 +52,7 @@ export async function PATCH(req: Request) {
         classe_bdo: typeof x.classe_bdo === "string" ? x.classe_bdo : null,
         is_core: Boolean(x.is_core),
         ativo: x.ativo === undefined ? true : Boolean(x.ativo),
+        guilda: typeof x.guilda === "string" ? x.guilda : "MANI",
       });
     }
   }

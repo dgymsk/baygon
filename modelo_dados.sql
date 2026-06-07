@@ -10,6 +10,7 @@ CREATE TABLE players (
   grupo        TEXT    NOT NULL,                 -- classificação do BOT (Ranged, etc.) — NÃO é classe do BDO
   is_core      BOOLEAN NOT NULL DEFAULT FALSE,   -- sua marcação de "core"
   classe_bdo   TEXT,                             -- opcional, só informativo
+  guilda       TEXT    NOT NULL DEFAULT 'MANI' CHECK (guilda IN ('MANI','RESO')),  -- guilda da aliança
   ativo        BOOLEAN NOT NULL DEFAULT TRUE
 );
 

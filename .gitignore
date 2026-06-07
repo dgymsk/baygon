@@ -45,3 +45,6 @@ next-env.d.ts
 
 # logs locais
 *.log
+
+# backup com PII (discord, avaliacoes)
+baygon-backup-latest.json
