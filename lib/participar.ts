@@ -7,6 +7,10 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export type ParticiparRow = { familia: string; participar: boolean };
 
+// Modelo de visão — trocável por env (claude-opus-4-8 / claude-sonnet-4-6 / claude-haiku-4-5)
+// p/ comparar custo vs precisão sem redeploy de código.
+const MODEL = process.env.PARTICIPAR_MODEL ?? "claude-sonnet-4-6";
+
 type MediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 export type ImagemEntrada = { mediaType: string; data: string };
 
@@ -36,7 +40,7 @@ export async function lerParticipar(img: ImagemEntrada): Promise<ParticiparRow[]
   const client = new Anthropic({ apiKey });
 
   const res = await client.messages.create({
-    model: "claude-opus-4-8",
+    model: MODEL,
     max_tokens: 16000,
     thinking: { type: "adaptive" }, // mantém o bloco de texto final limpo (só o JSON)
     messages: [
