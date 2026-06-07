@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import type { Config } from "@/lib/config";
 
-const GOLD = "#e3b04b";
-const PARCH = "#e9dcc0";
-const MUTE = "#8a7c5f";
+const GOLD = "#ffd21e";
+const PARCH = "#e9f3ec";
+const MUTE = "#82a08f";
 
 export default function ConfigForm({ initial }: { initial: Config }) {
   const { metricas } = initial;
@@ -56,13 +56,13 @@ export default function ConfigForm({ initial }: { initial: Config }) {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_70%_-10%,#241a10_0%,#0e0a06_60%)] px-6 py-8 text-[#e9dcc0] font-[system-ui]">
+    <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_70%_-10%,#103326_0%,#060d0b_60%)] px-6 py-8 text-[#e9f3ec] font-[system-ui]">
       <div className="mx-auto max-w-5xl">
         {/* header */}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="font-serif text-3xl font-extrabold tracking-wide" style={{ color: GOLD }}>
-              Sala de Guerra · Configuração
+              BAYGON · Configuração
             </h1>
             <p className="mt-1 text-sm" style={{ color: MUTE }}>
               Defina as <b style={{ color: PARCH }}>métricas</b> que avaliam cada grupo e quem é{" "}
@@ -71,12 +71,12 @@ export default function ConfigForm({ initial }: { initial: Config }) {
           </div>
           <div className="flex items-center gap-3">
             {status.kind === "ok" && <span className="text-sm" style={{ color: GOLD }}>✓ {status.msg}</span>}
-            {status.kind === "err" && <span className="text-sm" style={{ color: "#bf4234" }}>⚠ {status.msg}</span>}
+            {status.kind === "err" && <span className="text-sm" style={{ color: "#ff5240" }}>⚠ {status.msg}</span>}
             <button
               onClick={salvar}
               disabled={status.kind === "saving"}
               className="rounded-lg border px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
-              style={{ borderColor: "#4a3a20", background: "#0f0b06", color: GOLD }}
+              style={{ borderColor: "#2a4a37", background: "#091310", color: GOLD }}
             >
               {status.kind === "saving" ? "Salvando…" : "Salvar configuração"}
             </button>
@@ -92,7 +92,7 @@ export default function ConfigForm({ initial }: { initial: Config }) {
               <section
                 key={g.grupo}
                 className="rounded-2xl border p-5"
-                style={{ borderColor: "#3a2c18", background: "linear-gradient(180deg,#1c150d,#15100a)" }}
+                style={{ borderColor: "#21402f", background: "linear-gradient(180deg,#0f1f18,#0b1611)" }}
               >
                 <div className="mb-3 flex items-baseline justify-between">
                   <h2 className="font-serif text-xl" style={{ color: indef ? MUTE : PARCH }}>
@@ -124,8 +124,8 @@ export default function ConfigForm({ initial }: { initial: Config }) {
                               title={`${m.direcao}${m.universal ? " · universal" : ""}`}
                               className="rounded-full border px-3 py-1 text-xs transition-colors"
                               style={{
-                                borderColor: on ? GOLD : "#4a3a20",
-                                background: on ? "rgba(227,176,75,.15)" : "transparent",
+                                borderColor: on ? GOLD : "#2a4a37",
+                                background: on ? "rgba(255,210,30,.15)" : "transparent",
                                 color: on ? GOLD : MUTE,
                               }}
                             >
@@ -151,8 +151,8 @@ export default function ConfigForm({ initial }: { initial: Config }) {
                               onClick={() => toggleCore(p.nome_familia)}
                               className="rounded-lg border px-3 py-1.5 text-sm transition-colors"
                               style={{
-                                borderColor: on ? GOLD : "#3a2c18",
-                                background: on ? "rgba(227,176,75,.18)" : "#0f0b06",
+                                borderColor: on ? GOLD : "#21402f",
+                                background: on ? "rgba(255,210,30,.18)" : "#091310",
                                 color: on ? GOLD : PARCH,
                                 opacity: p.ativo ? 1 : 0.5,
                               }}

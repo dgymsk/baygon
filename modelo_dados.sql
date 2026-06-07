@@ -11,7 +11,9 @@ CREATE TABLE players (
   is_core      BOOLEAN NOT NULL DEFAULT FALSE,   -- sua marcação de "core"
   classe_bdo   TEXT,                             -- opcional, só informativo
   guilda       TEXT    NOT NULL DEFAULT 'MANI' CHECK (guilda IN ('MANI','RESO')),  -- guilda da aliança
-  ativo        BOOLEAN NOT NULL DEFAULT TRUE
+  ativo        BOOLEAN NOT NULL DEFAULT TRUE,    -- FALSE = ex-membro (aba "membros antigos")
+  saida_tipo   TEXT CHECK (saida_tipo IS NULL OR saida_tipo IN ('Saiu','Kikado')),  -- motivo da saída
+  saida_data   DATE                              -- quando virou ex-membro
 );
 
 -- Catálogo de métricas. A DIREÇÃO mora aqui (é propriedade da métrica, não do grupo).

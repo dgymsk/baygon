@@ -51,7 +51,6 @@ export async function PATCH(req: Request) {
         grupo: typeof x.grupo === "string" ? x.grupo : "Indefinido",
         classe_bdo: typeof x.classe_bdo === "string" ? x.classe_bdo : null,
         is_core: Boolean(x.is_core),
-        ativo: x.ativo === undefined ? true : Boolean(x.ativo),
         guilda: typeof x.guilda === "string" ? x.guilda : "MANI",
       });
     }
