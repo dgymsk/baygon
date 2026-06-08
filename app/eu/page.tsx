@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { listPlayers } from "@/lib/players";
-import { statsEu } from "@/lib/stats";
+import { statsEu, STAT_METRICAS } from "@/lib/stats";
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 import EuHud from "./EuHud";
@@ -39,7 +39,7 @@ export default async function EuPage() {
     statsEu(eu.nome_familia, eu.grupo, 5),
     statsEu(eu.nome_familia, eu.grupo, 10),
     statsEu(eu.nome_familia, eu.grupo, 999),
-    sql`SELECT metrica FROM grupos_metricas WHERE grupo = ${eu.grupo}`,
+    sql`SELECT metrica FROM grupos_metricas WHERE grupo = ${eu.grupo} AND metrica = ANY(${STAT_METRICAS}::text[])`,
   ]);
   const avaliadas = (gmRows as { metrica: string }[]).map((r) => r.metrica);
   const windows = [

@@ -47,7 +47,7 @@ export default function EuHud({
   // entram só como informação ("não avaliado") e NÃO compõem o índice/médias.
   // Fallback: se nenhuma das exibidas estiver na config, todas contam.
   const avalSet = new Set(avaliadas);
-  const anyAval = ms.some((m) => avalSet.has(m.metrica));
+  const anyAval = avaliadas.length > 0;
   const isAval = (m: Metrica) => !anyAval || avalSet.has(m.metrica);
 
   const pcts = ms.map(pctExp);
@@ -56,8 +56,12 @@ export default function EuHud({
   const score = valid.length ? Math.round(valid.reduce((a, b) => a + b, 0) / valid.length) : 0;
   let bestI = -1, worstI = -1;
   if (validIdx.length) {
-    bestI = validIdx.reduce((b, i) => ((pcts[i] as number) > (pcts[b] as number) ? i : b), validIdx[0]);
-    worstI = validIdx.reduce((w, i) => ((pcts[i] as number) < (pcts[w] as number) ? i : w), validIdx[0]);
+    bestI = validIdx.reduce((b, i) => (Math.round(pcts[i] as number) > Math.round(pcts[b] as number) ? i : b), validIdx[0]);
+    if (validIdx.length > 1) {
+      worstI = validIdx.reduce((w, i) => (Math.round(pcts[i] as number) < Math.round(pcts[w] as number) ? i : w), validIdx[0]);
+      // "ponto fraco" só existe se houver um pior DISTINTO e ABAIXO do esperado
+      if (worstI === bestI || Math.round(pcts[worstI] as number) >= 100) worstI = -1;
+    }
   }
   const above = valid.filter((p) => p >= 100).length;
   const near = valid.filter((p) => p >= 70 && p < 100).length;
@@ -72,7 +76,7 @@ export default function EuHud({
     <div className="hud">
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Saira:wght@300;400;500;600&display=swap');
       @property --sweep{syntax:'<percentage>';inherits:false;initial-value:0%;}
-      .hud{--bg:#08120b;--panel:rgba(163,230,53,0.022);--bd:rgba(163,230,53,0.11);--bd-soft:rgba(163,230,53,0.07);--txt:#e9f3e1;--txt-2:rgba(233,243,225,0.55);--txt-3:rgba(233,243,225,0.32);--you:#38bdf8;--exp:#facc15;--grp:#38bdf8;--good:#84cc16;--warn:#f59e0b;--bad:#ef4444;--r:14px;--display:'Chakra Petch',ui-sans-serif,system-ui,sans-serif;--body:'Saira',ui-sans-serif,system-ui,sans-serif;}
+      .hud{--bg:#08120b;--panel:rgba(163,230,53,0.022);--bd:rgba(163,230,53,0.11);--bd-soft:rgba(163,230,53,0.07);--txt:#e9f3e1;--txt-2:rgba(233,243,225,0.55);--txt-3:rgba(233,243,225,0.32);--you:#38bdf8;--exp:#facc15;--grp:#38bdf8;--good:#84cc16;--warn:#f59e0b;--bad:#ef4444;--na:rgba(233,243,225,0.42);--r:14px;--display:'Chakra Petch',ui-sans-serif,system-ui,sans-serif;--body:'Saira',ui-sans-serif,system-ui,sans-serif;}
       .hud,.hud *{box-sizing:border-box;margin:0;padding:0}
       .hud{font-family:var(--body);color:var(--txt);min-height:100vh;background:radial-gradient(900px 380px at 80% -10%,rgba(132,204,22,0.14),transparent 60%),radial-gradient(720px 320px at -6% 0%,rgba(34,197,94,0.12),transparent 55%),linear-gradient(180deg,#0b170e,#08120b 62%);position:relative;line-height:1.45}
       .hud::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.55;background-image:linear-gradient(rgba(163,230,53,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(163,230,53,0.03) 1px,transparent 1px);background-size:34px 34px;mask-image:radial-gradient(120% 90% at 50% 0%,#000 35%,transparent 100%);-webkit-mask-image:radial-gradient(120% 90% at 50% 0%,#000 35%,transparent 100%)}
@@ -220,14 +224,17 @@ export default function EuHud({
             const naoAval = !isAval(m);
             const p = pctExp(m);
             const pR = p == null ? null : Math.round(p);
-            const t = tier(p);
+            const semDado = !naoAval && pR == null;
+            const t = naoAval || pR == null ? "na" : tier(pR);
             const gP = pctGrp(m);
-            const bE = p != null && p >= 100;
+            const bE = pR != null && pR >= 100;
             const bG = m.minhaRaw != null && m.grupoRaw != null && (lower(m) ? m.minhaRaw <= m.grupoRaw : m.minhaRaw >= m.grupoRaw);
-            const isBest = !naoAval && i === bestI, isWorst = !naoAval && i === worstI;
-            const flag = naoAval ? "" : isBest ? "flag-good" : isWorst ? "flag-bad" : "";
-            let mk = "▼", mkc = p != null && p >= 70 ? "warn" : "bad", note = isWorst ? "Maior lacuna da janela" : "Abaixo das médias";
+            const isBest = !naoAval && !semDado && i === bestI;
+            const isWorst = !naoAval && !semDado && i === worstI;
+            const flag = isBest ? "flag-good" : isWorst ? "flag-bad" : "";
+            let mk = "▼", mkc = pR != null && pR >= 70 ? "warn" : "bad", note = isWorst ? "Maior lacuna da janela" : "Abaixo das médias";
             if (naoAval) { mk = "○"; mkc = "na"; note = "Não entra no índice (não avaliado no seu grupo)"; }
+            else if (semDado) { mk = "○"; mkc = "na"; note = "Sem dado nesta janela"; }
             else if (bE && bG) { mk = "✓"; mkc = "good"; note = "Acima do esperado e do grupo"; }
             else if (bG) { mk = "▲"; mkc = "warn"; note = "Acima do grupo · abaixo do esperado"; }
             else if (bE) { mk = "✓"; mkc = "good"; note = "Acima do esperado"; }
@@ -235,14 +242,14 @@ export default function EuHud({
               <div key={m.metrica} className={`m ${flag}${naoAval ? " naoaval" : ""}`}>
                 <div className="m-top">
                   <div className="m-name">
-                    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke={naoAval ? "var(--txt-3)" : `var(--${t})`} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: ICON[m.metrica] }} />
+                    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke={`var(--${t})`} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: ICON[m.metrica] }} />
                     <span>{NAME[m.metrica]}</span>
                     {naoAval ? <span className="chip na">não avaliado</span> : isBest ? <span className="chip good">Destaque</span> : isWorst ? <span className="chip bad">Ponto fraco</span> : null}
                   </div>
-                  <div className="m-right"><span className={`m-pct ${naoAval ? "pct-na" : "pct-" + t}`}>{pR == null ? "—" : pR + "%"}</span><span className="m-raw">{fmt(m.minhaRaw, FMT[m.metrica])}</span></div>
+                  <div className="m-right"><span className={`m-pct pct-${t}`}>{pR == null ? "—" : pR + "%"}</span><span className="m-raw">{fmt(m.minhaRaw, FMT[m.metrica])}</span></div>
                 </div>
                 <div className="track">
-                  <div className={`fill ${naoAval ? "na" : t}`} style={{ width: `${mounted ? posBar(p) : 0}%` }} />
+                  <div className={`fill ${t}`} style={{ width: `${mounted ? posBar(p) : 0}%` }} />
                   <div className="thr" />
                   {gP != null && <div className="bead grp" style={{ left: `${posBar(gP)}%` }}><span className="tip">{grupo} · {fmt(m.grupoRaw, FMT[m.metrica])} ({Math.round(gP)}%)</span>{grupoLetra}</div>}
                   <div className="bead exp" style={{ left: "50%" }}><span className="tip">Esperado · {fmt(m.coreRaw, FMT[m.metrica])}</span>E</div>
@@ -259,7 +266,7 @@ export default function EuHud({
               <div className="ring" style={{ "--sweep": `${mounted ? score : 0}%`, "--ring-c": ringC } as unknown as CSSProperties}>
                 <div className="num"><b>{score}%</b><small>índice</small></div>
               </div>
-              <div className="v-title"><div className="lbl">Índice de combate</div><div className="sub">vs esperado · média das métricas avaliadas{anyAval ? ` (${ms.filter(isAval).length})` : ""}</div></div>
+              <div className="v-title"><div className="lbl">Índice de combate</div><div className="sub">vs esperado · média de {validIdx.length} métrica{validIdx.length === 1 ? "" : "s"} avaliada{validIdx.length === 1 ? "" : "s"}</div></div>
             </div>
             <div className="v-seg grow v-stats">
               <div><span className="lk">Destaque</span><span className="rv pct-good">{bestI < 0 ? "—" : `${NAME[ms[bestI].metrica]} · ${Math.round(pcts[bestI] as number)}%`}</span></div>
