@@ -31,9 +31,9 @@ const tier = (p: number | null) => (p == null ? "bad" : p >= 100 ? "good" : p >=
 const posBar = (p: number | null) => (p == null ? 0 : Math.max(0, Math.min(p, 200)) / 2);
 
 export default function EuHud({
-  nome, avatar, classe, tipo, grupo, nWars, isCore, windows,
+  nome, avatar, classe, tipo, grupo, nWars, isCore, windows, avaliadas,
 }: {
-  nome: string; avatar: string | null; classe: string | null; tipo: string | null; grupo: string; nWars: number; isCore: boolean; windows: Win[];
+  nome: string; avatar: string | null; classe: string | null; tipo: string | null; grupo: string; nWars: number; isCore: boolean; windows: Win[]; avaliadas: string[];
 }) {
   const [winKey, setWinKey] = useState("n3");
   const [hl, setHl] = useState<"" | "you" | "exp" | "grp">("");
@@ -43,8 +43,15 @@ export default function EuHud({
   const win = windows.find((w) => w.key === winKey) ?? windows[1] ?? windows[0];
   const ms = win.stats;
 
+  // Métricas que avaliam o grupo (config /config → grupos_metricas). As de fora
+  // entram só como informação ("não avaliado") e NÃO compõem o índice/médias.
+  // Fallback: se nenhuma das exibidas estiver na config, todas contam.
+  const avalSet = new Set(avaliadas);
+  const anyAval = ms.some((m) => avalSet.has(m.metrica));
+  const isAval = (m: Metrica) => !anyAval || avalSet.has(m.metrica);
+
   const pcts = ms.map(pctExp);
-  const validIdx = pcts.map((p, i) => (p == null ? -1 : i)).filter((i) => i >= 0);
+  const validIdx = ms.map((m, i) => (isAval(m) && pcts[i] != null ? i : -1)).filter((i) => i >= 0);
   const valid = validIdx.map((i) => Math.round(pcts[i] as number));
   const score = valid.length ? Math.round(valid.reduce((a, b) => a + b, 0) / valid.length) : 0;
   let bestI = -1, worstI = -1;
@@ -125,10 +132,11 @@ export default function EuHud({
       .chip.good{color:var(--good);background:rgba(132,204,22,0.13)} .chip.bad{color:var(--bad);background:rgba(239,68,68,0.13)}
       .m-note{font-size:10px;color:var(--txt-3);font-weight:400}
       .m-right{text-align:right;white-space:nowrap} .m-pct{font-family:var(--display);font-weight:700;font-size:21px;line-height:1} .m-raw{font-size:11px;color:var(--txt-3);margin-left:5px}
-      .pct-good{color:var(--good)} .pct-warn{color:var(--warn)} .pct-bad{color:var(--bad)}
+      .pct-good{color:var(--good)} .pct-warn{color:var(--warn)} .pct-bad{color:var(--bad)} .pct-na{color:var(--txt-2)}
+      .chip.na{color:var(--txt-2);background:rgba(233,243,225,0.06)} .m.naoaval{opacity:.6} .mk.na{color:var(--txt-3)}
       .track{position:relative;height:8px;margin:15px 0 4px;background:rgba(255,255,255,0.06);border-radius:99px}
       .fill{position:absolute;top:0;bottom:0;left:0;border-radius:99px;width:0;transition:width .9s cubic-bezier(.22,1,.36,1),opacity .2s,filter .2s}
-      .fill.good{background:linear-gradient(90deg,#4d7c0f,#a3e635);box-shadow:0 0 10px rgba(132,204,22,.45)} .fill.warn{background:linear-gradient(90deg,#b45309,#f59e0b);box-shadow:0 0 10px rgba(245,158,11,.35)} .fill.bad{background:linear-gradient(90deg,#b91c1c,#ef4444);box-shadow:0 0 10px rgba(239,68,68,.35)}
+      .fill.good{background:linear-gradient(90deg,#4d7c0f,#a3e635);box-shadow:0 0 10px rgba(132,204,22,.45)} .fill.warn{background:linear-gradient(90deg,#b45309,#f59e0b);box-shadow:0 0 10px rgba(245,158,11,.35)} .fill.bad{background:linear-gradient(90deg,#b91c1c,#ef4444);box-shadow:0 0 10px rgba(239,68,68,.35)} .fill.na{background:linear-gradient(90deg,rgba(233,243,225,0.16),rgba(233,243,225,0.30))}
       .thr{position:absolute;top:-5px;bottom:-5px;left:40%;width:0;border-left:1px dotted var(--txt-3);opacity:.45}
       .bead{position:absolute;top:50%;width:23px;height:23px;border-radius:50%;transform:translate(-50%,-58%);z-index:3;cursor:default;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:11px;line-height:1;border:1.5px solid rgba(0,0,0,.35);box-shadow:0 3px 8px rgba(0,0,0,.55),inset 0 2px 2px rgba(255,255,255,.6),inset 0 -2px 3px rgba(0,0,0,.28);transition:transform .2s,box-shadow .2s,opacity .2s}
       .bead.exp{background:radial-gradient(circle at 34% 26%,#fef3c7,#facc15 52%,#b58900);color:#3a2d04}
@@ -193,7 +201,7 @@ export default function EuHud({
               <div className="ref-h"><span className="pt" />{ref.h}</div>
               <div className="ref-stats">
                 {ms.map((m) => (
-                  <div key={m.metrica} className="rst"><b>{fmt(ref.who(m), FMT[m.metrica])}</b><span>{SHORT[m.metrica]}</span></div>
+                  <div key={m.metrica} className="rst" style={{ opacity: isAval(m) ? 1 : 0.4 }}><b>{fmt(ref.who(m), FMT[m.metrica])}</b><span>{SHORT[m.metrica]}</span></div>
                 ))}
               </div>
             </div>
@@ -209,30 +217,32 @@ export default function EuHud({
 
         <div className={`metrics${hl ? " hl-" + hl : ""}`}>
           {ms.map((m, i) => {
+            const naoAval = !isAval(m);
             const p = pctExp(m);
             const pR = p == null ? null : Math.round(p);
             const t = tier(p);
             const gP = pctGrp(m);
             const bE = p != null && p >= 100;
             const bG = m.minhaRaw != null && m.grupoRaw != null && (lower(m) ? m.minhaRaw <= m.grupoRaw : m.minhaRaw >= m.grupoRaw);
-            const isBest = i === bestI, isWorst = i === worstI;
-            const flag = isBest ? "flag-good" : isWorst ? "flag-bad" : "";
+            const isBest = !naoAval && i === bestI, isWorst = !naoAval && i === worstI;
+            const flag = naoAval ? "" : isBest ? "flag-good" : isWorst ? "flag-bad" : "";
             let mk = "▼", mkc = p != null && p >= 70 ? "warn" : "bad", note = isWorst ? "Maior lacuna da janela" : "Abaixo das médias";
-            if (bE && bG) { mk = "✓"; mkc = "good"; note = "Acima do esperado e do grupo"; }
+            if (naoAval) { mk = "○"; mkc = "na"; note = "Não entra no índice (não avaliado no seu grupo)"; }
+            else if (bE && bG) { mk = "✓"; mkc = "good"; note = "Acima do esperado e do grupo"; }
             else if (bG) { mk = "▲"; mkc = "warn"; note = "Acima do grupo · abaixo do esperado"; }
             else if (bE) { mk = "✓"; mkc = "good"; note = "Acima do esperado"; }
             return (
-              <div key={m.metrica} className={`m ${flag}`}>
+              <div key={m.metrica} className={`m ${flag}${naoAval ? " naoaval" : ""}`}>
                 <div className="m-top">
                   <div className="m-name">
-                    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke={`var(--${t})`} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: ICON[m.metrica] }} />
+                    <svg className="ico" viewBox="0 0 24 24" fill="none" stroke={naoAval ? "var(--txt-3)" : `var(--${t})`} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: ICON[m.metrica] }} />
                     <span>{NAME[m.metrica]}</span>
-                    {isBest ? <span className="chip good">Destaque</span> : isWorst ? <span className="chip bad">Ponto fraco</span> : null}
+                    {naoAval ? <span className="chip na">não avaliado</span> : isBest ? <span className="chip good">Destaque</span> : isWorst ? <span className="chip bad">Ponto fraco</span> : null}
                   </div>
-                  <div className="m-right"><span className={`m-pct pct-${t}`}>{pR == null ? "—" : pR + "%"}</span><span className="m-raw">{fmt(m.minhaRaw, FMT[m.metrica])}</span></div>
+                  <div className="m-right"><span className={`m-pct ${naoAval ? "pct-na" : "pct-" + t}`}>{pR == null ? "—" : pR + "%"}</span><span className="m-raw">{fmt(m.minhaRaw, FMT[m.metrica])}</span></div>
                 </div>
                 <div className="track">
-                  <div className={`fill ${t}`} style={{ width: `${mounted ? posBar(p) : 0}%` }} />
+                  <div className={`fill ${naoAval ? "na" : t}`} style={{ width: `${mounted ? posBar(p) : 0}%` }} />
                   <div className="thr" />
                   {gP != null && <div className="bead grp" style={{ left: `${posBar(gP)}%` }}><span className="tip">{grupo} · {fmt(m.grupoRaw, FMT[m.metrica])} ({Math.round(gP)}%)</span>{grupoLetra}</div>}
                   <div className="bead exp" style={{ left: "50%" }}><span className="tip">Esperado · {fmt(m.coreRaw, FMT[m.metrica])}</span>E</div>
@@ -249,7 +259,7 @@ export default function EuHud({
               <div className="ring" style={{ "--sweep": `${mounted ? score : 0}%`, "--ring-c": ringC } as unknown as CSSProperties}>
                 <div className="num"><b>{score}%</b><small>índice</small></div>
               </div>
-              <div className="v-title"><div className="lbl">Índice de combate</div><div className="sub">vs esperado · média das 5 métricas</div></div>
+              <div className="v-title"><div className="lbl">Índice de combate</div><div className="sub">vs esperado · média das métricas avaliadas{anyAval ? ` (${ms.filter(isAval).length})` : ""}</div></div>
             </div>
             <div className="v-seg grow v-stats">
               <div><span className="lk">Destaque</span><span className="rv pct-good">{bestI < 0 ? "—" : `${NAME[ms[bestI].metrica]} · ${Math.round(pcts[bestI] as number)}%`}</span></div>
@@ -266,7 +276,7 @@ export default function EuHud({
         </section>
 
         <div className="foot">
-          <span>Escala <code>0–200%</code> · esperado = baseline 100% · grupo = média do {grupo}</span>
+          <span>Escala <code>0–200%</code> · esperado = baseline 100% · grupo = média do {grupo} · <span style={{ color: "var(--txt-2)" }}>não avaliado</span> = não conta no índice (config do grupo)</span>
           <span>Medido nas mesmas wars que você jogou</span>
         </div>
       </div>

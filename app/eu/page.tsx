@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { listPlayers } from "@/lib/players";
 import { statsEu } from "@/lib/stats";
+import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 import EuHud from "./EuHud";
 
@@ -32,13 +33,15 @@ export default async function EuPage() {
     );
   }
 
-  const [w1, w3, w5, w10, wAll] = await Promise.all([
+  const [w1, w3, w5, w10, wAll, gmRows] = await Promise.all([
     statsEu(eu.nome_familia, eu.grupo, 1),
     statsEu(eu.nome_familia, eu.grupo, 3),
     statsEu(eu.nome_familia, eu.grupo, 5),
     statsEu(eu.nome_familia, eu.grupo, 10),
     statsEu(eu.nome_familia, eu.grupo, 999),
+    sql`SELECT metrica FROM grupos_metricas WHERE grupo = ${eu.grupo}`,
   ]);
+  const avaliadas = (gmRows as { metrica: string }[]).map((r) => r.metrica);
   const windows = [
     { key: "ultima", label: "Última war", stats: w1 },
     { key: "n3", label: "3 nodes", stats: w3 },
@@ -57,6 +60,7 @@ export default async function EuPage() {
       nWars={eu.n_wars}
       isCore={eu.is_core}
       windows={windows}
+      avaliadas={avaliadas}
     />
   );
 }
