@@ -29,6 +29,7 @@ export default function Home() {
         </p>
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
+        <Tile href="/eu" titulo="Minhas stats" desc="Suas médias na guerra (avatar, classe, grupo)" />
         <Tile href="/painel" titulo="Painel" desc="Radar e ranking por war/grupo" />
         <Tile href="/confirmados" titulo="Confirmados" desc="Quem confirmou a próxima node war (Apollo)" />
         <Tile href="/evolucao" titulo="Evolução" desc="Performance no tempo (player/grupo/geral)" />

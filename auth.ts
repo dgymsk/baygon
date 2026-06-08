@@ -20,23 +20,32 @@ async function isInGuild(accessToken: string): Promise<boolean> {
   }
 }
 
-/** True se o usuário tem algum cargo de staff. Sem cargos configurados → todo
- *  membro edita (comportamento atual, até a guilda definir os cargos). */
-async function isEditor(accessToken: string): Promise<boolean> {
-  if (!STAFF_ROLE_IDS.length) return true;
+/** Extrai o nome de família do apelido do servidor (ex.: "[M] Doug" → "Doug"). */
+function familiaDoNick(nick?: string | null): string | null {
+  if (!nick) return null;
+  const s = nick.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+  return s || null;
+}
+
+/** Lê o membro no servidor: cargo de staff (pode editar) + família (do apelido).
+ *  Sem cargos configurados → todo membro edita (comportamento atual). */
+async function dadosMembro(accessToken: string): Promise<{ canEdit: boolean; familia: string | null }> {
+  let canEdit = STAFF_ROLE_IDS.length === 0;
+  let familia: string | null = null;
   for (const gid of GUILD_IDS) {
     try {
       const res = await fetch(`https://discord.com/api/users/@me/guilds/${gid}/member`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!res.ok) continue;
-      const member = (await res.json()) as { roles?: string[] };
-      if (Array.isArray(member.roles) && member.roles.some((r) => STAFF_ROLE_IDS.includes(r))) return true;
+      const member = (await res.json()) as { roles?: string[]; nick?: string | null; user?: { global_name?: string | null } };
+      if (!familia) familia = familiaDoNick(member.nick) ?? familiaDoNick(member.user?.global_name);
+      if (STAFF_ROLE_IDS.length && Array.isArray(member.roles) && member.roles.some((r) => STAFF_ROLE_IDS.includes(r))) canEdit = true;
     } catch {
       /* tenta o próximo guild */
     }
   }
-  return false;
+  return { canEdit, familia };
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -53,10 +62,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const token = account?.access_token;
       return token ? await isInGuild(token) : false;
     },
-    /** No login, resolve se pode editar (cargo de staff) e guarda no token. */
+    /** No login, resolve cargo (pode editar) + família (do apelido) e guarda no token. */
     async jwt({ token, account }) {
       if (account?.access_token) {
-        (token as { canEdit?: boolean }).canEdit = await isEditor(account.access_token);
+        const d = await dadosMembro(account.access_token);
+        const t = token as { canEdit?: boolean; familia?: string | null };
+        t.canEdit = d.canEdit;
+        t.familia = d.familia;
       }
       return token;
     },
@@ -64,7 +76,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Sem cargos de staff configurados → todo logado edita (inclui sessões
       // antigas sem canEdit no token). Com staff configurado → vale o token.
       const semStaff = STAFF_ROLE_IDS.length === 0;
-      (session as { canEdit?: boolean }).canEdit = semStaff || (token as { canEdit?: boolean }).canEdit === true;
+      const t = token as { canEdit?: boolean; familia?: string | null };
+      const s = session as { canEdit?: boolean; familia?: string | null };
+      s.canEdit = semStaff || t.canEdit === true;
+      s.familia = t.familia ?? null;
       return session;
     },
   },
