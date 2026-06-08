@@ -58,43 +58,58 @@ export type EuMetrica = {
   metrica: string;
   direcao: string;        // maior_melhor | menor_melhor
   coreRaw: number | null;   // média BRUTA do core do grupo (fallback: média do grupo)
-  classeRaw: number | null; // média BRUTA dos players da MESMA classe
-  minhaRaw: number | null;  // média BRUTA do player
+  grupoRaw: number | null;  // média BRUTA do grupo inteiro do player
+  minhaRaw: number | null;  // média BRUTA do player (na janela)
+  ultimaRaw: number | null; // valor do player na war MAIS RECENTE (não depende de n)
 };
 
 /**
  * Para a home pessoal /eu: por métrica, médias BRUTAS sobre as ÚLTIMAS N WARS
  * QUE O PLAYER PARTICIPOU (não as N globais — a referência tem que bater com as
- * mesmas wars do player). Devolve a média do core do grupo (régua, fallback
- * média do grupo), a média da classe do player, e a do próprio player.
+ * mesmas wars do player). Devolve: core do grupo (régua, fallback média do
+ * grupo), média do grupo inteiro, média do player; e o valor do player na war
+ * MAIS RECENTE (fixo, independente de n).
  */
-export async function statsEu(familia: string, grupo: string, classe: string | null, n = 5): Promise<EuMetrica[]> {
+export async function statsEu(familia: string, grupo: string, n = 5): Promise<EuMetrica[]> {
   const rows = (await sql`
     WITH minhas AS (  -- as últimas N wars que o PRÓPRIO player jogou
       SELECT w.war_id FROM wars w
       WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
       ORDER BY w.data DESC LIMIT ${n}
     ),
+    ultima AS (  -- a war MAIS RECENTE do player (independe de n)
+      SELECT w.war_id FROM wars w
+      WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
+      ORDER BY w.data DESC LIMIT 1
+    ),
     base AS (
-      SELECT d.nome_familia, d.metrica, d.valor, p.is_core, p.grupo, p.classe_bdo, m.direcao
+      SELECT d.metrica, d.valor, p.is_core, p.grupo, m.direcao, d.nome_familia
       FROM desempenho d
       JOIN minhas mw  ON mw.war_id = d.war_id
       JOIN players p  ON p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
       WHERE d.metrica = ANY(${STAT_METRICAS}::text[])
+    ),
+    agg AS (
+      SELECT metrica, MAX(direcao) AS direcao,
+        COALESCE(AVG(valor) FILTER (WHERE is_core AND grupo = ${grupo}),
+                 AVG(valor) FILTER (WHERE grupo = ${grupo}))::float8 AS core_raw,
+        AVG(valor) FILTER (WHERE grupo = ${grupo})::float8           AS grupo_raw,
+        AVG(valor) FILTER (WHERE nome_familia = ${familia})::float8  AS minha_raw
+      FROM base GROUP BY metrica
+    ),
+    ult AS (
+      SELECT d.metrica, d.valor::float8 AS ultima_raw
+      FROM desempenho d JOIN ultima ON ultima.war_id = d.war_id
+      WHERE d.nome_familia = ${familia} AND d.metrica = ANY(${STAT_METRICAS}::text[])
     )
-    SELECT metrica,
-      MAX(direcao) AS direcao,
-      COALESCE(AVG(valor) FILTER (WHERE is_core AND grupo = ${grupo}),
-               AVG(valor) FILTER (WHERE grupo = ${grupo}))::float8 AS core_raw,
-      AVG(valor) FILTER (WHERE classe_bdo = ${classe})::float8     AS classe_raw,
-      AVG(valor) FILTER (WHERE nome_familia = ${familia})::float8  AS minha_raw
-    FROM base GROUP BY metrica
-  `) as { metrica: string; direcao: string; core_raw: number | null; classe_raw: number | null; minha_raw: number | null }[];
+    SELECT a.metrica, a.direcao, a.core_raw, a.grupo_raw, a.minha_raw, u.ultima_raw
+    FROM agg a LEFT JOIN ult u ON u.metrica = a.metrica
+  `) as { metrica: string; direcao: string; core_raw: number | null; grupo_raw: number | null; minha_raw: number | null; ultima_raw: number | null }[];
 
   const map = new Map(rows.map((r) => [r.metrica, r]));
   return STAT_METRICAS.map((m) => {
     const r = map.get(m);
-    return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, classeRaw: r?.classe_raw ?? null, minhaRaw: r?.minha_raw ?? null };
+    return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, grupoRaw: r?.grupo_raw ?? null, minhaRaw: r?.minha_raw ?? null, ultimaRaw: r?.ultima_raw ?? null };
   });
 }

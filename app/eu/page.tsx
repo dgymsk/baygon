@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { auth } from "@/auth";
 import { listPlayers } from "@/lib/players";
 import { statsEu } from "@/lib/stats";
@@ -16,8 +17,8 @@ const ROTULO: Record<string, string> = {
   dano_em_player: "Dano PvP", dano_do_pino: "Dano no Pino", ccs: "CC", cura_aliados: "Cura aliados", tempo_morto: "Tempo morto",
 };
 const NODES_OPCOES = [3, 5, 10, 999];
-const COR_CORE = "#f2c14e";   // C = média do core do grupo (âmbar)
-const COR_CLASSE = "#5fb0ff"; // Cl = média da classe (azul)
+const COR_CORE = "#f2c14e";  // C = média do core do grupo (âmbar)
+const COR_GRUPO = "#5fb0ff"; // G = média do grupo (azul)
 
 function fmt(metrica: string, v: number | null): string {
   if (v == null) return "—";
@@ -92,14 +93,12 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
     </>);
   }
 
-  const stats = await statsEu(eu.nome_familia, eu.grupo, eu.classe_bdo, n);
+  const stats = await statsEu(eu.nome_familia, eu.grupo, n);
+  const grupoLetra = (eu.grupo || "G").trim().charAt(0).toUpperCase() || "G";
 
-  // retângulo (chip) acima da barra: letra colorida + rótulo + número bruto
-  const Chip = ({ cor, letra, label, valor }: { cor: string; letra: string; label: string; valor: string }) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${cor}66`, background: `${cor}14`, borderRadius: 9, padding: "5px 11px", fontSize: 13 }}>
-      <span style={{ minWidth: 18, height: 18, padding: "0 3px", borderRadius: 9, background: cor, color: "#06100b", fontWeight: 800, fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{letra}</span>
-      <span style={{ color: C.mute }}>{label}</span><b style={{ color: C.texto }}>{valor}</b>
-    </span>
+  // retângulo de referência (uma célula do bloco do topo)
+  const Cell = ({ cor, valor }: { cor: string; valor: string }) => (
+    <div style={{ border: `1px solid ${cor}55`, background: `${cor}12`, borderRadius: 8, padding: "6px 6px", textAlign: "center", color: C.texto, fontWeight: 700, fontSize: 13 }}>{valor}</div>
   );
   // balão branco com a letra, posicionado na barra
   const Balao = ({ pos, cor, letra }: { pos: number; cor: string; letra: string }) => (
@@ -123,47 +122,55 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
     </div>
 
     {/* legenda / orientação */}
-    <div style={{ color: C.mute, fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
-      Sua <b style={{ color: C.verde }}>barra</b> mostra o quão perto você está da régua, o <b style={{ color: COR_CORE }}>core</b> (= 100%).
-      Balão <span style={{ color: COR_CORE, fontWeight: 800 }}>C</span> = média do core do seu grupo · <span style={{ color: COR_CLASSE, fontWeight: 800 }}>Cl</span> = média da sua classe (números brutos nos retângulos).
-      À direita: seu <b style={{ color: C.texto }}>%</b> vs core e sua <b style={{ color: C.texto }}>média bruta</b>. Tudo nas últimas {n === 999 ? "wars" : `${n} wars`} que <b style={{ color: C.texto }}>você</b> jogou.
+    <div style={{ color: C.mute, fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
+      Bloco de cima = referências das suas últimas {n === 999 ? "wars" : `${n} wars`}: <b style={{ color: COR_CORE }}>core</b> (média do core do grupo), <b style={{ color: COR_GRUPO }}>{eu.grupo}</b> (média do grupo) e <b style={{ color: C.texto }}>última war</b> (seu valor na guerra mais recente). Abaixo, sua <b style={{ color: C.verde }}>barra</b> mostra o quão perto você está da régua — <b style={{ color: COR_CORE }}>core</b> = 100%, acima = melhor (teto 200%, nº real no canto). Tempo morto invertido. Core, grupo e você medidos nas mesmas wars que você jogou.
     </div>
 
-    {/* métricas */}
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    {/* BLOCO DE REFERÊNCIAS — core / grupo / última war */}
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px", marginBottom: 16, overflowX: "auto" }}>
+      <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Referências</div>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(108px, 1.4fr) repeat(3, minmax(66px, 1fr))", gap: 8, minWidth: 380, alignItems: "center" }}>
+        <div />
+        <div style={{ textAlign: "center", color: COR_CORE, fontSize: 12, fontWeight: 800 }}>core</div>
+        <div style={{ textAlign: "center", color: COR_GRUPO, fontSize: 12, fontWeight: 800 }}>{eu.grupo}</div>
+        <div style={{ textAlign: "center", color: C.mute, fontSize: 12, fontWeight: 700 }}>última war</div>
+        {stats.map((s) => (
+          <Fragment key={s.metrica}>
+            <div style={{ color: C.texto, fontSize: 13, fontWeight: 600 }}>{ROTULO[s.metrica] ?? s.metrica}{s.direcao === "menor_melhor" ? <span style={{ color: C.mute, fontSize: 10 }}> ↓</span> : null}</div>
+            <Cell cor={COR_CORE} valor={fmt(s.metrica, s.coreRaw)} />
+            <Cell cor={COR_GRUPO} valor={fmt(s.metrica, s.grupoRaw)} />
+            <Cell cor={C.mute} valor={fmt(s.metrica, s.ultimaRaw)} />
+          </Fragment>
+        ))}
+      </div>
+    </div>
+
+    {/* SEÇÃO DE BARRAS — seu desempenho (sem badges) */}
+    <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Seu desempenho</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {stats.map((s) => {
         const meuPct = pct(s.minhaRaw, s.coreRaw, s.direcao);
-        const classePct = pct(s.classeRaw, s.coreRaw, s.direcao);
+        const grupoPct = pct(s.grupoRaw, s.coreRaw, s.direcao);
         const corCor = meuPct == null ? C.mute : meuPct >= 100 ? C.verde : C.vermelho;
         return (
-          <div key={s.metrica} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 9 }}>
-              <div style={{ color: C.texto, fontWeight: 700, fontSize: 14.5 }}>{ROTULO[s.metrica] ?? s.metrica}{s.direcao === "menor_melhor" ? <span style={{ color: C.mute, fontSize: 11, fontWeight: 400 }}> ↓ menos é melhor</span> : null}</div>
+          <div key={s.metrica} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "10px 14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <div style={{ color: C.texto, fontWeight: 700, fontSize: 14 }}>{ROTULO[s.metrica] ?? s.metrica}{s.direcao === "menor_melhor" ? <span style={{ color: C.mute, fontSize: 11, fontWeight: 400 }}> ↓ menos é melhor</span> : null}</div>
               <div style={{ textAlign: "right" }}>
-                <span style={{ color: corCor, fontWeight: 800, fontSize: 19 }}>{meuPct == null ? "—" : `${Math.round(meuPct)}%`}</span>
+                <span style={{ color: corCor, fontWeight: 800, fontSize: 18 }}>{meuPct == null ? "—" : `${Math.round(meuPct)}%`}</span>
                 <span style={{ color: C.mute, fontSize: 12.5, marginLeft: 7 }}>{fmt(s.metrica, s.minhaRaw)}</span>
               </div>
             </div>
-            {/* dois retângulos: core e classe (números brutos) */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-              <Chip cor={COR_CORE} letra="C" label="core" valor={fmt(s.metrica, s.coreRaw)} />
-              <Chip cor={COR_CLASSE} letra="Cl" label="classe" valor={fmt(s.metrica, s.classeRaw)} />
-            </div>
-            {/* barra com balões brancos C / Cl */}
             <div style={{ position: "relative", height: 22 }}>
               <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)", height: 14, borderRadius: 7, background: C.inputBg, border: `1px solid ${C.border}` }}>
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${posBar(meuPct)}%`, background: corCor, opacity: 0.5, borderRadius: 7 }} />
               </div>
               <Balao pos={posBar(100)} cor={COR_CORE} letra="C" />
-              {classePct != null && <Balao pos={posBar(classePct)} cor={COR_CLASSE} letra="Cl" />}
+              {grupoPct != null && <Balao pos={posBar(grupoPct)} cor={COR_GRUPO} letra={grupoLetra} />}
             </div>
           </div>
         );
       })}
     </div>
-
-    <p style={{ color: C.mute, fontSize: 11.5, marginTop: 12 }}>
-      Régua = média do <b style={{ color: COR_CORE }}>core</b> do seu grupo (se não houver core, média do grupo). 100% = empatou; acima = melhor (barra com teto 200%, o nº real fica no canto). Tempo morto invertido. Core, classe e você medidos nas <b style={{ color: C.texto }}>mesmas</b> {n === 999 ? "wars" : `${n} wars`} que você participou.
-    </p>
   </>);
 }
