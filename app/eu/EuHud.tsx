@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 
-type Metrica = { metrica: string; direcao: string; coreRaw: number | null; grupoRaw: number | null; minhaRaw: number | null };
+type Metrica = { metrica: string; direcao: string; coreRaw: number | null; grupoRaw: number | null; minhaRaw: number | null; minhaPct: number | null; grupoPct: number | null };
 type Win = { key: string; label: string; stats: Metrica[] };
 
 const ICON: Record<string, string> = {
@@ -25,8 +25,9 @@ function fmt(v: number | null, t: "num" | "int" | "time"): string {
   return String(Math.round(v));
 }
 const lower = (m: Metrica) => m.direcao === "menor_melhor";
-function pctExp(m: Metrica): number | null { const you = m.minhaRaw, exp = m.coreRaw; if (you == null || exp == null || you === 0 || exp === 0) return null; return lower(m) ? exp / you * 100 : you / exp * 100; }
-function pctGrp(m: Metrica): number | null { const g = m.grupoRaw, exp = m.coreRaw; if (g == null || exp == null || g === 0 || exp === 0) return null; return lower(m) ? exp / g * 100 : g / exp * 100; }
+// % já vêm calculados por-war (igual /membros): polaridade + teto 200 + média.
+const pctExp = (m: Metrica): number | null => m.minhaPct;
+const pctGrp = (m: Metrica): number | null => m.grupoPct;
 const tier = (p: number | null) => (p == null ? "bad" : p >= 100 ? "good" : p >= 70 ? "warn" : "bad");
 const posBar = (p: number | null) => (p == null ? 0 : Math.max(0, Math.min(p, 200)) / 2);
 
@@ -228,7 +229,7 @@ export default function EuHud({
             const t = naoAval || pR == null ? "na" : tier(pR);
             const gP = pctGrp(m);
             const bE = pR != null && pR >= 100;
-            const bG = m.minhaRaw != null && m.grupoRaw != null && (lower(m) ? m.minhaRaw <= m.grupoRaw : m.minhaRaw >= m.grupoRaw);
+            const bG = p != null && m.grupoPct != null && p >= m.grupoPct;
             const isBest = !naoAval && !semDado && i === bestI;
             const isWorst = !naoAval && !semDado && i === worstI;
             const flag = isBest ? "flag-good" : isWorst ? "flag-bad" : "";

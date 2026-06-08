@@ -57,43 +57,63 @@ export async function mediasMembros(n = 5): Promise<MediasMap> {
 export type EuMetrica = {
   metrica: string;
   direcao: string;        // maior_melhor | menor_melhor
-  coreRaw: number | null;   // média BRUTA do core do grupo (fallback: média do grupo)
-  grupoRaw: number | null;  // média BRUTA do grupo inteiro do player
-  minhaRaw: number | null;  // média BRUTA do player (na janela)
+  coreRaw: number | null;   // média BRUTA da régua (core do grupo, fallback média do grupo)
+  grupoRaw: number | null;  // média BRUTA do grupo inteiro
+  minhaRaw: number | null;  // média BRUTA do player
+  minhaPct: number | null;  // % POR-WAR (igual /membros): pct/war c/ polaridade, LEAST 200, média
+  grupoPct: number | null;  // idem para o grupo (vs régua)
 };
 
 /**
- * Para a home pessoal /eu: por métrica, médias BRUTAS sobre as ÚLTIMAS N WARS
- * QUE O PLAYER PARTICIPOU (não as N globais — a referência bate com as mesmas
- * wars). n=1 = "última war". Devolve core do grupo (régua, fallback média do
- * grupo), média do grupo inteiro, e média do player.
+ * Para a home pessoal /eu, sobre as ÚLTIMAS N WARS QUE O PLAYER PARTICIPOU
+ * (n=1 = "última war"). Os % (minhaPct/grupoPct) usam o MESMO método do /membros
+ * e /painel: régua por (war, grupo, métrica) = core do grupo (fallback média do
+ * grupo); pct por war com polaridade e teto LEAST(pct,200); depois média. Os
+ * brutos (coreRaw/grupoRaw/minhaRaw) são as médias dos valores por war (p/ cards).
  */
 export async function statsEu(familia: string, grupo: string, n = 5): Promise<EuMetrica[]> {
   const rows = (await sql`
-    WITH minhas AS (  -- as últimas N wars que o PRÓPRIO player jogou
+    WITH minhas AS (  -- últimas N wars que o player jogou
       SELECT w.war_id FROM wars w
       WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
       ORDER BY w.data DESC LIMIT ${n}
     ),
-    base AS (
-      SELECT d.metrica, d.valor, p.is_core, p.grupo, m.direcao, d.nome_familia
+    base AS (  -- só o grupo do player (o player está no grupo)
+      SELECT d.war_id, d.metrica, d.valor, p.is_core, m.direcao, d.nome_familia
       FROM desempenho d
       JOIN minhas mw  ON mw.war_id = d.war_id
       JOIN players p  ON p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
-      WHERE d.metrica = ANY(${STAT_METRICAS}::text[])
+      WHERE d.metrica = ANY(${STAT_METRICAS}::text[]) AND p.grupo = ${grupo}
+    ),
+    bench AS (  -- por war: régua (core, fallback grupo), média do grupo, valor do player
+      SELECT war_id, metrica, MAX(direcao) AS direcao,
+        COALESCE(AVG(valor) FILTER (WHERE is_core), AVG(valor))    AS regua,
+        AVG(valor)                                                 AS grupo_war,
+        AVG(valor) FILTER (WHERE nome_familia = ${familia})        AS minha_war
+      FROM base GROUP BY war_id, metrica
+    ),
+    pct AS (  -- % por war (polaridade, SEM cap aqui; div/0 → NULL p/ ser EXCLUÍDO depois)
+      SELECT metrica, direcao, regua, grupo_war, minha_war,
+        CASE direcao WHEN 'maior_melhor' THEN minha_war / NULLIF(regua,0) * 100
+                     ELSE NULLIF(regua,0) / NULLIF(minha_war,0) * 100 END AS minha_pct,
+        CASE direcao WHEN 'maior_melhor' THEN grupo_war / NULLIF(regua,0) * 100
+                     ELSE NULLIF(regua,0) / NULLIF(grupo_war,0) * 100 END AS grupo_pct
+      FROM bench
     )
+    -- cap LEAST(pct,200) só nos NÃO-NULOS (FILTER), senão LEAST(NULL,200) viraria 200
     SELECT metrica, MAX(direcao) AS direcao,
-      COALESCE(AVG(valor) FILTER (WHERE is_core AND grupo = ${grupo}),
-               AVG(valor) FILTER (WHERE grupo = ${grupo}))::float8 AS core_raw,
-      AVG(valor) FILTER (WHERE grupo = ${grupo})::float8           AS grupo_raw,
-      AVG(valor) FILTER (WHERE nome_familia = ${familia})::float8  AS minha_raw
-    FROM base GROUP BY metrica
-  `) as { metrica: string; direcao: string; core_raw: number | null; grupo_raw: number | null; minha_raw: number | null }[];
+      AVG(regua)::float8     AS core_raw,
+      AVG(grupo_war)::float8 AS grupo_raw,
+      AVG(minha_war)::float8 AS minha_raw,
+      (AVG(LEAST(minha_pct, 200)) FILTER (WHERE minha_pct IS NOT NULL))::float8 AS minha_pct,
+      (AVG(LEAST(grupo_pct, 200)) FILTER (WHERE grupo_pct IS NOT NULL))::float8 AS grupo_pct
+    FROM pct GROUP BY metrica
+  `) as { metrica: string; direcao: string; core_raw: number | null; grupo_raw: number | null; minha_raw: number | null; minha_pct: number | null; grupo_pct: number | null }[];
 
   const map = new Map(rows.map((r) => [r.metrica, r]));
   return STAT_METRICAS.map((m) => {
     const r = map.get(m);
-    return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, grupoRaw: r?.grupo_raw ?? null, minhaRaw: r?.minha_raw ?? null };
+    return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, grupoRaw: r?.grupo_raw ?? null, minhaRaw: r?.minha_raw ?? null, minhaPct: r?.minha_pct ?? null, grupoPct: r?.grupo_pct ?? null };
   });
 }
