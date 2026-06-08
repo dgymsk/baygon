@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Fragment } from "react";
 import { auth } from "@/auth";
 import { listPlayers } from "@/lib/players";
 import { statsEu } from "@/lib/stats";
@@ -16,7 +15,7 @@ const GUILD: Record<string, { label: string; icon: string }> = {
 const ROTULO: Record<string, string> = {
   dano_em_player: "Dano PvP", dano_do_pino: "Dano no Pino", ccs: "CC", cura_aliados: "Cura aliados", tempo_morto: "Tempo morto",
 };
-const NODES_OPCOES = [3, 5, 10, 999];
+const NODES_OPCOES = [1, 3, 5, 10, 999];
 const COR_CORE = "#f2c14e";  // C = média do core do grupo (âmbar)
 const COR_GRUPO = "#5fb0ff"; // G = média do grupo (azul)
 
@@ -96,10 +95,12 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
   const stats = await statsEu(eu.nome_familia, eu.grupo, n);
   const grupoLetra = (eu.grupo || "G").trim().charAt(0).toUpperCase() || "G";
 
-  // retângulo de referência (uma célula do bloco do topo)
-  const Cell = ({ cor, valor }: { cor: string; valor: string }) => (
-    <div style={{ border: `1px solid ${cor}55`, background: `${cor}12`, borderRadius: 8, padding: "6px 6px", textAlign: "center", color: C.texto, fontWeight: 700, fontSize: 13 }}>{valor}</div>
-  );
+  // referências em blocos horizontais (core e grupo)
+  const REFS: { label: string; cor: string; val: (s: (typeof stats)[number]) => number | null }[] = [
+    { label: "core", cor: COR_CORE, val: (s) => s.coreRaw },
+    { label: eu.grupo, cor: COR_GRUPO, val: (s) => s.grupoRaw },
+  ];
+
   // balão branco com a letra, posicionado na barra
   const Balao = ({ pos, cor, letra }: { pos: number; cor: string; letra: string }) => (
     <div style={{ position: "absolute", left: `${pos}%`, top: "50%", transform: "translate(-50%,-50%)", minWidth: 18, height: 18, padding: "0 3px", borderRadius: 9, background: cor, border: "2px solid #fff", color: "#06100b", fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, boxShadow: "0 1px 4px rgba(0,0,0,.55)" }}>{letra}</div>
@@ -110,12 +111,12 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
 
     {/* seletor de nº de nodes */}
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-      <span style={{ color: C.mute, fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>Média das últimas</span>
+      <span style={{ color: C.mute, fontSize: 12, letterSpacing: 1, textTransform: "uppercase" }}>Janela</span>
       {NODES_OPCOES.map((k) => {
         const ativo = k === n;
         return (
           <Link key={k} href={`/eu?n=${k}`} style={{ textDecoration: "none", borderRadius: 999, border: `1px solid ${ativo ? C.verde : C.border2}`, background: ativo ? C.verdeTint : "transparent", color: ativo ? C.verde : C.mute, padding: "4px 12px", fontSize: 12.5, fontWeight: 600 }}>
-            {k === 999 ? "todas" : `${k} nodes`}
+            {k === 1 ? "última war" : k === 999 ? "todas" : `${k} nodes`}
           </Link>
         );
       })}
@@ -123,27 +124,21 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
 
     {/* legenda / orientação */}
     <div style={{ color: C.mute, fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
-      Bloco de cima = referências das suas últimas {n === 999 ? "wars" : `${n} wars`}: <b style={{ color: COR_CORE }}>core</b> (média do core do grupo), <b style={{ color: COR_GRUPO }}>{eu.grupo}</b> (média do grupo) e <b style={{ color: C.texto }}>última war</b> (seu valor na guerra mais recente). Abaixo, sua <b style={{ color: C.verde }}>barra</b> mostra o quão perto você está da régua — <b style={{ color: COR_CORE }}>core</b> = 100%, acima = melhor (teto 200%, nº real no canto). Tempo morto invertido. Core, grupo e você medidos nas mesmas wars que você jogou.
+      Blocos de cima = referências da janela: <b style={{ color: COR_CORE }}>core</b> (média do core do grupo) e <b style={{ color: COR_GRUPO }}>{eu.grupo}</b> (média do grupo). Abaixo, sua <b style={{ color: C.verde }}>barra</b> mostra o quão perto você está da régua — <b style={{ color: COR_CORE }}>core</b> = 100%, acima = melhor (teto 200%, nº real no canto). Tempo morto invertido. Core, grupo e você nas mesmas wars que você jogou.
     </div>
 
-    {/* BLOCO DE REFERÊNCIAS — core / grupo / última war */}
-    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px", marginBottom: 16, overflowX: "auto" }}>
-      <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Referências</div>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(108px, 1.4fr) repeat(3, minmax(66px, 1fr))", gap: 8, minWidth: 380, alignItems: "center" }}>
-        <div />
-        <div style={{ textAlign: "center", color: COR_CORE, fontSize: 12, fontWeight: 800 }}>core</div>
-        <div style={{ textAlign: "center", color: COR_GRUPO, fontSize: 12, fontWeight: 800 }}>{eu.grupo}</div>
-        <div style={{ textAlign: "center", color: C.mute, fontSize: 12, fontWeight: 700 }}>última war</div>
+    {/* REFERÊNCIAS — dois blocos horizontais (core / grupo) */}
+    {REFS.map((ref) => (
+      <div key={ref.label} style={{ border: `1px solid ${ref.cor}44`, background: `${ref.cor}10`, borderRadius: 12, padding: "10px 14px", marginBottom: 10, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", overflowX: "auto" }}>
+        <span style={{ minWidth: 60, color: ref.cor, fontWeight: 800, fontSize: 13, textTransform: "uppercase", letterSpacing: 0.5 }}>{ref.label}</span>
         {stats.map((s) => (
-          <Fragment key={s.metrica}>
-            <div style={{ color: C.texto, fontSize: 13, fontWeight: 600 }}>{ROTULO[s.metrica] ?? s.metrica}{s.direcao === "menor_melhor" ? <span style={{ color: C.mute, fontSize: 10 }}> ↓</span> : null}</div>
-            <Cell cor={COR_CORE} valor={fmt(s.metrica, s.coreRaw)} />
-            <Cell cor={COR_GRUPO} valor={fmt(s.metrica, s.grupoRaw)} />
-            <Cell cor={C.mute} valor={fmt(s.metrica, s.ultimaRaw)} />
-          </Fragment>
+          <div key={s.metrica} style={{ minWidth: 62 }}>
+            <div style={{ color: C.mute, fontSize: 10.5 }}>{ROTULO[s.metrica] ?? s.metrica}</div>
+            <div style={{ color: C.texto, fontWeight: 700, fontSize: 14 }}>{fmt(s.metrica, ref.val(s))}</div>
+          </div>
         ))}
       </div>
-    </div>
+    ))}
 
     {/* SEÇÃO DE BARRAS — seu desempenho (sem badges) */}
     <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Seu desempenho</div>
