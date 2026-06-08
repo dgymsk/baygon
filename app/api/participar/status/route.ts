@@ -2,18 +2,19 @@ import { NextResponse } from "next/server";
 import { saveStatus, resetStatus } from "@/lib/participarStatus";
 import { requireEditor } from "@/lib/requireAuth";
 
-// POST /api/participar/status  { membros: [{familia, participar}], warKey } -> { status }
+// POST /api/participar/status  { membros: [{familia, participar}] } -> { status }
+// A war (war_key) é relida do bot no servidor — não vem do client.
 export async function POST(req: Request) {
   const unauth = await requireEditor();
   if (unauth) return unauth;
-  let body: { membros?: unknown; warKey?: unknown };
+  let body: { membros?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
   try {
-    const status = await saveStatus(body.membros, typeof body.warKey === "string" ? body.warKey : null);
+    const status = await saveStatus(body.membros);
     return NextResponse.json({ status });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

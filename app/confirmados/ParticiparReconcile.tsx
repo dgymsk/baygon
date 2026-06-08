@@ -20,10 +20,10 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 export default function ParticiparReconcile({
-  confirmados, espera, offBot, canEdit, statusInicial, warKey,
+  confirmados, espera, offBot, canEdit, statusInicial,
 }: {
   confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean;
-  statusInicial: Row[]; warKey: string | null;
+  statusInicial: Row[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Row[]>(statusInicial);
@@ -62,7 +62,7 @@ export default function ParticiparReconcile({
         }
       }
       setProg("salvando…");
-      const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()], warKey }) });
+      const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()] }) });
       const sj = await save.json();
       if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
       setStatus(sj.status ?? []);

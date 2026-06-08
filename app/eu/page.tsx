@@ -23,7 +23,8 @@ const NODES_OPCOES = [3, 5, 10, 999];
 
 export default async function EuPage({ searchParams }: { searchParams: Promise<{ n?: string }> }) {
   const { n: nRaw } = await searchParams;
-  const n = Math.max(1, Math.min(999, Number(nRaw) || 5));
+  const parsedN = Math.trunc(Number(nRaw));
+  const n = Number.isFinite(parsedN) && parsedN >= 1 ? Math.min(999, parsedN) : 5;
   const session = await auth();
   const familia = (session as { familia?: string | null })?.familia ?? null;
   const user = session?.user;
@@ -79,8 +80,8 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
     </>);
   }
 
-  // média do grupo (média dos % dos membros ativos do mesmo grupo que têm dados)
-  const doGrupo = players.filter((p) => p.grupo === eu.grupo && p.ativo && medias[p.nome_familia]);
+  // média do grupo = média dos % dos COLEGAS (mesmo grupo, ativos, com dados, sem o próprio)
+  const doGrupo = players.filter((p) => p.grupo === eu.grupo && p.ativo && p.nome_familia !== eu.nome_familia && medias[p.nome_familia]);
   const grupoMedia = (key: string): number | null => {
     const vals = doGrupo.map((p) => medias[p.nome_familia]?.[key]).filter((v): v is number => typeof v === "number");
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
@@ -109,7 +110,7 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: "16px 18px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
         <span>Discrepância vs régua (core/grupo)</span>
-        <span>você ▰ · grupo ▏ · régua 100%</span>
+        <span>você ▰ · grupo/colegas ▏ · régua 100%</span>
       </div>
       {METRICAS.map((m) => {
         const meu = minhas[m.key];
