@@ -16,8 +16,8 @@ const ROTULO: Record<string, string> = {
   dano_em_player: "Dano PvP", dano_do_pino: "Dano no Pino", ccs: "CC", cura_aliados: "Cura aliados", tempo_morto: "Tempo morto",
 };
 const NODES_OPCOES = [3, 5, 10, 999];
-const COR_CORE = "#f2c14e";  // C = média do core (âmbar)
-const COR_GUILD = "#5fb0ff"; // G = média da guilda (azul)
+const COR_CORE = "#f2c14e";   // C = média do core do grupo (âmbar)
+const COR_CLASSE = "#5fb0ff"; // Cl = média da classe (azul)
 
 function fmt(metrica: string, v: number | null): string {
   if (v == null) return "—";
@@ -92,13 +92,18 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
     </>);
   }
 
-  const stats = await statsEu(eu.nome_familia, eu.grupo, n);
+  const stats = await statsEu(eu.nome_familia, eu.grupo, eu.classe_bdo, n);
 
+  // retângulo (chip) acima da barra: letra colorida + rótulo + número bruto
   const Chip = ({ cor, letra, label, valor }: { cor: string; letra: string; label: string; valor: string }) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${cor}66`, background: `${cor}14`, borderRadius: 8, padding: "3px 9px", fontSize: 12.5 }}>
-      <span style={{ width: 17, height: 17, borderRadius: "50%", background: cor, color: "#06100b", fontWeight: 800, fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{letra}</span>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${cor}66`, background: `${cor}14`, borderRadius: 9, padding: "5px 11px", fontSize: 13 }}>
+      <span style={{ minWidth: 18, height: 18, padding: "0 3px", borderRadius: 9, background: cor, color: "#06100b", fontWeight: 800, fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{letra}</span>
       <span style={{ color: C.mute }}>{label}</span><b style={{ color: C.texto }}>{valor}</b>
     </span>
+  );
+  // balão branco com a letra, posicionado na barra
+  const Balao = ({ pos, cor, letra }: { pos: number; cor: string; letra: string }) => (
+    <div style={{ position: "absolute", left: `${pos}%`, top: "50%", transform: "translate(-50%,-50%)", minWidth: 18, height: 18, padding: "0 3px", borderRadius: 9, background: cor, border: "2px solid #fff", color: "#06100b", fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2, boxShadow: "0 1px 4px rgba(0,0,0,.55)" }}>{letra}</div>
   );
 
   return wrap(<>
@@ -119,16 +124,16 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
 
     {/* legenda / orientação */}
     <div style={{ color: C.mute, fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>
-      Sua <b style={{ color: C.verde }}>barra</b> mostra o quão perto você está da régua (o <b style={{ color: COR_CORE }}>core</b> = 100%).
-      <span style={{ color: COR_CORE, fontWeight: 700 }}> C</span> = média do core do seu grupo · <span style={{ color: COR_GUILD, fontWeight: 700 }}>G</span> = média da guilda (números brutos nos chips).
-      À direita: seu <b style={{ color: C.texto }}>%</b> vs core e sua <b style={{ color: C.texto }}>média bruta</b>.
+      Sua <b style={{ color: C.verde }}>barra</b> mostra o quão perto você está da régua, o <b style={{ color: COR_CORE }}>core</b> (= 100%).
+      Balão <span style={{ color: COR_CORE, fontWeight: 800 }}>C</span> = média do core do seu grupo · <span style={{ color: COR_CLASSE, fontWeight: 800 }}>Cl</span> = média da sua classe (números brutos nos retângulos).
+      À direita: seu <b style={{ color: C.texto }}>%</b> vs core e sua <b style={{ color: C.texto }}>média bruta</b>. Tudo nas últimas {n === 999 ? "wars" : `${n} wars`} que <b style={{ color: C.texto }}>você</b> jogou.
     </div>
 
     {/* métricas */}
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {stats.map((s) => {
         const meuPct = pct(s.minhaRaw, s.coreRaw, s.direcao);
-        const guildPct = pct(s.guildRaw, s.coreRaw, s.direcao);
+        const classePct = pct(s.classeRaw, s.coreRaw, s.direcao);
         const corCor = meuPct == null ? C.mute : meuPct >= 100 ? C.verde : C.vermelho;
         return (
           <div key={s.metrica} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
@@ -139,19 +144,18 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
                 <span style={{ color: C.mute, fontSize: 12.5, marginLeft: 7 }}>{fmt(s.metrica, s.minhaRaw)}</span>
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            {/* dois retângulos: core e classe (números brutos) */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
               <Chip cor={COR_CORE} letra="C" label="core" valor={fmt(s.metrica, s.coreRaw)} />
-              <Chip cor={COR_GUILD} letra="G" label="guilda" valor={fmt(s.metrica, s.guildRaw)} />
+              <Chip cor={COR_CLASSE} letra="Cl" label="classe" valor={fmt(s.metrica, s.classeRaw)} />
             </div>
-            {/* barra com balões C/G */}
-            <div style={{ position: "relative", height: 28 }}>
-              <div style={{ position: "absolute", left: `${posBar(100)}%`, top: 0, transform: "translateX(-50%)", color: COR_CORE, fontSize: 10.5, fontWeight: 800 }}>C</div>
-              {guildPct != null && <div style={{ position: "absolute", left: `${posBar(guildPct)}%`, top: 0, transform: "translateX(-50%)", color: COR_GUILD, fontSize: 10.5, fontWeight: 800 }}>G</div>}
-              <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 16, borderRadius: 8, background: C.inputBg, border: `1px solid ${C.border}`, overflow: "visible" }}>
-                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${posBar(meuPct)}%`, background: corCor, opacity: 0.5, borderRadius: 8 }} />
-                <div style={{ position: "absolute", left: `${posBar(100)}%`, top: -3, bottom: -3, width: 2, background: COR_CORE }} />
-                {guildPct != null && <div style={{ position: "absolute", left: `${posBar(guildPct)}%`, top: -3, bottom: -3, width: 2, background: COR_GUILD }} />}
+            {/* barra com balões brancos C / Cl */}
+            <div style={{ position: "relative", height: 22 }}>
+              <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)", height: 14, borderRadius: 7, background: C.inputBg, border: `1px solid ${C.border}` }}>
+                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${posBar(meuPct)}%`, background: corCor, opacity: 0.5, borderRadius: 7 }} />
               </div>
+              <Balao pos={posBar(100)} cor={COR_CORE} letra="C" />
+              {classePct != null && <Balao pos={posBar(classePct)} cor={COR_CLASSE} letra="Cl" />}
             </div>
           </div>
         );
@@ -159,7 +163,7 @@ export default async function EuPage({ searchParams }: { searchParams: Promise<{
     </div>
 
     <p style={{ color: C.mute, fontSize: 11.5, marginTop: 12 }}>
-      Régua = média do <b style={{ color: COR_CORE }}>core</b> do seu grupo (se não houver core, média do grupo). 100% = empatou; acima = melhor (barra com teto 200%, o nº real fica no canto). Tempo morto invertido. Médias das últimas {n === 999 ? "wars" : `${n} wars`}.
+      Régua = média do <b style={{ color: COR_CORE }}>core</b> do seu grupo (se não houver core, média do grupo). 100% = empatou; acima = melhor (barra com teto 200%, o nº real fica no canto). Tempo morto invertido. Core, classe e você medidos nas <b style={{ color: C.texto }}>mesmas</b> {n === 999 ? "wars" : `${n} wars`} que você participou.
     </p>
   </>);
 }
