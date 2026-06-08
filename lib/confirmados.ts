@@ -15,6 +15,7 @@ export type Confirmados = {
   title?: string;
   inicioUnix?: number;
   messageTs?: string;
+  messageId?: string; // id da mensagem do bot = chave da war (p/ auto-reset do scan)
   grupos: GrupoConf[];
   listaEspera: PlayerConf[];
 };
@@ -41,7 +42,7 @@ function parsePlayer(line: string): PlayerConf | null {
 
 export async function fetchConfirmados(): Promise<Confirmados> {
   if (!BOT_TOKEN || !CHANNEL) return { ok: false, erro: "bot não configurado", grupos: [], listaEspera: [] };
-  let msgs: { embeds?: { title?: string; fields?: { name: string; value: string }[] }[]; author?: { username?: string; bot?: boolean }; timestamp?: string }[];
+  let msgs: { id?: string; embeds?: { title?: string; fields?: { name: string; value: string }[] }[]; author?: { username?: string; bot?: boolean }; timestamp?: string }[];
   try {
     const res = await fetch(`https://discord.com/api/v10/channels/${CHANNEL}/messages?limit=15`, {
       headers: { Authorization: `Bot ${BOT_TOKEN}` },
@@ -82,5 +83,5 @@ export async function fetchConfirmados(): Promise<Confirmados> {
     }
   }
 
-  return { ok: true, title: embed.title, inicioUnix, messageTs: apollo?.timestamp, grupos, listaEspera };
+  return { ok: true, title: embed.title, inicioUnix, messageTs: apollo?.timestamp, messageId: apollo?.id, grupos, listaEspera };
 }

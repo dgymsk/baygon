@@ -4,14 +4,7 @@ import { useRef, useState } from "react";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
 
-type Reconc = {
-  certo: string[];
-  faltaMarcar: string[];
-  retirarEspera: string[];
-  retirarFora: string[];
-  totalParticipar: number;
-  lidos: number;
-};
+type Row = { familia: string; participar: boolean };
 
 function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> {
   return new Promise((resolve, reject) => {
@@ -27,58 +20,52 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 export default function ParticiparReconcile({
-  confirmados, espera, offBot, canEdit,
-}: { confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean }) {
+  confirmados, espera, offBot, canEdit, statusInicial, warKey,
+}: {
+  confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean;
+  statusInicial: Row[]; warKey: string | null;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [status, setStatus] = useState<Row[]>(statusInicial);
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
-  const [rec, setRec] = useState<Reconc | null>(null);
 
+  // reconciliação (chave canônica em tudo)
+  const participarRows = status.filter((s) => s.participar);
+  const participarSet = new Set(participarRows.map((s) => chaveNome(s.familia)));
   const espSet = new Set(espera.map(chaveNome));
-  // "esperado" = quem tem vaga: confirmados no bot + nomes em vagas fora do bot (chave canônica)
   const esperadoMap = new Map<string, string>();
   for (const n of confirmados) esperadoMap.set(chaveNome(n), n);
   for (const n of offBot) { const k = chaveNome(n); if (k && !esperadoMap.has(k)) esperadoMap.set(k, n); }
   const esperadoSet = new Set(esperadoMap.keys());
+  const certo: string[] = [], faltaMarcar: string[] = [];
+  for (const nome of esperadoMap.values()) (participarSet.has(chaveNome(nome)) ? certo : faltaMarcar).push(nome);
+  const retirarEspera: string[] = [], retirarFora: string[] = [];
+  for (const s of participarRows) { const k = chaveNome(s.familia); if (esperadoSet.has(k)) continue; (espSet.has(k) ? retirarEspera : retirarFora).push(s.familia); }
 
   async function rodar(files: FileList) {
-    setBusy(true); setErro(""); setRec(null);
+    setBusy(true); setErro("");
     try {
-      const map = new Map<string, { familia: string; participar: boolean }>();
+      const lote = new Map<string, Row>(); // dedupe do lote (último vence)
       const arr = Array.from(files);
       for (let i = 0; i < arr.length; i++) {
         setProg(`lendo print ${i + 1}/${arr.length}…`);
         const image = await fileToBase64(arr[i]);
-        const res = await fetch("/api/participar", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image }),
-        });
+        const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || `erro ${res.status}`);
-        for (const m of (j.membros ?? []) as { familia: string; participar: boolean }[]) {
-          const nome = (m.familia ?? "").replace(/\s+/g, " ").trim();
-          const k = chaveNome(nome);
-          if (!k) continue;
-          const prev = map.get(k);
-          if (!prev || (m.participar && !prev.participar)) map.set(k, { familia: nome, participar: !!m.participar });
+        for (const m of (j.membros ?? []) as Row[]) {
+          const familia = (m.familia ?? "").replace(/\s+/g, " ").trim();
+          const k = chaveNome(familia);
+          if (k) lote.set(k, { familia, participar: !!m.participar });
         }
       }
-      // reconcilia
-      const participarRows = [...map.values()].filter((m) => m.participar);
-      const participarSet = new Set(participarRows.map((m) => chaveNome(m.familia)));
-
-      const certo: string[] = [], faltaMarcar: string[] = [];
-      for (const nome of esperadoMap.values()) {
-        (participarSet.has(chaveNome(nome)) ? certo : faltaMarcar).push(nome);
-      }
-      const retirarEspera: string[] = [], retirarFora: string[] = [];
-      for (const m of participarRows) {
-        const k = chaveNome(m.familia);
-        if (esperadoSet.has(k)) continue; // tem vaga (bot ou fora do bot) → ok
-        (espSet.has(k) ? retirarEspera : retirarFora).push(m.familia);
-      }
-      setRec({ certo, faltaMarcar, retirarEspera, retirarFora, totalParticipar: participarRows.length, lidos: map.size });
+      setProg("salvando…");
+      const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()], warKey }) });
+      const sj = await save.json();
+      if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
+      setStatus(sj.status ?? []);
       setProg("");
     } catch (e) {
       setErro((e as Error).message);
@@ -86,6 +73,16 @@ export default function ParticiparReconcile({
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  async function resetar() {
+    if (!confirm("Limpar o status “Participar” lido e recomeçar?")) return;
+    setBusy(true); setErro("");
+    try {
+      const res = await fetch("/api/participar/status", { method: "DELETE" });
+      if (!res.ok) { const j = await res.json(); throw new Error(j.error || "falha ao resetar"); }
+      setStatus([]);
+    } catch (e) { setErro((e as Error).message); } finally { setBusy(false); }
   }
 
   const copiar = (nomes: string[]) => navigator.clipboard?.writeText(nomes.join(", ")).catch(() => {});
@@ -99,7 +96,7 @@ export default function ParticiparReconcile({
       {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
         {nomes.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
-          : nomes.map((n) => <span key={n} style={{ fontSize: 12.5, color: C.texto }}>{n}</span>)}
+          : nomes.map((nm) => <span key={nm} style={{ fontSize: 12.5, color: C.texto }}>{nm}</span>)}
       </div>
     </div>
   );
@@ -111,33 +108,37 @@ export default function ParticiparReconcile({
         {canEdit && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy}
-              onChange={(e) => e.target.files?.length && rodar(e.target.files)}
-              style={{ display: "none" }} id="participar-file" />
+              onChange={(e) => e.target.files?.length && rodar(e.target.files)} style={{ display: "none" }} id="participar-file" />
             <label htmlFor="participar-file"
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: busy ? C.inputBg : C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: busy ? "default" : "pointer" }}>
-              {busy ? (prog || "lendo…") : "📷 Subir print(s) da guilda"}
+              {busy ? (prog || "lendo…") : "📷 Subir print(s)"}
             </label>
+            {status.length > 0 && !busy && (
+              <button onClick={resetar} title="limpar o status lido" style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>↺ Reset</button>
+            )}
           </div>
         )}
       </div>
-      <div style={{ color: C.mute, fontSize: 11.5, marginBottom: rec || erro ? 12 : 0 }}>
+      <div style={{ color: C.mute, fontSize: 11.5, marginBottom: status.length || erro ? 12 : 0 }}>
         {canEdit
-          ? "Tire print(s) da janela de Guilda (coluna Guerra). O app lê por IA quem está “Participar” e cruza com o bot. Vários prints se a lista rolar."
-          : "Só staff pode rodar a leitura. Peça pra alguém da staff subir os prints."}
+          ? "Suba print(s) da janela de Guilda (coluna Guerra). O status acumula entre prints — o mais recente vence. Reseta sozinho quando entra mensagem nova do bot; ou use ↺ Reset."
+          : "Status lido pela staff. (Só staff sobe/reseta prints.)"}
       </div>
 
-      {erro && <div style={{ color: C.vermelho, fontSize: 13, marginTop: 6 }}>⚠ {erro}</div>}
+      {erro && <div style={{ color: C.vermelho, fontSize: 13, marginTop: 6, marginBottom: 8 }}>⚠ {erro}</div>}
 
-      {rec && (
+      {status.length === 0 ? (
+        <div style={{ color: C.mute, fontSize: 13 }}>Nenhum print lido ainda{canEdit ? " — suba um print pra conferir." : "."}</div>
+      ) : (
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 10 }}>
-            Li <b style={{ color: C.texto }}>{rec.lidos}</b> membros do(s) print(s); <b style={{ color: C.texto }}>{rec.totalParticipar}</b> com “Participar”.
+            <b style={{ color: C.texto }}>{status.length}</b> membros no status; <b style={{ color: C.texto }}>{participarRows.length}</b> com “Participar”.
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-            <Col titulo="✅ Certo" cor={C.verde} nomes={rec.certo} hint="Tem vaga (bot/fora) e marcou Participar" />
-            <Col titulo="⚠ Falta marcar" cor={C.amarelo} nomes={rec.faltaMarcar} hint="Tem vaga, mas sem Participar → avisar p/ MARCAR" />
-            <Col titulo="⚠ Deve retirar (espera)" cor={C.amarelo} nomes={rec.retirarEspera} hint="Participar in-game, mas na lista de espera → avisar p/ RETIRAR" />
-            <Col titulo="⛔ Deve retirar (fora)" cor={C.vermelho} nomes={rec.retirarFora} hint="Participar in-game, mas fora do bot → avisar p/ RETIRAR" />
+            <Col titulo="✅ Certo" cor={C.verde} nomes={certo} hint="Tem vaga (bot/fora) e marcou Participar" />
+            <Col titulo="⚠ Falta marcar" cor={C.amarelo} nomes={faltaMarcar} hint="Tem vaga, mas sem Participar → avisar p/ MARCAR" />
+            <Col titulo="⚠ Deve retirar (espera)" cor={C.amarelo} nomes={retirarEspera} hint="Participar in-game, mas na lista de espera → avisar p/ RETIRAR" />
+            <Col titulo="⛔ Deve retirar (fora)" cor={C.vermelho} nomes={retirarFora} hint="Participar in-game, mas fora do bot → avisar p/ RETIRAR" />
           </div>
           <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
             Cruzamento por nome de família. Se um nome no jogo diferir do nome no bot, pode aparecer como divergência — confira esses casos.

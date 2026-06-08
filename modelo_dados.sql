@@ -44,6 +44,20 @@ CREATE TABLE IF NOT EXISTS vagas_config (
 );
 INSERT INTO vagas_config (guilda) VALUES ('MANI'), ('RESO') ON CONFLICT DO NOTHING;
 
+-- Status "Participar" in-game lido por visão (acumula entre prints; o mais recente
+-- vence). Atrelado à mensagem do bot (war_key) p/ auto-reset quando troca a war.
+CREATE TABLE IF NOT EXISTS participar_scan (
+  chave      TEXT PRIMARY KEY,   -- chaveNome(familia)
+  familia    TEXT NOT NULL,      -- nome de exibição
+  participar BOOLEAN NOT NULL,
+  atualizado TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS participar_meta (
+  id      INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  war_key TEXT
+);
+INSERT INTO participar_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
+
 -- ============ FATO CRU (a extração dos prints) ============
 
 CREATE TABLE wars (

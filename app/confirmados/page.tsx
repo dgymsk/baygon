@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { fetchConfirmados, type PlayerConf } from "@/lib/confirmados";
 import { getVagas, nomesDoTexto } from "@/lib/vagas";
+import { getStatus } from "@/lib/participarStatus";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
@@ -41,6 +42,8 @@ export default async function ConfirmadosPage() {
   const offBotReso = nomesDoTexto(vagas.RESO.texto);
   const offBotNomes = [...offBotMani, ...offBotReso];
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
+  const warKey = conf.ok ? (conf.messageId ?? null) : null;
+  const statusInicial = await getStatus(warKey);
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
@@ -132,7 +135,7 @@ export default async function ConfirmadosPage() {
             )}
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} />
+            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} warKey={warKey} />
 
             {/* grupos */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
