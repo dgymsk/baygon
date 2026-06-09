@@ -5,6 +5,7 @@ import { getStatus, getPosLiberacao } from "@/lib/participarStatus";
 import { getRemocoes } from "@/lib/remocaoStatus";
 import { getPt } from "@/lib/ptStatus";
 import { gruposEfetivos } from "@/lib/substituicoes";
+import { canonicalizarNomes } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
@@ -34,7 +35,7 @@ function fmtData(unix?: number): string {
 export default async function ConfirmadosPage() {
   const [conf, rosterRows, canEdit, vagas] = await Promise.all([
     fetchConfirmados(),
-    sql`SELECT lower(nome_familia) AS n FROM players`,
+    sql`SELECT nome_familia FROM players`,
     canEditNow(),
     getVagas(),
   ]);
@@ -48,8 +49,35 @@ export default async function ConfirmadosPage() {
   const offBotNomes = [...offBotMani, ...offBotReso];
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const [statusInicial, remocoesInit, ptInit, posLiberacao] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey)]);
-  const rosterNomes = (rosterRows as { n: string }[]).map((r) => r.n);
+  const [statusBruto, remocoesInit, ptInit, posLiberacao] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey)]);
+  const playersNomes = (rosterRows as { nome_familia: string }[]).map((r) => r.nome_familia);
+  const rosterNomes = playersNomes.map((n) => n.toLowerCase());
+
+  // canonicaliza os nomes lidos pela IA (Sykoltic→Sykotic, Denzell→Denzel) com PRIORIDADE
+  // pro roster do bot/espera/reservas sobre a tabela players. Conserta o scan já salvo.
+  const rosterCand = (() => {
+    const m = new Map<string, string>();
+    const add = (nome: string) => { const k = chaveNome(nome); if (k && !m.has(k)) m.set(k, nome); };
+    for (const g of conf.grupos) for (const p of g.players) add(p.nome);
+    for (const p of conf.listaEspera) add(p.nome);
+    for (const n of [...offBotMani, ...offBotReso]) add(n);
+    return [...m].map(([chave, nome]) => ({ chave, nome }));
+  })();
+  const playersCand = (() => {
+    const m = new Map<string, string>();
+    for (const n of playersNomes) { const k = chaveNome(n); if (k && !m.has(k)) m.set(k, n); }
+    return [...m].map(([chave, nome]) => ({ chave, nome }));
+  })();
+  const { mapa: canonMapa, correcoes: correcoesScan } = canonicalizarNomes(statusBruto.map((s) => s.familia), rosterCand, playersCand);
+  // re-deduplica por chave canônica (se 2 leituras viram a mesma pessoa, Participar=true vence)
+  const statusMap = new Map<string, { familia: string; participar: boolean }>();
+  for (const s of statusBruto) {
+    const canon = canonMapa.get(chaveNome(s.familia)) ?? s.familia;
+    const k = chaveNome(canon);
+    const ant = statusMap.get(k);
+    statusMap.set(k, { familia: canon, participar: (ant?.participar ?? false) || s.participar });
+  }
+  const statusInicial = [...statusMap.values()];
   const removidosInit = remocoesInit.filter((r) => r.tipo === "remover").map((r) => r.familia);
   const promovidosInit = remocoesInit.filter((r) => r.tipo === "subir").map((r) => r.familia);
   // roster efetivo pós-substituição (removidos saem, promovidos confirmados entram) p/ o board de PTs
@@ -135,7 +163,7 @@ export default async function ConfirmadosPage() {
             <VagasEditor vagasInit={vagas} canEdit={canEdit} />
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} />
+            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} />
 
             {/* substituições: remover do grupo + confirmar quem sobe da espera */}
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />

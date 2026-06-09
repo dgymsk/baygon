@@ -1,23 +1,8 @@
 import { sql } from "@/lib/db";
-import { chaveNome, acharSimilar } from "@/lib/nomes";
+import { chaveNome } from "@/lib/nomes";
 import { fetchConfirmados } from "@/lib/confirmados";
-import { getVagas, nomesDoTexto } from "@/lib/vagas";
 
 export type StatusRow = { familia: string; participar: boolean };
-export type Correcao = { de: string; para: string };
-
-/** Reúne os nomes REAIS (roster do bot + espera + reservas + players) p/ corrigir a IA. */
-async function candidatosReais(conf: Awaited<ReturnType<typeof fetchConfirmados>>): Promise<{ chave: string; nome: string }[]> {
-  const [vagas, players] = await Promise.all([getVagas(), sql`SELECT nome_familia FROM players`]);
-  const map = new Map<string, string>();
-  const add = (nome: string) => { const k = chaveNome(nome); if (k && !map.has(k)) map.set(k, nome); };
-  for (const g of conf.grupos) for (const p of g.players) add(p.nome);
-  for (const p of conf.listaEspera) add(p.nome);
-  for (const n of nomesDoTexto(vagas.MANI.texto)) add(n);
-  for (const n of nomesDoTexto(vagas.RESO.texto)) add(n);
-  for (const r of players as { nome_familia: string }[]) add(r.nome_familia);
-  return [...map].map(([chave, nome]) => ({ chave, nome }));
-}
 
 async function readScan(): Promise<StatusRow[]> {
   return (await sql`SELECT familia, participar FROM participar_scan ORDER BY familia`) as StatusRow[];
@@ -41,25 +26,17 @@ export async function getStatus(currentWarKey: string | null): Promise<StatusRow
  * Relê a war ATUAL do bot no servidor (não confia no client, evita corrida com
  * página stale) e, se mudou, limpa o scan antigo antes de gravar — tudo atômico.
  */
-export async function saveStatus(membros: unknown): Promise<{ status: StatusRow[]; correcoes: Correcao[] }> {
+export async function saveStatus(membros: unknown): Promise<StatusRow[]> {
   const conf = await fetchConfirmados();
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const candidatos = await candidatosReais(conf);
-  const candChaves = new Set(candidatos.map((c) => c.chave));
 
   const lista = Array.isArray(membros) ? membros : [];
   const map = new Map<string, { familia: string; participar: boolean }>();
-  const correcoes: Correcao[] = [];
   for (const m of lista) {
     const fam = (m as { familia?: unknown })?.familia;
-    let familia = typeof fam === "string" ? fam.replace(/\s+/g, " ").trim() : "";
-    let k = chaveNome(familia);
+    const familia = typeof fam === "string" ? fam.replace(/\s+/g, " ").trim() : "";
+    const k = chaveNome(familia);
     if (!k) continue;
-    // se a IA não bate exatamente um nome real, tenta encaixar no mais próximo (1-2 letras)
-    if (!candChaves.has(k)) {
-      const sim = acharSimilar(k, candidatos);
-      if (sim) { correcoes.push({ de: familia, para: sim.nome }); familia = sim.nome; k = chaveNome(sim.nome); }
-    }
     map.set(k, { familia, participar: !!(m as { participar?: unknown })?.participar });
   }
 
@@ -76,7 +53,7 @@ export async function saveStatus(membros: unknown): Promise<{ status: StatusRow[
       ON CONFLICT (chave) DO UPDATE SET familia = EXCLUDED.familia, participar = EXCLUDED.participar, atualizado = now()`);
   }
   if (stmts.length) await sql.transaction(stmts);
-  return { status: await readScan(), correcoes };
+  return readScan();
 }
 
 export async function resetStatus(): Promise<void> {

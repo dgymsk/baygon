@@ -21,10 +21,11 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 export default function ParticiparReconcile({
-  confirmados, espera, offBot, canEdit, statusInicial, posInicial, warKey,
+  confirmados, espera, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit,
 }: {
   confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean;
   statusInicial: Row[]; posInicial: boolean; warKey: string | null;
+  correcoesInit: { de: string; para: string }[];
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +35,6 @@ export default function ParticiparReconcile({
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
   const [falhas, setFalhas] = useState<{ nome: string; erro: string }[]>([]);
-  const [correcoes, setCorrecoes] = useState<{ de: string; para: string }[]>([]);
 
   // re-sincroniza do servidor (outro PC subiu print / mudou o pós-liberação), sem atropelar upload local
   const recSig = useMemo(() => statusInicial.map((s) => `${chaveNome(s.familia)}:${s.participar ? 1 : 0}`).join("\n") + "##" + (posInicial ? 1 : 0), [statusInicial, posInicial]);
@@ -75,7 +75,7 @@ export default function ParticiparReconcile({
   }
 
   async function rodar(files: FileList) {
-    setBusy(true); setErro(""); setFalhas([]); setCorrecoes([]);
+    setBusy(true); setErro(""); setFalhas([]);
     const arr = Array.from(files);
     const falhasLocal: { nome: string; erro: string }[] = [];
     try {
@@ -100,11 +100,10 @@ export default function ParticiparReconcile({
       if (lote.size > 0) {
         setProg("salvando…");
         const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()] }) });
-        const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[]; correcoes?: { de: string; para: string }[] }));
+        const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[] }));
         if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
         setStatus(sj.status ?? []);
-        setCorrecoes(sj.correcoes ?? []);
-        if (pos) router.refresh(); // pós-liberação: atualiza os "roubos" no board de PTs
+        router.refresh(); // canonicaliza nomes (Denzell→Denzel) + atualiza roubos/PT no servidor
       }
       setProg("");
     } catch (e) {
@@ -178,11 +177,11 @@ export default function ParticiparReconcile({
           </ul>
         </div>
       )}
-      {correcoes.length > 0 && (
+      {correcoesInit.length > 0 && (
         <div style={{ color: C.verde, fontSize: 12.5, marginTop: 6, marginBottom: 10, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "8px 11px", background: C.inputBg }}>
-          <b>✏ {correcoes.length} nome(s) corrigido(s) por similaridade</b> — confira se bateu certo:
+          <b>✏ {correcoesInit.length} nome(s) corrigido(s) por similaridade</b> — confira se bateu certo:
           <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", marginTop: 4 }}>
-            {correcoes.map((c, i) => <span key={i} style={{ color: C.mute }}>{c.de} → <b style={{ color: C.texto }}>{c.para}</b></span>)}
+            {correcoesInit.map((c, i) => <span key={i} style={{ color: C.mute }}>{c.de} → <b style={{ color: C.texto }}>{c.para}</b></span>)}
           </div>
         </div>
       )}
