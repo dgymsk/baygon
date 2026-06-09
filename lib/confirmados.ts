@@ -56,20 +56,41 @@ function parsePlayer(line: string): PlayerConf | null {
   return nome ? { tag: m[1] as Tag, nome, nota, iconKey } : null;
 }
 
+// Cache curto em memória: o Discord limita por canal (429). Numa rajada de leituras
+// (render da página + cada save relendo a war + router.refresh) compartilhamos 1 chamada.
+let cache: { at: number; data: Confirmados } | null = null;
+const TTL_MS = Number(process.env.CONFIRMADOS_TTL_MS ?? 10_000);
+const sleepC = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function fetchConfirmados(): Promise<Confirmados> {
   if (!BOT_TOKEN || !CHANNEL) return { ok: false, erro: "bot não configurado", grupos: [], listaEspera: [] };
+
+  if (cache && cache.data.ok && Date.now() - cache.at < TTL_MS) return cache.data;
+
   let msgs: { id?: string; embeds?: { title?: string; fields?: { name: string; value: string }[] }[]; author?: { username?: string; bot?: boolean }; timestamp?: string }[];
   try {
-    const res = await fetch(`https://discord.com/api/v10/channels/${CHANNEL}/messages?limit=15`, {
-      headers: { Authorization: `Bot ${BOT_TOKEN}` },
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const erro = res.status === 403 ? "bot sem acesso ao canal" : `Discord ${res.status}`;
+    const url = `https://discord.com/api/v10/channels/${CHANNEL}/messages?limit=15`;
+    const opts = { headers: { Authorization: `Bot ${BOT_TOKEN}` }, cache: "no-store" as const };
+    let res: Response | null = null;
+    for (let t = 0; t < 2; t++) { // 1 tentativa + 1 retry honrando o Retry-After do 429
+      res = await fetch(url, opts);
+      if (res.status !== 429) break;
+      const ra = Number(res.headers.get("retry-after")) || 1;
+      if (t === 1 || ra > 3) break; // não espera demais (mantém o render rápido)
+      await sleepC(Math.min(ra, 3) * 1000 + 100);
+    }
+    if (!res || !res.ok) {
+      const status = res?.status ?? 0;
+      // erro transiente (limite/instabilidade) → devolve o último bom, em vez de quebrar a tela
+      if (cache?.data.ok && (status === 429 || status >= 500 || status === 0)) return cache.data;
+      const erro = status === 403 ? "bot sem acesso ao canal"
+        : status === 429 ? "Discord 429 (limite de chamadas — tente de novo em alguns segundos)"
+        : `Discord ${status || "rede"}`;
       return { ok: false, erro, grupos: [], listaEspera: [] };
     }
     msgs = await res.json();
   } catch (e) {
+    if (cache?.data.ok) return cache.data; // rede caiu → usa o último bom
     return { ok: false, erro: (e as Error).message, grupos: [], listaEspera: [] };
   }
 
@@ -104,5 +125,7 @@ export async function fetchConfirmados(): Promise<Confirmados> {
     }
   }
 
-  return { ok: true, title: embed.title, inicioUnix, messageTs: apollo?.timestamp, messageId: apollo?.id, grupos, listaEspera };
+  const data: Confirmados = { ok: true, title: embed.title, inicioUnix, messageTs: apollo?.timestamp, messageId: apollo?.id, grupos, listaEspera };
+  cache = { at: Date.now(), data };
+  return data;
 }
