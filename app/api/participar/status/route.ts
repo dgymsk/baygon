@@ -14,8 +14,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
   try {
-    const status = await saveStatus(body.membros);
-    return NextResponse.json({ status });
+    const { status, correcoes } = await saveStatus(body.membros);
+    return NextResponse.json({ status, correcoes });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
