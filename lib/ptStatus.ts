@@ -3,10 +3,12 @@ import { chaveNome } from "@/lib/nomes";
 import { fetchConfirmados } from "@/lib/confirmados";
 
 /**
- * Composição de PTs (squads): por membro, em qual PT está e se é líder (coroa).
- * Replace-all (o conjunto enviado É a verdade) atrelado à war_key p/ auto-reset.
+ * Composição de PTs (squads), por LINHA (delta) — seguro p/ duas pessoas editando junto.
+ * Por membro: em qual PT está (1/2/defesa/ungabunga) e se é líder (coroa).
+ * Atrelado à war_key (auto-reset ao trocar a war).
  */
 export type PtRow = { chave: string; familia: string; pt: string | null; lider: boolean };
+export type PtOp = { familia: string; pt?: string | null; lider?: boolean };
 
 const PTS_VALIDAS = new Set(["1", "2", "defesa", "ungabunga"]);
 
@@ -24,37 +26,35 @@ export async function getPt(currentWarKey: string | null): Promise<PtRow[]> {
 }
 
 /**
- * Substitui todo o conjunto de marcações pelo enviado. Relê a war ATUAL no servidor.
- * `warKeyCliente` = a war que o board renderizou; se o bot já trocou de war, o cliente
- * está stale e NÃO gravamos as marcações obsoletas como se fossem da war nova.
+ * Aplica um lote de deltas (upsert/delete por membro). Relê a war no servidor; rejeita
+ * cliente stale e não escreve com war desconhecida; limpa o scan ao trocar de war.
  */
-export async function savePt(marcacoes: unknown, warKeyCliente?: string | null): Promise<PtRow[]> {
+export async function aplicarOps(ops: unknown, warKeyCliente?: string | null): Promise<PtRow[]> {
   const conf = await fetchConfirmados();
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  if (!warKey) return readPt(); // war desconhecida (bot fora do ar) → não escreve (evita DELETE destrutivo)
-  if (warKeyCliente && warKeyCliente !== warKey) return getPt(warKey); // cliente stale → ignora
+  if (!warKey) return readPt(); // war desconhecida (bot fora) → não escreve
+  if (warKeyCliente && warKeyCliente !== warKey) return getPt(warKey); // cliente stale
 
-  const lista = Array.isArray(marcacoes) ? marcacoes : [];
-  const map = new Map<string, { familia: string; pt: string | null; lider: boolean }>();
-  const lideresPorPt = new Set<string>(); // defesa: no máx. 1 líder por PT (o 1º vence)
-  for (const m of lista) {
-    const fam = (m as { familia?: unknown })?.familia;
-    const familia = typeof fam === "string" ? fam.replace(/\s+/g, " ").trim() : "";
+  const lista = Array.isArray(ops) ? ops : [];
+  // limpa só na troca de war — guardado pela meta DENTRO da transação (atômico).
+  const stmts = [sql`DELETE FROM pt_scan WHERE (SELECT war_key FROM pt_meta WHERE id = 1) IS DISTINCT FROM ${warKey}`];
+  stmts.push(sql`INSERT INTO pt_meta (id, war_key) VALUES (1, ${warKey}) ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key`);
+  for (const o of lista) {
+    const famRaw = (o as { familia?: unknown })?.familia;
+    const familia = typeof famRaw === "string" ? famRaw.replace(/\s+/g, " ").trim() : "";
     const k = chaveNome(familia);
     if (!k) continue;
-    const ptRaw = (m as { pt?: unknown })?.pt;
+    const ptRaw = (o as { pt?: unknown })?.pt;
     const pt = typeof ptRaw === "string" && PTS_VALIDAS.has(ptRaw) ? ptRaw : null;
-    let lider = !!(m as { lider?: unknown })?.lider;
-    if (lider && pt) { if (lideresPorPt.has(pt)) lider = false; else lideresPorPt.add(pt); }
-    else if (lider && !pt) lider = false; // coroa sem PT não faz sentido → descarta
-    if (!pt && !lider) continue; // sem marca nenhuma → não persiste
-    map.set(k, { familia, pt, lider });
-  }
-
-  const stmts = [sql`DELETE FROM pt_scan`]; // replace-all
-  stmts.push(sql`INSERT INTO pt_meta (id, war_key) VALUES (1, ${warKey}) ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key`);
-  for (const [k, v] of map) {
-    stmts.push(sql`INSERT INTO pt_scan (chave, familia, pt, lider, atualizado) VALUES (${k}, ${v.familia}, ${v.pt}, ${v.lider}, now())`);
+    const lider = !!(o as { lider?: unknown })?.lider;
+    if (!pt && !lider) {
+      stmts.push(sql`DELETE FROM pt_scan WHERE chave = ${k}`);
+    } else {
+      // 1 líder por PT mesmo com 2 usuários: ao coroar alguém numa PT, tira a coroa dos outros dela
+      if (pt && lider) stmts.push(sql`UPDATE pt_scan SET lider = false WHERE pt = ${pt} AND chave <> ${k}`);
+      stmts.push(sql`INSERT INTO pt_scan (chave, familia, pt, lider, atualizado) VALUES (${k}, ${familia}, ${pt}, ${lider}, now())
+        ON CONFLICT (chave) DO UPDATE SET familia = EXCLUDED.familia, pt = EXCLUDED.pt, lider = EXCLUDED.lider, atualizado = now()`);
+    }
   }
   await sql.transaction(stmts);
   return readPt();

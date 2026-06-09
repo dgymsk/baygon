@@ -3,12 +3,14 @@ import { chaveNome } from "@/lib/nomes";
 import { fetchConfirmados } from "@/lib/confirmados";
 
 /**
- * Substituições manuais. Duas marcas, atreladas à war_key (auto-reset ao trocar a war):
+ * Substituições manuais, por LINHA (delta) — seguro p/ duas pessoas editando junto:
+ * cada ação mexe só na sua linha, sem sobrescrever o que o outro fez.
  *   tipo='remover' — staff tira alguém do grupo do bot (abre vaga);
  *   tipo='subir'   — staff CONFIRMA quem sobe da espera pra ocupar a vaga.
- * Semântica "replace-all": o conjunto enviado É a verdade.
+ * Atrelado à war_key (auto-reset ao trocar a war).
  */
 export type RemocaoRow = { chave: string; familia: string; tipo: string };
+export type RemocaoOp = { familia: string; tipo?: "remover" | "subir" | null };
 
 async function readRemocoes(): Promise<RemocaoRow[]> {
   return (await sql`SELECT chave, familia, tipo FROM remocao_scan ORDER BY familia`) as RemocaoRow[];
@@ -24,30 +26,32 @@ export async function getRemocoes(currentWarKey: string | null): Promise<Remocao
 }
 
 /**
- * Substitui todo o conjunto (remoções + promoções confirmadas) pelo enviado. Relê a
- * war ATUAL no servidor; rejeita cliente stale e não escreve com war desconhecida.
+ * Aplica um lote de deltas (upsert/delete por linha). Relê a war no servidor; rejeita
+ * cliente stale e não escreve com war desconhecida; limpa o scan ao trocar de war.
  */
-export async function saveRemocoes(removidos: unknown, promovidos: unknown, warKeyCliente?: string | null): Promise<RemocaoRow[]> {
+export async function aplicarOps(ops: unknown, warKeyCliente?: string | null): Promise<RemocaoRow[]> {
   const conf = await fetchConfirmados();
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  if (!warKey) return readRemocoes(); // war desconhecida (bot fora do ar) → não escreve (evita DELETE destrutivo)
-  if (warKeyCliente && warKeyCliente !== warKey) return getRemocoes(warKey); // cliente stale → ignora
+  if (!warKey) return readRemocoes(); // war desconhecida (bot fora) → não escreve
+  if (warKeyCliente && warKeyCliente !== warKey) return getRemocoes(warKey); // cliente stale
 
-  const map = new Map<string, { familia: string; tipo: string }>();
-  const add = (lista: unknown, tipo: string) => {
-    for (const f of Array.isArray(lista) ? lista : []) {
-      const familia = typeof f === "string" ? f.replace(/\s+/g, " ").trim() : "";
-      const k = chaveNome(familia);
-      if (k && !map.has(k)) map.set(k, { familia, tipo }); // remover tem prioridade (vem 1º)
-    }
-  };
-  add(removidos, "remover");
-  add(promovidos, "subir");
-
-  const stmts = [sql`DELETE FROM remocao_scan`]; // replace-all
+  const lista = Array.isArray(ops) ? ops : [];
+  // limpa só se a war mudou — guardado pela meta DENTRO da transação (atômico): se outro
+  // cliente já carimbou a war nova, este DELETE vira no-op e não apaga o op dele.
+  const stmts = [sql`DELETE FROM remocao_scan WHERE (SELECT war_key FROM remocao_meta WHERE id = 1) IS DISTINCT FROM ${warKey}`];
   stmts.push(sql`INSERT INTO remocao_meta (id, war_key) VALUES (1, ${warKey}) ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key`);
-  for (const [k, v] of map) {
-    stmts.push(sql`INSERT INTO remocao_scan (chave, familia, tipo, atualizado) VALUES (${k}, ${v.familia}, ${v.tipo}, now())`);
+  for (const o of lista) {
+    const famRaw = (o as { familia?: unknown })?.familia;
+    const familia = typeof famRaw === "string" ? famRaw.replace(/\s+/g, " ").trim() : "";
+    const k = chaveNome(familia);
+    if (!k) continue;
+    const tipo = (o as { tipo?: unknown })?.tipo;
+    if (tipo === "remover" || tipo === "subir") {
+      stmts.push(sql`INSERT INTO remocao_scan (chave, familia, tipo, atualizado) VALUES (${k}, ${familia}, ${tipo}, now())
+        ON CONFLICT (chave) DO UPDATE SET familia = EXCLUDED.familia, tipo = EXCLUDED.tipo, atualizado = now()`);
+    } else {
+      stmts.push(sql`DELETE FROM remocao_scan WHERE chave = ${k}`);
+    }
   }
   await sql.transaction(stmts);
   return readRemocoes();

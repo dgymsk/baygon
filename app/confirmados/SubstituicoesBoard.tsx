@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
+
+type RemOp = { familia: string; tipo: "remover" | "subir" | null };
 
 const GUILD: Record<string, { label: string; icon: string }> = {
   M: { label: "Manicômio", icon: "/guilds/manicomio.png" },
@@ -47,6 +50,7 @@ export default function SubstituicoesBoard({
 }: {
   grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; promovidosInit: string[]; rosterNomes: string[]; canEdit: boolean; warKey: string | null;
 }) {
+  const router = useRouter();
   const [removidos, setRemovidos] = useState<Set<string>>(() => new Set(removidosInit.map(chaveNome)));
   const [promovidos, setPromovidos] = useState<Set<string>>(() => new Set(promovidosInit.map(chaveNome)));
   const [saving, setSaving] = useState(false);
@@ -136,59 +140,72 @@ export default function SubstituicoesBoard({
     return { grupoView, plano, promovidoKeys, promovidoPara, abertasPorIcon, podePromover, sugeridoKeys };
   }, [removidos, promovidos, grupos, listaEspera]);
 
-  // persistência serializada (replace-all dos dois conjuntos; o último estado vence)
-  const latestRef = useRef<{ rem: string[]; prom: string[] }>({ rem: removidosInit, prom: promovidosInit });
-  const savingRef = useRef(false);
-  async function persist(rem: Set<string>, prom: Set<string>) {
-    const nomes = (s: Set<string>) => [...s].map((k) => nomePorChave.get(k)).filter((n): n is string => !!n);
-    latestRef.current = { rem: nomes(rem), prom: nomes(prom) };
-    if (savingRef.current) return;
-    savingRef.current = true; setSaving(true);
+  // envia DELTAS (ops) por linha — seguro p/ edição concorrente. Fila serializada.
+  const opQueueRef = useRef<RemOp[]>([]);
+  const flushingRef = useRef(false);
+  async function enviarOps(ops: RemOp[]) {
+    if (!ops.length) return;
+    opQueueRef.current.push(...ops);
+    if (flushingRef.current) return;
+    flushingRef.current = true; setSaving(true);
     try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const snap = latestRef.current;
-        const res = await fetch("/api/confirmados/remocao", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ removidos: snap.rem, promovidos: snap.prom, warKey }) });
+      while (opQueueRef.current.length) {
+        const batch = opQueueRef.current; opQueueRef.current = [];
+        const res = await fetch("/api/confirmados/remocao", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops: batch, warKey }) });
         if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || `erro ${res.status}`); }
-        if (latestRef.current === snap) break;
       }
       setErro("");
+      router.refresh(); // propaga p/ os outros boards (roster da PT) e re-sincroniza
     } catch (e) { setErro((e as Error).message); }
-    finally { savingRef.current = false; setSaving(false); }
+    finally { flushingRef.current = false; setSaving(false); }
   }
+
+  // re-sincroniza do servidor quando os dados mudam (outro PC editou), sem atropelar edição local
+  const subSig = removidosInit.join("\n") + "\u0001" + promovidosInit.join("\n");
+  const lastSubSig = useRef(subSig);
+  useEffect(() => { // sem dep-array: re-tenta a cada render (pega o update após o flush)
+    if (subSig === lastSubSig.current || flushingRef.current) return;
+    lastSubSig.current = subSig;
+    setRemovidos(new Set(removidosInit.map(chaveNome)));
+    setPromovidos(new Set(promovidosInit.map(chaveNome)));
+  });
 
   function toggleRemover(p: PlayerConf) {
     if (!canEdit) return;
     const k = chaveNome(p.nome);
     const next = new Set(removidos);
-    if (next.has(k)) next.delete(k); else next.add(k);
+    const removendo = !next.has(k);
+    if (removendo) next.add(k); else next.delete(k);
     // poda promoções que não cabem mais nas vagas (need pode ter encolhido) — sem fantasma
     const prom = promovidosValidos(next, promovidos, grupos, listaEspera);
+    const ops: RemOp[] = [{ familia: p.nome, tipo: removendo ? "remover" : null }];
+    for (const pk of promovidos) if (!prom.has(pk)) ops.push({ familia: nomePorChave.get(pk) ?? pk, tipo: null }); // promoção podada
     setRemovidos(next); setPromovidos(prom);
-    persist(next, prom);
+    enviarOps(ops);
   }
 
   function togglePromover(w: PlayerConf) {
     if (!canEdit || !w.iconKey) return;
     const k = chaveNome(w.nome);
     const cand = new Set(promovidos);
-    if (cand.has(k)) cand.delete(k); else cand.add(k);
+    const confirmando = !cand.has(k);
+    if (confirmando) cand.add(k); else cand.delete(k);
     // valida contra o need atual (cap em ordem da espera) — confirma só se couber
     const prom = promovidosValidos(removidos, cand, grupos, listaEspera);
-    if (cand.has(k) && !prom.has(k)) return; // tentou subir mas não há vaga → ignora
+    if (confirmando && !prom.has(k)) return; // tentou subir mas não há vaga → ignora
     setPromovidos(prom);
-    persist(removidos, prom);
+    enviarOps([{ familia: w.nome, tipo: confirmando ? "subir" : null }]);
   }
 
   async function resetar() {
     if (!canEdit || !confirm("Limpar todas as remoções e promoções confirmadas?")) return;
     setRemovidos(new Set()); setPromovidos(new Set());
-    latestRef.current = { rem: [], prom: [] };
+    opQueueRef.current = [];
     setSaving(true);
     try {
       const res = await fetch("/api/confirmados/remocao", { method: "DELETE" });
       if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || "falha ao limpar"); }
-      setErro("");
+      setErro(""); router.refresh();
     } catch (e) { setErro((e as Error).message); }
     finally { setSaving(false); }
   }

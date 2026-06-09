@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
@@ -42,6 +43,7 @@ export default function MontarPtsBoard({
 }: {
   grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; canEdit: boolean; warKey: string | null;
 }) {
+  const router = useRouter();
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
     const m = new Map<string, Mark>();
     for (const r of marcacoesInit) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
@@ -62,42 +64,54 @@ export default function MontarPtsBoard({
     return out;
   }, [grupos, hidden, roubo]);
 
-  // ---- persistência serializada (replace-all; o último estado vence) ----
-  const latestRef = useRef<{ familia: string; pt: string | null; lider: boolean }[]>([]);
-  const savingRef = useRef(false);
-  async function persist(map: Map<string, Mark>) {
-    const arr = [...map.values()].map((v) => ({ familia: v.nome, pt: v.pt, lider: v.lider }));
-    latestRef.current = arr;
-    if (savingRef.current) return;
-    savingRef.current = true; setSaving(true);
-    try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const snap = latestRef.current;
-        const res = await fetch("/api/confirmados/pt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ marcacoes: snap, warKey }) });
-        if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || `erro ${res.status}`); }
-        if (latestRef.current === snap) break;
-      }
-      setErro("");
-    } catch (e) { setErro((e as Error).message); }
-    finally { savingRef.current = false; setSaving(false); }
-  }
-
-  function commit(next: Map<string, Mark>) { setMarks(next); persist(next); }
-
-  // poda marcações de quem não é mais membro (ex.: roubo some ao desligar pós-liberação),
-  // pra o popup não contar errado nem re-gravar marca órfã. Só staff persiste a limpeza.
+  // ---- envia DELTAS (ops) por linha — seguro p/ edição concorrente ----
+  type PtOp = { familia: string; pt: string | null; lider: boolean };
   const marksRef = useRef(marks);
   marksRef.current = marks;
+  const opQueueRef = useRef<PtOp[]>([]);
+  const flushingRef = useRef(false);
+  async function enviarOps(ops: PtOp[]) {
+    if (!ops.length) return;
+    opQueueRef.current.push(...ops);
+    if (flushingRef.current) return;
+    flushingRef.current = true; setSaving(true);
+    try {
+      while (opQueueRef.current.length) {
+        const batch = opQueueRef.current; opQueueRef.current = [];
+        const res = await fetch("/api/confirmados/pt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ops: batch, warKey }) });
+        if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || `erro ${res.status}`); }
+      }
+      setErro(""); router.refresh(); // propaga e re-sincroniza
+    } catch (e) { setErro((e as Error).message); }
+    finally { flushingRef.current = false; setSaving(false); }
+  }
+
+  // diff entre o estado anterior e o novo → ops (upsert dos mudados; delete dos sumidos)
+  function commit(next: Map<string, Mark>) {
+    const prev = marksRef.current;
+    const ops: PtOp[] = [];
+    for (const [k, v] of next) { const old = prev.get(k); if (!old || old.pt !== v.pt || old.lider !== v.lider) ops.push({ familia: v.nome, pt: v.pt, lider: v.lider }); }
+    for (const [k, v] of prev) if (!next.has(k)) ops.push({ familia: v.nome, pt: null, lider: false }); // delete
+    setMarks(next);
+    enviarOps(ops);
+  }
+
+  // re-sincroniza do servidor (outro PC editou) FILTRANDO a quem é membro agora. Quem não
+  // é mais membro (removido na substituição, ou roubo que sumiu) some da visão sem apagar a
+  // marca no banco — assim "desfazer" a substituição traz a marca de volta. lastSig evita
+  // atropelar edição local e loops; effect sem dep-array re-tenta após o flush.
+  const initSig = useMemo(() => marcacoesInit.map((r) => `${r.chave}:${r.pt}:${r.lider ? 1 : 0}`).join("\n"), [marcacoesInit]);
+  const membrosSig = useMemo(() => membros.map((p) => chaveNome(p.nome)).join("\n"), [membros]);
+  const lastSyncSig = useRef("");
   useEffect(() => {
+    const sig = initSig + "##" + membrosSig;
+    if (sig === lastSyncSig.current || flushingRef.current) return; // sem mudança ou edição em voo
+    lastSyncSig.current = sig;
     const valid = new Set(membros.map((p) => chaveNome(p.nome)));
-    const cur = marksRef.current;
-    let mudou = false;
-    const next = new Map(cur);
-    for (const k of [...next.keys()]) if (!valid.has(k)) { next.delete(k); mudou = true; }
-    if (mudou) { setMarks(next); if (canEdit) persist(next); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membros]);
+    const m = new Map<string, Mark>();
+    for (const r of marcacoesInit) if (valid.has(r.chave)) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
+    setMarks(m);
+  });
 
   function togglePt(p: PlayerConf, ptKey: string) {
     if (!canEdit) return;
@@ -127,11 +141,11 @@ export default function MontarPtsBoard({
 
   async function resetar() {
     if (!canEdit || !confirm("Limpar todas as marcações de PT (coroas e quadrados)?")) return;
-    setMarks(new Map()); latestRef.current = []; setSaving(true);
+    setMarks(new Map()); opQueueRef.current = []; setSaving(true);
     try {
       const res = await fetch("/api/confirmados/pt", { method: "DELETE" });
       if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || "falha ao limpar"); }
-      setErro("");
+      setErro(""); router.refresh();
     } catch (e) { setErro((e as Error).message); }
     finally { setSaving(false); }
   }

@@ -4,6 +4,7 @@ import { getVagas, nomesDoTexto } from "@/lib/vagas";
 import { getStatus, getPosLiberacao } from "@/lib/participarStatus";
 import { getRemocoes } from "@/lib/remocaoStatus";
 import { getPt } from "@/lib/ptStatus";
+import { gruposEfetivos } from "@/lib/substituicoes";
 import { chaveNome } from "@/lib/nomes";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
@@ -13,6 +14,7 @@ import ParticiparReconcile from "./ParticiparReconcile";
 import VagasEditor from "./VagasEditor";
 import SubstituicoesBoard from "./SubstituicoesBoard";
 import MontarPtsBoard from "./MontarPtsBoard";
+import AutoSync from "./AutoSync";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
@@ -50,6 +52,8 @@ export default async function ConfirmadosPage() {
   const rosterNomes = (rosterRows as { n: string }[]).map((r) => r.n);
   const removidosInit = remocoesInit.filter((r) => r.tipo === "remover").map((r) => r.familia);
   const promovidosInit = remocoesInit.filter((r) => r.tipo === "subir").map((r) => r.familia);
+  // roster efetivo pós-substituição (removidos saem, promovidos confirmados entram) p/ o board de PTs
+  const gruposPt = gruposEfetivos(conf.grupos, conf.listaEspera, new Set(removidosInit.map(chaveNome)), new Set(promovidosInit.map(chaveNome)));
 
   // reservas (hidden) como linhas de roster, deduplicadas contra os nomes do bot
   const botChaves = new Set(confirmadosNomes.map(chaveNome));
@@ -110,6 +114,7 @@ export default async function ConfirmadosPage() {
           </div>
         ) : (
           <>
+            <AutoSync />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
               <Stat><b style={{ color: C.verde }}>{totalConf}</b> confirmados</Stat>
               <Stat><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nM}</Stat>
@@ -130,7 +135,7 @@ export default async function ConfirmadosPage() {
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
 
             {/* montar PTs (squads): coroa de líder + 1/2/Defesa/UngaBunga + popup */}
-            <MontarPtsBoard grupos={conf.grupos} hidden={hiddenMembros} roubo={rouboMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
+            <MontarPtsBoard grupos={gruposPt} hidden={hiddenMembros} roubo={rouboMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.

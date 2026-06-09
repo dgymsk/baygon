@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Vagas } from "@/lib/vagas";
 import { C } from "@/lib/theme";
@@ -15,6 +15,17 @@ export default function VagasEditor({ vagasInit, canEdit }: { vagasInit: Vagas; 
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const dirty = JSON.stringify(vagas) !== saved;
   const ro = !canEdit;
+
+  // re-sincroniza do servidor (outro PC salvou vagas) — só quando não há edição pendente
+  const vagasSig = JSON.stringify(vagasInit);
+  const lastSig = useRef(vagasSig);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => { // sem dep-array: re-tenta a cada render (pega o update quando não está dirty)
+    if (vagasSig === lastSig.current || dirtyRef.current) return;
+    lastSig.current = vagasSig;
+    setVagas(vagasInit); setSaved(vagasSig);
+  });
 
   const setVaga = (g: "MANI" | "RESO", patch: Partial<{ hidden: number; texto: string }>) => {
     if (ro) return;

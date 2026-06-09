@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
@@ -34,6 +34,16 @@ export default function ParticiparReconcile({
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
   const [falhas, setFalhas] = useState<{ nome: string; erro: string }[]>([]);
+
+  // re-sincroniza do servidor (outro PC subiu print / mudou o pós-liberação), sem atropelar upload local
+  const recSig = useMemo(() => statusInicial.map((s) => `${chaveNome(s.familia)}:${s.participar ? 1 : 0}`).join("\n") + "##" + (posInicial ? 1 : 0), [statusInicial, posInicial]);
+  const lastRecSig = useRef(recSig);
+  useEffect(() => { // sem dep-array: re-tenta a cada render (pega o update após o upload)
+    if (recSig === lastRecSig.current || busy) return;
+    lastRecSig.current = recSig;
+    setStatus(statusInicial);
+    setPos(posInicial);
+  });
 
   // reconciliação (chave canônica em tudo)
   const participarRows = status.filter((s) => s.participar);

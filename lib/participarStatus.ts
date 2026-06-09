@@ -29,8 +29,6 @@ export async function getStatus(currentWarKey: string | null): Promise<StatusRow
 export async function saveStatus(membros: unknown): Promise<StatusRow[]> {
   const conf = await fetchConfirmados();
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const meta = (await sql`SELECT war_key FROM participar_meta WHERE id = 1`) as { war_key: string | null }[];
-  const stored = meta[0]?.war_key ?? null;
 
   const lista = Array.isArray(membros) ? membros : [];
   const map = new Map<string, { familia: string; participar: boolean }>();
@@ -43,7 +41,9 @@ export async function saveStatus(membros: unknown): Promise<StatusRow[]> {
   }
 
   const stmts = [];
-  if (warKey && stored !== warKey) stmts.push(sql`DELETE FROM participar_scan`); // war mudou → limpa antes
+  // limpa só na troca de war — guardado pela meta DENTRO da transação (atômico):
+  // dois uploads concorrentes na war nova não apagam um ao outro.
+  if (warKey) stmts.push(sql`DELETE FROM participar_scan WHERE (SELECT war_key FROM participar_meta WHERE id = 1) IS DISTINCT FROM ${warKey}`);
   // ao trocar de war, pos_liberacao volta a FALSE; na mesma war, preserva o valor
   if (warKey) stmts.push(sql`INSERT INTO participar_meta (id, war_key, pos_liberacao) VALUES (1, ${warKey}, FALSE)
     ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key,
@@ -76,10 +76,7 @@ export async function setPosLiberacao(valor: boolean, warKeyCliente?: string | n
   if (!warKey) return getPosLiberacao(null); // war desconhecida (bot fora) → não escreve
   if (warKeyCliente && warKeyCliente !== warKey) return getPosLiberacao(warKey); // cliente stale
 
-  const meta = (await sql`SELECT war_key FROM participar_meta WHERE id = 1`) as { war_key: string | null }[];
-  const stored = meta[0]?.war_key ?? null;
-  const stmts = [];
-  if (stored !== warKey) stmts.push(sql`DELETE FROM participar_scan`); // war mudou → limpa scan antigo
+  const stmts = [sql`DELETE FROM participar_scan WHERE (SELECT war_key FROM participar_meta WHERE id = 1) IS DISTINCT FROM ${warKey}`];
   stmts.push(sql`INSERT INTO participar_meta (id, war_key, pos_liberacao) VALUES (1, ${warKey}, ${valor})
     ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key, pos_liberacao = EXCLUDED.pos_liberacao`);
   await sql.transaction(stmts);
