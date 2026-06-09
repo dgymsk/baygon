@@ -106,7 +106,7 @@ export default async function ConfirmadosPage() {
             <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} />
 
             {/* substituições: remover do grupo + subir o próximo da espera (mesma pt) */}
-            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={remocoesInit.map((r) => r.familia)} rosterNomes={rosterNomes} canEdit={canEdit} />
+            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={remocoesInit.map((r) => r.familia)} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.

@@ -89,13 +89,18 @@ export async function fetchConfirmados(): Promise<Confirmados> {
       if (t) inicioUnix = Number(t[1]);
       continue;
     }
-    const cap = nome.match(/^(.*?)\s*\((\d+\/(\d+))\)\s*$/);
-    if (cap && !inWaitlist) {
-      const players = f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p);
-      grupos.push({ nome: cap[1].trim(), capacidade: cap[2], limite: Number(cap[3]), iconKey: iconeChave(f.name), players });
-    } else if (/lista de espera/i.test(nome) || inWaitlist || !nome) {
+    // a espera é detectada ANTES de tentar casar como grupo — o Apollo pode titular
+    // o cabeçalho da espera com contagem ("Lista de espera (3/30)"), que casaria o
+    // regex de capacidade e viraria um "grupo" fantasma, comendo os reservas.
+    if (/lista de espera/i.test(nome) || inWaitlist || !nome) {
       inWaitlist = true;
       listaEspera.push(...f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p));
+      continue;
+    }
+    const cap = nome.match(/^(.*?)\s*\((\d+\/(\d+))\)\s*$/);
+    if (cap) {
+      const players = f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p);
+      grupos.push({ nome: cap[1].trim(), capacidade: cap[2], limite: Number(cap[3]), iconKey: iconeChave(f.name), players });
     }
   }
 

@@ -22,10 +22,15 @@ export async function getRemocoes(currentWarKey: string | null): Promise<Remocao
   return readRemocoes();
 }
 
-/** Substitui todo o conjunto de remoções pelo enviado. Relê a war ATUAL no servidor. */
-export async function saveRemocoes(familias: unknown): Promise<RemocaoRow[]> {
+/**
+ * Substitui todo o conjunto de remoções pelo enviado. Relê a war ATUAL no servidor.
+ * `warKeyCliente` = a war que o board renderizou: se o bot já trocou de war, o
+ * cliente está stale e NÃO gravamos seus nomes obsoletos como se fossem da war nova.
+ */
+export async function saveRemocoes(familias: unknown, warKeyCliente?: string | null): Promise<RemocaoRow[]> {
   const conf = await fetchConfirmados();
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
+  if (warKeyCliente && warKey && warKeyCliente !== warKey) return getRemocoes(warKey); // cliente stale → ignora
 
   const lista = Array.isArray(familias) ? familias : [];
   const map = new Map<string, string>();

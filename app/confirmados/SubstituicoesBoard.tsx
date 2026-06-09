@@ -13,21 +13,22 @@ const GUILD: Record<string, { label: string; icon: string }> = {
 // ícone da pt: "c<id>" = custom emoji do Discord (CDN); "u<char>" = emoji unicode.
 function Icone({ iconKey, size = 15 }: { iconKey: string | null; size?: number }) {
   if (!iconKey) return null;
-  if (iconKey.startsWith("c")) return <img src={`https://cdn.discordapp.com/emojis/${iconKey.slice(1)}.png`} alt="" width={size} height={size} style={{ borderRadius: 3, verticalAlign: "-2px" }} />;
+  if (iconKey.startsWith("c")) return <img src={`https://cdn.discordapp.com/emojis/${iconKey.slice(1)}.png`} alt="" width={size} height={size} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ borderRadius: 3, verticalAlign: "-2px" }} />;
   return <span style={{ fontSize: size }}>{iconKey.slice(1)}</span>;
 }
 
 export default function SubstituicoesBoard({
-  grupos, listaEspera, removidosInit, rosterNomes, canEdit,
+  grupos, listaEspera, removidosInit, rosterNomes, canEdit, warKey,
 }: {
-  grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; rosterNomes: string[]; canEdit: boolean;
+  grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; rosterNomes: string[]; canEdit: boolean; warKey: string | null;
 }) {
   const [removidos, setRemovidos] = useState<Set<string>>(() => new Set(removidosInit.map(chaveNome)));
   const [saving, setSaving] = useState(false);
   const [erro, setErro] = useState("");
+  const [copiado, setCopiado] = useState(false);
 
-  const roster = useMemo(() => new Set(rosterNomes.map((n) => n.toLowerCase())), [rosterNomes]);
-  const conhecido = (p: PlayerConf) => roster.has(p.nome.toLowerCase());
+  const roster = useMemo(() => new Set(rosterNomes.map(chaveNome)), [rosterNomes]);
+  const conhecido = (p: PlayerConf) => roster.has(chaveNome(p.nome));
 
   const nomePorChave = useMemo(() => {
     const m = new Map<string, string>();
@@ -36,13 +37,9 @@ export default function SubstituicoesBoard({
     return m;
   }, [grupos, listaEspera]);
 
-  const grupoPorIcon = useMemo(() => {
-    const m = new Map<string, GrupoConf>();
-    for (const g of grupos) if (g.iconKey) m.set(g.iconKey, g);
-    return m;
-  }, [grupos]);
-
   // cascata: cada remoção num grupo abre 1 vaga; sobe o próximo da espera com o MESMO ícone.
+  // A fila de cada ícone é REPARTIDA entre os grupos que abriram vaga (via cursor), pra
+  // dois grupos com o mesmo emoji não duplicarem o mesmo reserva nem errar o pareamento.
   const dados = useMemo(() => {
     const isRem = (p: PlayerConf) => removidos.has(chaveNome(p.nome));
     const need = new Map<string, number>();
@@ -51,30 +48,37 @@ export default function SubstituicoesBoard({
       const n = g.players.filter(isRem).length;
       if (n > 0) need.set(g.iconKey, (need.get(g.iconKey) ?? 0) + n);
     }
-    const promotedByIcon = new Map<string, PlayerConf[]>();
-    const promotedKeys = new Set<string>();
+    // fila de candidatos por ícone (ordem do Apollo), limitada ao total de vagas abertas
+    const filaPorIcon = new Map<string, PlayerConf[]>();
     for (const w of listaEspera) {
       if (isRem(w) || !w.iconKey) continue;
       const left = need.get(w.iconKey) ?? 0;
       if (left <= 0) continue;
-      const arr = promotedByIcon.get(w.iconKey) ?? [];
-      arr.push(w);
-      promotedByIcon.set(w.iconKey, arr);
-      promotedKeys.add(chaveNome(w.nome));
+      filaPorIcon.set(w.iconKey, [...(filaPorIcon.get(w.iconKey) ?? []), w]);
       need.set(w.iconKey, left - 1);
     }
+    const cursor = new Map<string, number>(); // próximo da fila ainda não atribuído, por ícone
+    const promotedKeys = new Set<string>();
+    const promovidoPara = new Map<string, string>(); // chave do promovido -> nome da pt
     const grupoView = grupos.map((g) => {
-      const promoted = g.iconKey ? promotedByIcon.get(g.iconKey) ?? [] : [];
-      const ativos = g.players.filter((p) => !isRem(p)).length + promoted.length;
+      const removedHere = g.players.filter(isRem);
+      let promoted: PlayerConf[] = [];
+      if (g.iconKey && removedHere.length) {
+        const pool = filaPorIcon.get(g.iconKey) ?? [];
+        const start = cursor.get(g.iconKey) ?? 0;
+        promoted = pool.slice(start, start + removedHere.length);
+        cursor.set(g.iconKey, start + promoted.length);
+        for (const w of promoted) { promotedKeys.add(chaveNome(w.nome)); promovidoPara.set(chaveNome(w.nome), g.nome); }
+      }
+      const ativos = g.players.length - removedHere.length + promoted.length;
       const livre = g.limite != null ? Math.max(0, g.limite - ativos) : 0;
-      return { g, promoted, livre };
+      return { g, removedHere, promoted, ativos, livre };
     });
     const plano: { pt: string; iconKey: string | null; removido: PlayerConf; promovido: PlayerConf | null }[] = [];
     for (const gv of grupoView) {
-      const removedHere = gv.g.players.filter(isRem);
-      removedHere.forEach((rmv, i) => plano.push({ pt: gv.g.nome, iconKey: gv.g.iconKey, removido: rmv, promovido: gv.promoted[i] ?? null }));
+      gv.removedHere.forEach((rmv, i) => plano.push({ pt: gv.g.nome, iconKey: gv.g.iconKey, removido: rmv, promovido: gv.promoted[i] ?? null }));
     }
-    return { grupoView, plano, promotedKeys };
+    return { grupoView, plano, promotedKeys, promovidoPara };
   }, [removidos, grupos, listaEspera]);
 
   // persistência serializada (replace-all; o último estado vence mesmo com toggles rápidos)
@@ -89,7 +93,7 @@ export default function SubstituicoesBoard({
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const snap = latestRef.current;
-        const res = await fetch("/api/confirmados/remocao", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ familias: snap }) });
+        const res = await fetch("/api/confirmados/remocao", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ familias: snap, warKey }) });
         if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || `erro ${res.status}`); }
         if (latestRef.current === snap) break;
       }
@@ -126,6 +130,12 @@ export default function SubstituicoesBoard({
   const planoTexto = dados.plano.map((r) => r.promovido
     ? `Sair: ${r.removido.nome}  →  Subir: ${r.promovido.nome}  (${r.pt})`
     : `Sair: ${r.removido.nome}  →  SEM reserva na espera  (${r.pt})`).join("\n");
+
+  function copiarPlano() {
+    const p = navigator.clipboard?.writeText(planoTexto);
+    if (!p) return;
+    p.then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }).catch(() => {});
+  }
 
   // linha de jogador (grupo ou espera) com botão remover/desfazer
   const Linha = ({ p, prom, estado }: { p: PlayerConf; prom?: boolean; estado?: "espera" }) => {
@@ -175,7 +185,7 @@ export default function SubstituicoesBoard({
         <div style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "10px 13px", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
             <span style={{ color: C.amarelo, fontWeight: 700, fontSize: 13 }}>Plano ({dados.plano.length})</span>
-            <button onClick={() => navigator.clipboard?.writeText(planoTexto).catch(() => {})} title="copiar plano" style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12 }}>⧉ copiar</button>
+            <button onClick={copiarPlano} title="copiar plano" style={{ background: "none", border: "none", color: copiado ? C.verde : C.mute, cursor: "pointer", fontSize: 12 }}>{copiado ? "✓ copiado" : "⧉ copiar"}</button>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {dados.plano.map((r, i) => (
@@ -195,11 +205,11 @@ export default function SubstituicoesBoard({
 
       {/* grupos */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12, marginBottom: 14 }}>
-        {dados.grupoView.map(({ g, promoted, livre }) => (
+        {dados.grupoView.map(({ g, promoted, livre, ativos }) => (
           <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6 }}>
               <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}><Icone iconKey={g.iconKey} /> {g.nome}</span>
-              <span style={{ color: C.mute, fontSize: 11 }}>{g.capacidade}{livre > 0 ? ` · ${livre} livre` : ""}</span>
+              <span style={{ color: C.mute, fontSize: 11 }} title="ocupadas/limite de vagas (após remoções e promoções)">{ativos}/{g.limite ?? "?"}{livre > 0 ? ` · ${livre} livre` : ""}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {g.players.length === 0 && promoted.length === 0
@@ -218,7 +228,7 @@ export default function SubstituicoesBoard({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "3px 16px" }}>
             {listaEspera.map((p, i) => {
               const prom = isProm(p);
-              const pt = p.iconKey ? grupoPorIcon.get(p.iconKey)?.nome : undefined;
+              const pt = dados.promovidoPara.get(chaveNome(p.nome));
               return (
                 <div key={i}>
                   <Linha p={p} prom={prom} estado="espera" />
