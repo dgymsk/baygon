@@ -30,6 +30,7 @@ export default function ParticiparReconcile({
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
+  const [falhas, setFalhas] = useState<{ nome: string; erro: string }[]>([]);
 
   // reconciliação (chave canônica em tudo)
   const participarRows = status.filter((s) => s.participar);
@@ -45,27 +46,35 @@ export default function ParticiparReconcile({
   for (const s of participarRows) { const k = chaveNome(s.familia); if (esperadoSet.has(k)) continue; (espSet.has(k) ? retirarEspera : retirarFora).push(s.familia); }
 
   async function rodar(files: FileList) {
-    setBusy(true); setErro("");
+    setBusy(true); setErro(""); setFalhas([]);
+    const arr = Array.from(files);
+    const falhasLocal: { nome: string; erro: string }[] = [];
     try {
       const lote = new Map<string, Row>(); // dedupe do lote (último vence)
-      const arr = Array.from(files);
       for (let i = 0; i < arr.length; i++) {
         setProg(`lendo print ${i + 1}/${arr.length}…`);
-        const image = await fileToBase64(arr[i]);
-        const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error || `erro ${res.status}`);
-        for (const m of (j.membros ?? []) as Row[]) {
-          const familia = (m.familia ?? "").replace(/\s+/g, " ").trim();
-          const k = chaveNome(familia);
-          if (k) lote.set(k, { familia, participar: !!m.participar });
+        try {
+          const image = await fileToBase64(arr[i]);
+          const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
+          const j = await res.json().catch(() => ({} as { error?: string; membros?: Row[] }));
+          if (!res.ok) throw new Error(j.error || `erro ${res.status}`);
+          for (const m of (j.membros ?? []) as Row[]) {
+            const familia = (m.familia ?? "").replace(/\s+/g, " ").trim();
+            const k = chaveNome(familia);
+            if (k) lote.set(k, { familia, participar: !!m.participar });
+          }
+        } catch (e) {
+          falhasLocal.push({ nome: arr[i].name || `print ${i + 1}`, erro: (e as Error).message });
         }
       }
-      setProg("salvando…");
-      const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()] }) });
-      const sj = await save.json();
-      if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
-      setStatus(sj.status ?? []);
+      if (lote.size > 0) {
+        setProg("salvando…");
+        const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()] }) });
+        const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[] }));
+        if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
+        setStatus(sj.status ?? []);
+      }
+      setFalhas(falhasLocal);
       setProg("");
     } catch (e) {
       setErro((e as Error).message);
@@ -77,7 +86,7 @@ export default function ParticiparReconcile({
 
   async function resetar() {
     if (!confirm("Limpar o status “Participar” lido e recomeçar?")) return;
-    setBusy(true); setErro("");
+    setBusy(true); setErro(""); setFalhas([]);
     try {
       const res = await fetch("/api/participar/status", { method: "DELETE" });
       if (!res.ok) { const j = await res.json(); throw new Error(j.error || "falha ao resetar"); }
@@ -126,6 +135,14 @@ export default function ParticiparReconcile({
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginTop: 6, marginBottom: 8 }}>⚠ {erro}</div>}
+      {falhas.length > 0 && (
+        <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 6, marginBottom: 10, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "8px 11px", background: C.inputBg }}>
+          <b>⚠ {falhas.length} print(s) falharam</b> — os outros foram lidos; re-suba só estes:
+          <ul style={{ margin: "5px 0 0", paddingLeft: 18 }}>
+            {falhas.map((f, i) => <li key={i} style={{ color: C.mute }}><b style={{ color: C.texto }}>{f.nome}</b> — {f.erro}</li>)}
+          </ul>
+        </div>
+      )}
 
       {status.length === 0 ? (
         <div style={{ color: C.mute, fontSize: 13 }}>Nenhum print lido ainda{canEdit ? " — suba um print pra conferir." : "."}</div>

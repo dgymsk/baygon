@@ -21,11 +21,13 @@ function normMedia(m: string): MediaType {
   return "image/png";
 }
 
-const PROMPT = `Esta é uma captura de tela da janela de GUILDA do jogo Black Desert Online (BDO), em português. Há uma tabela cujas colunas incluem "Família (Personagem)" e "Guerra".
+const PROMPT = `Esta é uma captura de tela da janela de GUILDA do jogo Black Desert Online (BDO). A interface pode estar em PORTUGUÊS ou ESPANHOL. Há uma tabela com uma coluna de família/personagem e uma coluna de guerra:
+- coluna de família = "Família (Personagem)" (PT) ou "Familia (Personaje)" (ES);
+- coluna de guerra = "Guerra".
 
 Extraia TODOS os membros visíveis na tabela. Para cada um:
-- "familia": o nome de FAMÍLIA = o texto ANTES do parêntese na coluna "Família (Personagem)". Ex.: "Fafnir (Fafnyra)" -> "Fafnir"; "GhostFarmer (Alquemix)" -> "GhostFarmer". Se não houver parêntese, use o texto todo. Linhas em cinza/apagadas também contam.
-- "participar": true se a coluna "Guerra" dessa linha mostrar exatamente "Participar"; false se mostrar "Não" (ou qualquer outro valor/vazio).
+- "familia": o nome de FAMÍLIA = o texto ANTES do parêntese na coluna de família. Ex.: "Fafnir (Fafnyra)" -> "Fafnir"; "GhostFarmer (Alquemix)" -> "GhostFarmer". Se não houver parêntese, use o texto todo. Linhas em cinza/apagadas também contam.
+- "participar": true se a coluna "Guerra" dessa linha mostrar "Participar" (igual em PT e ES); false se mostrar "Não" (PT) ou "No" (ES) ou qualquer outro valor/vazio.
 
 Ignore a linha de cabeçalho. Não invente membros que não estejam na imagem.
 
@@ -48,31 +50,42 @@ const SCHEMA = {
   required: ["membros"],
 };
 
-/** Extrai a lista de uma única imagem (1 print por chamada — mantém o body pequeno). */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const TRANSIENTE = new Set([429, 500, 502, 503, 504]); // sobrecarga/instabilidade → vale retry
+
+/** Extrai a lista de uma única imagem (1 print por chamada — mantém o body pequeno).
+ *  Faz auto-retry em erros transientes do Gemini (503 "UNAVAILABLE", 429, 5xx). */
 export async function lerParticipar(img: ImagemEntrada): Promise<ParticiparRow[]> {
   if (!API_KEY) throw new Error("GEMINI_API_KEY não configurada");
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { inline_data: { mime_type: normMedia(img.mediaType), data: img.data } },
-            { text: PROMPT },
-          ],
-        },
-      ],
-      generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: SCHEMA },
-    }),
+  const reqBody = JSON.stringify({
+    contents: [{ parts: [{ inline_data: { mime_type: normMedia(img.mediaType), data: img.data } }, { text: PROMPT }] }],
+    generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: SCHEMA },
   });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Gemini ${res.status}: ${txt.slice(0, 200)}`);
+  const MAX = 4; // 1 tentativa + 3 retries
+  let res: Response | null = null;
+  let ultErro = "";
+  for (let attempt = 0; attempt < MAX; attempt++) {
+    try {
+      res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY }, body: reqBody });
+    } catch (e) {
+      ultErro = `rede: ${(e as Error).message}`;
+      res = null;
+    }
+    if (res?.ok) break;
+    const status = res?.status ?? 0;
+    const txt = res ? await res.text().catch(() => "") : "";
+    ultErro = `Gemini ${status || "rede"}: ${txt.slice(0, 160) || ultErro}`;
+    const retryavel = res === null || TRANSIENTE.has(status);
+    if (!retryavel || attempt === MAX - 1) {
+      throw new Error(ultErro + (retryavel ? ` (após ${MAX} tentativas)` : ""));
+    }
+    await sleep(700 * 2 ** attempt); // 0.7s, 1.4s, 2.8s
   }
-  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+
+  const data = (await res!.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const texto = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
   const limpo = texto.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
 
