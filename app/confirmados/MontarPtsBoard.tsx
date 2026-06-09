@@ -203,24 +203,30 @@ export default function MontarPtsBoard({
         </div>
       </div>
       <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 12 }}>
-        {canEdit
-          ? "👑 = líder da PT (1 por PT). Quadrados = em qual squad cada um vai (1 / 2 / Defesa / UngaBunga). Salva e reseta junto com a war."
+        <b style={{ color: C.amarelo }}>Só quem confirmou Participar in-game</b> ({membros.length}). {canEdit
+          ? "👑 = líder da PT (1 por PT). Quadrados = em qual squad cada um vai (1 / 2 / Defesa / UngaBunga). Reseta com a war."
           : "Composição montada pela staff. Use “Visualizar PT’s” pra ver as listas."}
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
 
-      {/* grupos do bot */}
+      {membros.length === 0 ? (
+        <div style={{ color: C.mute, fontSize: 13, border: `1px dashed ${C.border2}`, borderRadius: 10, padding: "14px 16px" }}>
+          Ninguém confirmou “Participar” in-game ainda — suba os prints na seção <b style={{ color: C.texto }}>Conferir “Participar”</b> acima pra ver quem vai pra war.
+        </div>
+      ) : (
+      /* grupos do bot — só os que têm gente confirmada */
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
-        {grupos.map((g) => (
+        {grupos.filter((g) => g.players.length > 0).map((g) => (
           <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
             <div style={{ color: C.verde, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{g.nome}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {g.players.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : g.players.map((p, i) => <MemberRow key={i} p={p} />)}
+              {g.players.map((p, i) => <MemberRow key={i} p={p} />)}
             </div>
           </div>
         ))}
       </div>
+      )}
 
       {/* reservas (hidden, como se estivessem no bot) */}
       {hidden.length > 0 && (

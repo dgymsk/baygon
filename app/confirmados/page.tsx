@@ -70,6 +70,12 @@ export default async function ConfirmadosPage() {
         .map((s) => ({ tag: null, nome: s.familia, nota: null, iconKey: null }))
     : [];
 
+  // Montar PTs = SÓ quem confirmou Participar in-game (panorama real de quem vai pra war).
+  // Filtra o roster do bot + reservas pelo scan; roubo já é participar=true por definição.
+  const confirmadosIngame = new Set(statusInicial.filter((s) => s.participar).map((s) => chaveNome(s.familia)));
+  const gruposPtConf = gruposPt.map((g) => ({ ...g, players: g.players.filter((p) => confirmadosIngame.has(chaveNome(p.nome))) }));
+  const hiddenConf = hiddenMembros.filter((p) => confirmadosIngame.has(chaveNome(p.nome)));
+
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
   );
@@ -134,8 +140,8 @@ export default async function ConfirmadosPage() {
             {/* substituições: remover do grupo + confirmar quem sobe da espera */}
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
 
-            {/* montar PTs (squads): coroa de líder + 1/2/Defesa/UngaBunga + popup */}
-            <MontarPtsBoard grupos={gruposPt} hidden={hiddenMembros} roubo={rouboMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
+            {/* montar PTs (squads): SÓ confirmados in-game; coroa de líder + 1/2/Defesa/UngaBunga + popup */}
+            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.
