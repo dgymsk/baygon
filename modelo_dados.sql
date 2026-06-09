@@ -71,6 +71,21 @@ CREATE TABLE IF NOT EXISTS remocao_meta (
 );
 INSERT INTO remocao_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
 
+-- Composição de PTs (squads): por membro, em qual PT está (1/2/defesa/ungabunga)
+-- e se é líder (coroa). Replace-all; atrelado à war_key p/ auto-reset.
+CREATE TABLE IF NOT EXISTS pt_scan (
+  chave      TEXT PRIMARY KEY,   -- chaveNome(familia)
+  familia    TEXT NOT NULL,      -- nome de exibição
+  pt         TEXT,               -- '1' | '2' | 'defesa' | 'ungabunga' | NULL
+  lider      BOOLEAN NOT NULL DEFAULT FALSE,
+  atualizado TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS pt_meta (
+  id      INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  war_key TEXT
+);
+INSERT INTO pt_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
+
 -- ============ FATO CRU (a extração dos prints) ============
 
 CREATE TABLE wars (

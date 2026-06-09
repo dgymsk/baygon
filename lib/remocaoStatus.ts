@@ -30,7 +30,8 @@ export async function getRemocoes(currentWarKey: string | null): Promise<Remocao
 export async function saveRemocoes(familias: unknown, warKeyCliente?: string | null): Promise<RemocaoRow[]> {
   const conf = await fetchConfirmados();
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  if (warKeyCliente && warKey && warKeyCliente !== warKey) return getRemocoes(warKey); // cliente stale → ignora
+  if (!warKey) return readRemocoes(); // war desconhecida (bot fora do ar) → não escreve (evita DELETE destrutivo)
+  if (warKeyCliente && warKeyCliente !== warKey) return getRemocoes(warKey); // cliente stale → ignora
 
   const lista = Array.isArray(familias) ? familias : [];
   const map = new Map<string, string>();

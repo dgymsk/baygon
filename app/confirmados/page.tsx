@@ -3,6 +3,8 @@ import { fetchConfirmados } from "@/lib/confirmados";
 import { getVagas, nomesDoTexto } from "@/lib/vagas";
 import { getStatus } from "@/lib/participarStatus";
 import { getRemocoes } from "@/lib/remocaoStatus";
+import { getPt } from "@/lib/ptStatus";
+import { chaveNome } from "@/lib/nomes";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
@@ -10,6 +12,7 @@ import RefreshButton from "./RefreshButton";
 import ParticiparReconcile from "./ParticiparReconcile";
 import VagasEditor from "./VagasEditor";
 import SubstituicoesBoard from "./SubstituicoesBoard";
+import MontarPtsBoard from "./MontarPtsBoard";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
@@ -43,8 +46,15 @@ export default async function ConfirmadosPage() {
   const offBotNomes = [...offBotMani, ...offBotReso];
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const [statusInicial, remocoesInit] = await Promise.all([getStatus(warKey), getRemocoes(warKey)]);
+  const [statusInicial, remocoesInit, ptInit] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey)]);
   const rosterNomes = (rosterRows as { n: string }[]).map((r) => r.n);
+
+  // reservas (hidden) como linhas de roster, deduplicadas contra os nomes do bot
+  const botChaves = new Set(confirmadosNomes.map(chaveNome));
+  const hiddenMembros = [
+    ...offBotMani.map((n) => ({ tag: "M" as const, nome: n, nota: null, iconKey: null })),
+    ...offBotReso.map((n) => ({ tag: "R" as const, nome: n, nota: null, iconKey: null })),
+  ].filter((p) => { const k = chaveNome(p.nome); return k && !botChaves.has(k); });
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
@@ -107,6 +117,9 @@ export default async function ConfirmadosPage() {
 
             {/* substituições: remover do grupo + subir o próximo da espera (mesma pt) */}
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={remocoesInit.map((r) => r.familia)} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
+
+            {/* montar PTs (squads): coroa de líder + 1/2/Defesa/UngaBunga + popup */}
+            <MontarPtsBoard grupos={conf.grupos} hidden={hiddenMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.
