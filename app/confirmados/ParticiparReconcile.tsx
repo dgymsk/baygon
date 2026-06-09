@@ -67,6 +67,7 @@ export default function ParticiparReconcile({
           falhasLocal.push({ nome: arr[i].name || `print ${i + 1}`, erro: (e as Error).message });
         }
       }
+      setFalhas(falhasLocal); // antes do save: a lista de prints que falharam não some se o save der erro
       if (lote.size > 0) {
         setProg("salvando…");
         const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()] }) });
@@ -74,7 +75,6 @@ export default function ParticiparReconcile({
         if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
         setStatus(sj.status ?? []);
       }
-      setFalhas(falhasLocal);
       setProg("");
     } catch (e) {
       setErro((e as Error).message);

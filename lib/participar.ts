@@ -75,9 +75,11 @@ export async function lerParticipar(img: ImagemEntrada): Promise<ParticiparRow[]
       res = null;
     }
     if (res?.ok) break;
+    if (res) {
+      const txt = await res.text().catch(() => "");
+      ultErro = `Gemini ${res.status}: ${txt.slice(0, 160) || res.statusText || "sem corpo"}`;
+    } // se res === null, ultErro já é "rede: <msg>" (não re-prefixar)
     const status = res?.status ?? 0;
-    const txt = res ? await res.text().catch(() => "") : "";
-    ultErro = `Gemini ${status || "rede"}: ${txt.slice(0, 160) || ultErro}`;
     const retryavel = res === null || TRANSIENTE.has(status);
     if (!retryavel || attempt === MAX - 1) {
       throw new Error(ultErro + (retryavel ? ` (após ${MAX} tentativas)` : ""));
@@ -85,8 +87,17 @@ export async function lerParticipar(img: ImagemEntrada): Promise<ParticiparRow[]
     await sleep(700 * 2 ** attempt); // 0.7s, 1.4s, 2.8s
   }
 
-  const data = (await res!.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const data = (await res!.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    promptFeedback?: { blockReason?: string };
+  };
   const texto = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+  if (!texto) {
+    // 200 OK porém sem texto: bloqueio de segurança, MAX_TOKENS ou prompt barrado → mensagem específica
+    const motivo = data.candidates?.[0]?.finishReason ?? data.promptFeedback?.blockReason;
+    if (motivo === "MAX_TOKENS") throw new Error("print grande/denso demais (resposta truncada) — recorte ou divida a imagem");
+    throw new Error(motivo ? `a IA não retornou conteúdo (motivo: ${motivo}) — verifique a imagem` : "a IA não retornou conteúdo");
+  }
   const limpo = texto.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
 
   let parsed: { membros?: ParticiparRow[] };
