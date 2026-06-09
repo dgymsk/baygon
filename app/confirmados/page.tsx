@@ -7,6 +7,7 @@ import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
 import RefreshButton from "./RefreshButton";
 import ParticiparReconcile from "./ParticiparReconcile";
+import VagasEditor from "./VagasEditor";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
@@ -110,29 +111,8 @@ export default async function ConfirmadosPage() {
               {conf.messageTs && <Stat>atualizado {fmtData(Math.floor(new Date(conf.messageTs).getTime() / 1000))}</Stat>}
             </div>
 
-            {/* vagas fora do bot (configuradas em /config) */}
-            {(hiddenTotal > 0 || offBotNomes.length > 0) && (
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px", marginBottom: 18 }}>
-                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Vagas fora do bot</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
-                  {(["MANI", "RESO"] as const).map((g) => {
-                    const nomes = g === "MANI" ? offBotMani : offBotReso;
-                    return (
-                      <div key={g} style={{ minWidth: 200 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.texto, marginBottom: 4 }}>
-                          <img src={g === "MANI" ? "/guilds/manicomio.png" : "/guilds/resonance.png"} alt="" width={14} height={14} style={{ borderRadius: 3 }} />
-                          {g === "MANI" ? "Manicômio" : "Resonance"} · <span style={{ color: C.mute }}>{vagas[g].hidden} reservada(s)</span>
-                        </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px" }}>
-                          {nomes.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : nomes.map((n) => <span key={n} style={{ fontSize: 12.5, color: C.texto }}>{n}</span>)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p style={{ color: C.mute, fontSize: 11, marginTop: 8, marginBottom: 0 }}>Configurado em ⚙ Config. Esses nomes contam como vaga válida (não caem no “deve retirar”).</p>
-              </div>
-            )}
+            {/* vagas fora do bot — editável aqui (migrado do /config) */}
+            <VagasEditor vagasInit={vagas} canEdit={canEdit} />
 
             {/* reconciliação bot x in-game (Participar) */}
             <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} />

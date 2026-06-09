@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ membros });
   } catch (e) {
     const msg = (e as Error).message;
-    const status = msg.includes("ANTHROPIC_API_KEY") ? 503 : 500;
+    const status = msg.includes("GEMINI_API_KEY") ? 503 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }

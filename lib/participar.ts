@@ -1,20 +1,25 @@
 /**
- * Lê print(s) da janela de Guilda do BDO via Claude (visão) e extrai, por membro,
- * a Família e se a coluna "Guerra" está em "Participar". Não há API do BDO — a
- * única forma de trazer esse status pro app é interpretando a imagem.
+ * Lê print(s) da janela de Guilda do BDO via Gemini (Google, visão) e extrai,
+ * por membro, a Família e se a coluna "Guerra" está em "Participar". Não há API
+ * do BDO — a única forma de trazer esse status pro app é interpretando a imagem.
  */
-import Anthropic from "@anthropic-ai/sdk";
 
 export type ParticiparRow = { familia: string; participar: boolean };
+export type ImagemEntrada = { mediaType: string; data: string };
 
-// Modelo de visão — trocável por env (claude-opus-4-8 / claude-sonnet-4-6 / claude-haiku-4-5)
-// p/ comparar custo vs precisão sem redeploy de código.
-const MODEL = process.env.PARTICIPAR_MODEL ?? "claude-sonnet-4-6";
-// adaptive thinking só existe em opus 4.6+/4.7/4.8 e sonnet 4.6; haiku 4.5 / sonnet 4.5 dão 400.
-const USA_ADAPTIVE = /claude-(opus-4-(6|7|8)|sonnet-4-6)/.test(MODEL);
+// Modelo de visão (Google Gemini) — trocável por env. Ex.: gemini-2.5-flash
+// (rápido/barato), gemini-2.5-pro (mais preciso em print denso).
+const MODEL = process.env.PARTICIPAR_MODEL ?? "gemini-2.5-flash";
+const API_KEY = process.env.GEMINI_API_KEY;
 
 type MediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
-export type ImagemEntrada = { mediaType: string; data: string };
+function normMedia(m: string): MediaType {
+  const v = (m || "").toLowerCase();
+  if (v.includes("jpeg") || v.includes("jpg")) return "image/jpeg";
+  if (v.includes("gif")) return "image/gif";
+  if (v.includes("webp")) return "image/webp";
+  return "image/png";
+}
 
 const PROMPT = `Esta é uma captura de tela da janela de GUILDA do jogo Black Desert Online (BDO), em português. Há uma tabela cujas colunas incluem "Família (Personagem)" e "Guerra".
 
@@ -24,42 +29,53 @@ Extraia TODOS os membros visíveis na tabela. Para cada um:
 
 Ignore a linha de cabeçalho. Não invente membros que não estejam na imagem.
 
-Responda SOMENTE com um objeto JSON válido neste formato exato, sem markdown, sem comentários e sem nenhum texto fora do JSON:
+Responda SOMENTE com um objeto JSON válido neste formato exato:
 {"membros":[{"familia":"NomeDeFamilia","participar":true}]}`;
 
-function normMedia(m: string): MediaType {
-  const v = (m || "").toLowerCase();
-  if (v.includes("jpeg") || v.includes("jpg")) return "image/jpeg";
-  if (v.includes("gif")) return "image/gif";
-  if (v.includes("webp")) return "image/webp";
-  return "image/png";
-}
+// Schema p/ forçar a saída estruturada (responseSchema do Gemini).
+const SCHEMA = {
+  type: "object",
+  properties: {
+    membros: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { familia: { type: "string" }, participar: { type: "boolean" } },
+        required: ["familia", "participar"],
+      },
+    },
+  },
+  required: ["membros"],
+};
 
 /** Extrai a lista de uma única imagem (1 print por chamada — mantém o body pequeno). */
 export async function lerParticipar(img: ImagemEntrada): Promise<ParticiparRow[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY não configurada");
-  const client = new Anthropic({ apiKey });
+  if (!API_KEY) throw new Error("GEMINI_API_KEY não configurada");
 
-  const res = await client.messages.create({
-    model: MODEL,
-    max_tokens: 16000,
-    // adaptive (quando suportado) mantém o bloco de texto final limpo (só o JSON)
-    ...(USA_ADAPTIVE ? { thinking: { type: "adaptive" as const } } : {}),
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: normMedia(img.mediaType), data: img.data } },
-          { type: "text", text: PROMPT },
-        ],
-      },
-    ],
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { inline_data: { mime_type: normMedia(img.mediaType), data: img.data } },
+            { text: PROMPT },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: SCHEMA },
+    }),
   });
 
-  const bloco = res.content.find((b) => b.type === "text");
-  const texto = bloco && bloco.type === "text" ? bloco.text : "";
-  const limpo = texto.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Gemini ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const texto = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+  const limpo = texto.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
   let parsed: { membros?: ParticiparRow[] };
   try {
     parsed = JSON.parse(limpo);
