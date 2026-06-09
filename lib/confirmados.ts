@@ -7,8 +7,9 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL = process.env.DISCORD_CONFIRM_CHANNEL_ID;
 
 export type Tag = "M" | "R" | null;
-export type PlayerConf = { tag: Tag; nome: string; nota: string | null };
-export type GrupoConf = { nome: string; capacidade: string | null; players: PlayerConf[] };
+// iconKey: chave do ícone (pt) da linha — usado p/ casar quem está na espera com seu grupo.
+export type PlayerConf = { tag: Tag; nome: string; nota: string | null; iconKey?: string | null };
+export type GrupoConf = { nome: string; capacidade: string | null; limite: number | null; iconKey: string | null; players: PlayerConf[] };
 export type Confirmados = {
   ok: boolean;
   erro?: string;
@@ -29,7 +30,22 @@ function limpa(s: string): string {
     .trim();
 }
 
+/**
+ * Extrai a CHAVE do ícone (pt) no começo de uma string. Custom emoji <:nome:id>
+ * (ou animado <a:nome:id>) → "c<id>"; emoji unicode (ex.: 🛡) → "u<char>". Mesma
+ * chave nos dois lados (nome do grupo e linha da espera) = mesma pt. Sem ícone → null.
+ */
+function iconeChave(raw: string): string | null {
+  const s = raw.replace(/^>>>\s*/, "").replace(/^\u{1F512}/u, "").trimStart();
+  const cm = s.match(/^<a?:\w+:(\d+)>/);
+  if (cm) return `c${cm[1]}`;
+  const um = s.match(/^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)/u);
+  if (um) return `u${um[1].replace(/[\uFE0F\u200B\u200D]/g, "")}`;
+  return null;
+}
+
 function parsePlayer(line: string): PlayerConf | null {
+  const iconKey = iconeChave(line);
   const s = limpa(line.replace(/^>>>\s*/, "")).replace(/\\([_*~`])/g, "$1").trim();
   const m = s.match(/^\[([MR])\]\s*(.+)$/);
   if (!m) return null;
@@ -37,7 +53,7 @@ function parsePlayer(line: string): PlayerConf | null {
   let nota: string | null = null;
   const pm = nome.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   if (pm) { nome = pm[1].trim(); nota = pm[2].trim(); }
-  return nome ? { tag: m[1] as Tag, nome, nota } : null;
+  return nome ? { tag: m[1] as Tag, nome, nota, iconKey } : null;
 }
 
 export async function fetchConfirmados(): Promise<Confirmados> {
@@ -73,10 +89,10 @@ export async function fetchConfirmados(): Promise<Confirmados> {
       if (t) inicioUnix = Number(t[1]);
       continue;
     }
-    const cap = nome.match(/^(.*?)\s*\((\d+\/\d+)\)\s*$/);
+    const cap = nome.match(/^(.*?)\s*\((\d+\/(\d+))\)\s*$/);
     if (cap && !inWaitlist) {
       const players = f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p);
-      grupos.push({ nome: cap[1].trim(), capacidade: cap[2], players });
+      grupos.push({ nome: cap[1].trim(), capacidade: cap[2], limite: Number(cap[3]), iconKey: iconeChave(f.name), players });
     } else if (/lista de espera/i.test(nome) || inWaitlist || !nome) {
       inWaitlist = true;
       listaEspera.push(...f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p));

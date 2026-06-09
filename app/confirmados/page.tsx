@@ -1,13 +1,15 @@
 import Link from "next/link";
-import { fetchConfirmados, type PlayerConf } from "@/lib/confirmados";
+import { fetchConfirmados } from "@/lib/confirmados";
 import { getVagas, nomesDoTexto } from "@/lib/vagas";
 import { getStatus } from "@/lib/participarStatus";
+import { getRemocoes } from "@/lib/remocaoStatus";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
 import RefreshButton from "./RefreshButton";
 import ParticiparReconcile from "./ParticiparReconcile";
 import VagasEditor from "./VagasEditor";
+import SubstituicoesBoard from "./SubstituicoesBoard";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
@@ -31,9 +33,6 @@ export default async function ConfirmadosPage() {
     canEditNow(),
     getVagas(),
   ]);
-  const roster = new Set((rosterRows as { n: string }[]).map((r) => r.n));
-  const conhecido = (p: PlayerConf) => roster.has(p.nome.toLowerCase());
-
   const totalConf = conf.grupos.reduce((s, g) => s + g.players.length, 0);
   const nM = conf.grupos.reduce((s, g) => s + g.players.filter((p) => p.tag === "M").length, 0);
   const nR = totalConf - nM;
@@ -44,23 +43,12 @@ export default async function ConfirmadosPage() {
   const offBotNomes = [...offBotMani, ...offBotReso];
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const statusInicial = await getStatus(warKey);
+  const [statusInicial, remocoesInit] = await Promise.all([getStatus(warKey), getRemocoes(warKey)]);
+  const rosterNomes = (rosterRows as { n: string }[]).map((r) => r.n);
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
   );
-  const Player = ({ p }: { p: PlayerConf }) => {
-    const g = p.tag ? GUILD[p.tag] : null;
-    const ok = conhecido(p);
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: ok ? C.texto : C.mute }} title={ok ? "" : "fora do roster"}>
-        {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
-        <span>{p.nome}</span>
-        {p.nota && <span style={{ color: C.mute, fontSize: 11 }}>({p.nota})</span>}
-        {!ok && <span style={{ color: C.amarelo, fontSize: 10 }}>•</span>}
-      </div>
-    );
-  };
 
   return (
     <div style={{ background: C.bgGlow, minHeight: "100vh", padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
@@ -117,30 +105,8 @@ export default async function ConfirmadosPage() {
             {/* reconciliação bot x in-game (Participar) */}
             <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} />
 
-            {/* grupos */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12, marginBottom: 18 }}>
-              {conf.grupos.map((g) => (
-                <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
-                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ color: C.verde, fontWeight: 700, fontSize: 13.5 }}>{g.nome}</span>
-                    <span style={{ color: C.mute, fontSize: 11 }}>{g.capacidade}</span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {g.players.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : g.players.map((p, i) => <Player key={i} p={p} />)}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* lista de espera */}
-            {conf.listaEspera.length > 0 && (
-              <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "14px 16px" }}>
-                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Lista de espera ({conf.listaEspera.length})</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "4px 14px" }}>
-                  {conf.listaEspera.map((p, i) => <Player key={i} p={p} />)}
-                </div>
-              </div>
-            )}
+            {/* substituições: remover do grupo + subir o próximo da espera (mesma pt) */}
+            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={remocoesInit.map((r) => r.familia)} rosterNomes={rosterNomes} canEdit={canEdit} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.
