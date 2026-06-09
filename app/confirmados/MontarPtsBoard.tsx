@@ -13,9 +13,8 @@ const GUILD: Record<string, { label: string; icon: string }> = {
 
 // ===== Config das 4 PTs (squads) =====
 const FLAME_ID = "1459738870592835584"; // emoji "flame" do bot = ícone do Defesa
-// Ícone do UngaBunga — TROCAR aqui quando o usuário mandar:
-//   { kind: "cdn", id: "123..." }  (emoji do Discord)  |  { kind: "img", src: "/ungabunga.png" }
-const UNGA: { kind: "emoji"; emoji: string } | { kind: "cdn"; id: string } | { kind: "img"; src: string } = { kind: "emoji", emoji: "🦍" };
+// Ícone do UngaBunga = emoji ":striker:" do bot.
+const UNGA: { kind: "emoji"; emoji: string } | { kind: "cdn"; id: string } | { kind: "img"; src: string } = { kind: "cdn", id: "1459717634303066275" };
 
 const PTS = [
   { key: "1", nome: "PT1" },
