@@ -17,12 +17,38 @@ function Icone({ iconKey, size = 15 }: { iconKey: string | null; size?: number }
   return <span style={{ fontSize: size }}>{iconKey.slice(1)}</span>;
 }
 
+/**
+ * Poda o conjunto de promoções confirmadas ao número de vagas abertas (need) por ícone,
+ * em ordem da espera. Evita "promoção fantasma" quando o need encolhe (ex.: desfazer uma
+ * remoção) — só persiste o que realmente cabe nas vagas.
+ */
+function promovidosValidos(rem: Set<string>, prom: Set<string>, grupos: GrupoConf[], listaEspera: PlayerConf[]): Set<string> {
+  const isRem = (p: PlayerConf) => rem.has(chaveNome(p.nome));
+  const need = new Map<string, number>();
+  for (const g of grupos) {
+    if (!g.iconKey) continue;
+    const n = g.players.filter(isRem).length;
+    if (n > 0) need.set(g.iconKey, (need.get(g.iconKey) ?? 0) + n);
+  }
+  const count = new Map<string, number>();
+  const valido = new Set<string>();
+  for (const w of listaEspera) {
+    const k = chaveNome(w.nome);
+    if (isRem(w) || !w.iconKey || !prom.has(k)) continue;
+    const lim = need.get(w.iconKey) ?? 0;
+    const c = count.get(w.iconKey) ?? 0;
+    if (c < lim) { valido.add(k); count.set(w.iconKey, c + 1); }
+  }
+  return valido;
+}
+
 export default function SubstituicoesBoard({
-  grupos, listaEspera, removidosInit, rosterNomes, canEdit, warKey,
+  grupos, listaEspera, removidosInit, promovidosInit, rosterNomes, canEdit, warKey,
 }: {
-  grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; rosterNomes: string[]; canEdit: boolean; warKey: string | null;
+  grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; promovidosInit: string[]; rosterNomes: string[]; canEdit: boolean; warKey: string | null;
 }) {
   const [removidos, setRemovidos] = useState<Set<string>>(() => new Set(removidosInit.map(chaveNome)));
+  const [promovidos, setPromovidos] = useState<Set<string>>(() => new Set(promovidosInit.map(chaveNome)));
   const [saving, setSaving] = useState(false);
   const [erro, setErro] = useState("");
   const [copiado, setCopiado] = useState(false);
@@ -37,63 +63,92 @@ export default function SubstituicoesBoard({
     return m;
   }, [grupos, listaEspera]);
 
-  // cascata: cada remoção num grupo abre 1 vaga; sobe o próximo da espera com o MESMO ícone.
-  // A fila de cada ícone é REPARTIDA entre os grupos que abriram vaga (via cursor), pra
-  // dois grupos com o mesmo emoji não duplicarem o mesmo reserva nem errar o pareamento.
+  // cascata MANUAL: remover abre vaga; subir é CONFIRMADO pela staff (✓/↑). A fila do
+  // ícone é repartida por grupo (cursor) pra grupos com o mesmo emoji não se confundirem.
   const dados = useMemo(() => {
     const isRem = (p: PlayerConf) => removidos.has(chaveNome(p.nome));
-    const need = new Map<string, number>();
+    const isProm = (p: PlayerConf) => promovidos.has(chaveNome(p.nome));
+
+    const need = new Map<string, number>(); // vagas abertas por ícone (= removidos no(s) grupo(s))
     for (const g of grupos) {
       if (!g.iconKey) continue;
       const n = g.players.filter(isRem).length;
       if (n > 0) need.set(g.iconKey, (need.get(g.iconKey) ?? 0) + n);
     }
-    // fila de candidatos por ícone (ordem do Apollo), limitada ao total de vagas abertas
-    const filaPorIcon = new Map<string, PlayerConf[]>();
+    // promoções CONFIRMADAS por ícone (ordem da espera), limitadas ao need
+    const confirmadosPorIcon = new Map<string, PlayerConf[]>();
     for (const w of listaEspera) {
-      if (isRem(w) || !w.iconKey) continue;
-      const left = need.get(w.iconKey) ?? 0;
-      if (left <= 0) continue;
-      filaPorIcon.set(w.iconKey, [...(filaPorIcon.get(w.iconKey) ?? []), w]);
-      need.set(w.iconKey, left - 1);
+      if (isRem(w) || !w.iconKey || !isProm(w)) continue;
+      const lim = need.get(w.iconKey) ?? 0;
+      const arr = confirmadosPorIcon.get(w.iconKey) ?? [];
+      if (arr.length < lim) { arr.push(w); confirmadosPorIcon.set(w.iconKey, arr); }
     }
-    const cursor = new Map<string, number>(); // próximo da fila ainda não atribuído, por ícone
-    const promotedKeys = new Set<string>();
-    const promovidoPara = new Map<string, string>(); // chave do promovido -> nome da pt
+    const abertasPorIcon = new Map<string, number>();
+    for (const [icon, n] of need) abertasPorIcon.set(icon, Math.max(0, n - (confirmadosPorIcon.get(icon)?.length ?? 0)));
+    // candidatos (sugestões) por ícone: não-removido, não-confirmado, em ordem — só onde há vaga aberta
+    const candidatosPorIcon = new Map<string, PlayerConf[]>();
+    const podePromover = new Set<string>();
+    const sugeridoKeys = new Set<string>();
+    for (const w of listaEspera) {
+      if (isRem(w) || !w.iconKey || isProm(w)) continue;
+      if ((abertasPorIcon.get(w.iconKey) ?? 0) <= 0) continue;
+      const arr = candidatosPorIcon.get(w.iconKey) ?? [];
+      if (arr.length === 0) sugeridoKeys.add(chaveNome(w.nome)); // 1º da fila = sugerido
+      arr.push(w); candidatosPorIcon.set(w.iconKey, arr);
+      podePromover.add(chaveNome(w.nome));
+    }
+
+    const cursor = new Map<string, number>();
+    const promovidoKeys = new Set<string>();
+    const promovidoPara = new Map<string, string>();
     const grupoView = grupos.map((g) => {
       const removedHere = g.players.filter(isRem);
       let promoted: PlayerConf[] = [];
       if (g.iconKey && removedHere.length) {
-        const pool = filaPorIcon.get(g.iconKey) ?? [];
+        const pool = confirmadosPorIcon.get(g.iconKey) ?? [];
         const start = cursor.get(g.iconKey) ?? 0;
         promoted = pool.slice(start, start + removedHere.length);
         cursor.set(g.iconKey, start + promoted.length);
-        for (const w of promoted) { promotedKeys.add(chaveNome(w.nome)); promovidoPara.set(chaveNome(w.nome), g.nome); }
+        for (const w of promoted) { promovidoKeys.add(chaveNome(w.nome)); promovidoPara.set(chaveNome(w.nome), g.nome); }
       }
+      const abertasAqui = removedHere.length - promoted.length;
       const ativos = g.players.length - removedHere.length + promoted.length;
       const livre = g.limite != null ? Math.max(0, g.limite - ativos) : 0;
-      return { g, removedHere, promoted, ativos, livre };
+      return { g, removedHere, promoted, abertasAqui, ativos, livre };
     });
-    const plano: { pt: string; iconKey: string | null; removido: PlayerConf; promovido: PlayerConf | null }[] = [];
-    for (const gv of grupoView) {
-      gv.removedHere.forEach((rmv, i) => plano.push({ pt: gv.g.nome, iconKey: gv.g.iconKey, removido: rmv, promovido: gv.promoted[i] ?? null }));
-    }
-    return { grupoView, plano, promotedKeys, promovidoPara };
-  }, [removidos, grupos, listaEspera]);
 
-  // persistência serializada (replace-all; o último estado vence mesmo com toggles rápidos)
-  const latestRef = useRef<string[]>(removidosInit);
+    // plano: cada removido -> confirmado (✓) OU vaga aberta + sugestão
+    const sugCursor = new Map<string, number>();
+    const plano: { pt: string; iconKey: string | null; removido: PlayerConf; promovido: PlayerConf | null; sugestao: PlayerConf | null }[] = [];
+    for (const gv of grupoView) {
+      gv.removedHere.forEach((rmv, i) => {
+        const promovido = gv.promoted[i] ?? null;
+        let sugestao: PlayerConf | null = null;
+        if (!promovido && gv.g.iconKey) {
+          const cands = candidatosPorIcon.get(gv.g.iconKey) ?? [];
+          const ci = sugCursor.get(gv.g.iconKey) ?? 0;
+          sugestao = cands[ci] ?? null;
+          sugCursor.set(gv.g.iconKey, ci + 1);
+        }
+        plano.push({ pt: gv.g.nome, iconKey: gv.g.iconKey, removido: rmv, promovido, sugestao });
+      });
+    }
+    return { grupoView, plano, promovidoKeys, promovidoPara, abertasPorIcon, podePromover, sugeridoKeys };
+  }, [removidos, promovidos, grupos, listaEspera]);
+
+  // persistência serializada (replace-all dos dois conjuntos; o último estado vence)
+  const latestRef = useRef<{ rem: string[]; prom: string[] }>({ rem: removidosInit, prom: promovidosInit });
   const savingRef = useRef(false);
-  async function persist(list: string[]) {
-    latestRef.current = list;
+  async function persist(rem: Set<string>, prom: Set<string>) {
+    const nomes = (s: Set<string>) => [...s].map((k) => nomePorChave.get(k)).filter((n): n is string => !!n);
+    latestRef.current = { rem: nomes(rem), prom: nomes(prom) };
     if (savingRef.current) return;
     savingRef.current = true; setSaving(true);
     try {
-      // continua salvando enquanto o estado mudar durante o request
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const snap = latestRef.current;
-        const res = await fetch("/api/confirmados/remocao", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ familias: snap, warKey }) });
+        const res = await fetch("/api/confirmados/remocao", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ removidos: snap.rem, promovidos: snap.prom, warKey }) });
         if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || `erro ${res.status}`); }
         if (latestRef.current === snap) break;
       }
@@ -102,19 +157,33 @@ export default function SubstituicoesBoard({
     finally { savingRef.current = false; setSaving(false); }
   }
 
-  function toggle(p: PlayerConf) {
+  function toggleRemover(p: PlayerConf) {
     if (!canEdit) return;
     const k = chaveNome(p.nome);
     const next = new Set(removidos);
     if (next.has(k)) next.delete(k); else next.add(k);
-    setRemovidos(next);
-    persist([...next].map((kk) => nomePorChave.get(kk)).filter((n): n is string => !!n));
+    // poda promoções que não cabem mais nas vagas (need pode ter encolhido) — sem fantasma
+    const prom = promovidosValidos(next, promovidos, grupos, listaEspera);
+    setRemovidos(next); setPromovidos(prom);
+    persist(next, prom);
+  }
+
+  function togglePromover(w: PlayerConf) {
+    if (!canEdit || !w.iconKey) return;
+    const k = chaveNome(w.nome);
+    const cand = new Set(promovidos);
+    if (cand.has(k)) cand.delete(k); else cand.add(k);
+    // valida contra o need atual (cap em ordem da espera) — confirma só se couber
+    const prom = promovidosValidos(removidos, cand, grupos, listaEspera);
+    if (cand.has(k) && !prom.has(k)) return; // tentou subir mas não há vaga → ignora
+    setPromovidos(prom);
+    persist(removidos, prom);
   }
 
   async function resetar() {
-    if (!canEdit || !confirm("Limpar todas as remoções marcadas?")) return;
-    setRemovidos(new Set());
-    latestRef.current = [];
+    if (!canEdit || !confirm("Limpar todas as remoções e promoções confirmadas?")) return;
+    setRemovidos(new Set()); setPromovidos(new Set());
+    latestRef.current = { rem: [], prom: [] };
     setSaving(true);
     try {
       const res = await fetch("/api/confirmados/remocao", { method: "DELETE" });
@@ -125,11 +194,11 @@ export default function SubstituicoesBoard({
   }
 
   const isRem = (p: PlayerConf) => removidos.has(chaveNome(p.nome));
-  const isProm = (p: PlayerConf) => dados.promotedKeys.has(chaveNome(p.nome));
+  const temAcao = removidos.size > 0 || promovidos.size > 0;
 
   const planoTexto = dados.plano.map((r) => r.promovido
-    ? `Sair: ${r.removido.nome}  →  Subir: ${r.promovido.nome}  (${r.pt})`
-    : `Sair: ${r.removido.nome}  →  SEM reserva na espera  (${r.pt})`).join("\n");
+    ? `Sair: ${r.removido.nome}  →  SOBE: ${r.promovido.nome}  (${r.pt})`
+    : `Sair: ${r.removido.nome}  →  vaga aberta${r.sugestao ? ` (sugerido: ${r.sugestao.nome})` : " (sem reserva)"}  (${r.pt})`).join("\n");
 
   function copiarPlano() {
     const p = navigator.clipboard?.writeText(planoTexto);
@@ -137,25 +206,22 @@ export default function SubstituicoesBoard({
     p.then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }).catch(() => {});
   }
 
-  // linha de jogador (grupo ou espera) com botão remover/desfazer
-  const Linha = ({ p, prom, estado }: { p: PlayerConf; prom?: boolean; estado?: "espera" }) => {
+  // linha de membro do grupo (✕ remover / ↺ desfazer), ou promovido confirmado (✓)
+  const LinhaGrupo = ({ p, prom }: { p: PlayerConf; prom?: boolean }) => {
     const g = p.tag ? GUILD[p.tag] : null;
     const rem = isRem(p);
     const ok = conhecido(p);
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, opacity: rem ? 0.45 : 1 }}>
-        {estado === "espera" && <Icone iconKey={p.iconKey ?? null} size={13} />}
         {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
         <span style={{ color: rem ? C.vermelho : prom ? C.verde : ok ? C.texto : C.mute, textDecoration: rem ? "line-through" : "none" }}>
-          {prom && !rem && <span style={{ color: C.verde }}>↑ </span>}{p.nome}
+          {prom && <span style={{ color: C.verde }}>↑ </span>}{p.nome}
         </span>
         {p.nota && <span style={{ color: C.mute, fontSize: 11 }}>({p.nota})</span>}
-        {!ok && !rem && <span style={{ color: C.amarelo, fontSize: 10 }} title="fora do roster">•</span>}
-        {canEdit && (
-          <button onClick={() => toggle(p)} title={rem ? "desfazer remoção" : "marcar p/ remover"}
-            style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: rem ? C.mute : C.vermelho, fontSize: 12, lineHeight: 1, padding: "0 2px" }}>
-            {rem ? "↺" : "✕"}
-          </button>
+        {!ok && !rem && !prom && <span style={{ color: C.amarelo, fontSize: 10 }} title="fora do roster">•</span>}
+        {canEdit && (prom
+          ? <button onClick={() => togglePromover(p)} title="desfazer promoção" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 12, lineHeight: 1, padding: "0 2px" }}>↺</button>
+          : <button onClick={() => toggleRemover(p)} title={rem ? "desfazer remoção" : "marcar p/ remover"} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: rem ? C.mute : C.vermelho, fontSize: 12, lineHeight: 1, padding: "0 2px" }}>{rem ? "↺" : "✕"}</button>
         )}
       </div>
     );
@@ -167,20 +233,20 @@ export default function SubstituicoesBoard({
         <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Substituições <span style={{ color: C.mute, fontWeight: 400, fontSize: 12 }}>(bot travado)</span></div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {saving && <span style={{ color: C.mute, fontSize: 12 }}>salvando…</span>}
-          {canEdit && removidos.size > 0 && !saving && (
+          {canEdit && temAcao && !saving && (
             <button onClick={resetar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>
           )}
         </div>
       </div>
       <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 12 }}>
         {canEdit
-          ? "Marque ✕ em quem saiu do grupo — sobe automaticamente o próximo da lista de espera da MESMA pt (mesmo ícone). Salva e reseta junto com a war."
-          : "Plano de substituições montado pela staff. (Só staff marca remoções.)"}
+          ? "Marque ✕ em quem saiu — a vaga fica ABERTA. Confirme quem sobe: ✓ na sugestão (1º da espera) ou ↑ em qualquer reserva da mesma pt. Salva e reseta junto com a war."
+          : "Plano de substituições montado pela staff. (Só staff edita.)"}
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
 
-      {/* plano de substituições — o que fazer no jogo/bot */}
+      {/* plano — o que fazer no jogo/bot; ✓ confirma a sugestão */}
       {dados.plano.length > 0 && (
         <div style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "10px 13px", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
@@ -196,7 +262,12 @@ export default function SubstituicoesBoard({
                 <span style={{ color: C.mute }}>→</span>
                 {r.promovido
                   ? <span style={{ color: C.verde }}>↑ {r.promovido.nome}</span>
-                  : <span style={{ color: C.amarelo, fontSize: 11.5 }}>⚠ ninguém na espera dessa pt</span>}
+                  : r.sugestao
+                    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ color: C.amarelo, fontSize: 11.5 }}>⏳ vaga aberta · sugerido: <b style={{ color: C.texto }}>{r.sugestao.nome}</b></span>
+                        {canEdit && <button onClick={() => r.sugestao && togglePromover(r.sugestao)} title="confirmar a sugestão" style={{ borderRadius: 6, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, cursor: "pointer", fontSize: 11.5, fontWeight: 700, padding: "1px 7px" }}>✓ confirmar</button>}
+                      </span>
+                    : <span style={{ color: C.amarelo, fontSize: 11.5 }}>⚠ ninguém na espera dessa pt</span>}
               </div>
             ))}
           </div>
@@ -205,34 +276,49 @@ export default function SubstituicoesBoard({
 
       {/* grupos */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12, marginBottom: 14 }}>
-        {dados.grupoView.map(({ g, promoted, livre, ativos }) => (
+        {dados.grupoView.map(({ g, promoted, livre, ativos, abertasAqui }) => (
           <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6 }}>
               <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}><Icone iconKey={g.iconKey} /> {g.nome}</span>
-              <span style={{ color: C.mute, fontSize: 11 }} title="ocupadas/limite de vagas (após remoções e promoções)">{ativos}/{g.limite ?? "?"}{livre > 0 ? ` · ${livre} livre` : ""}</span>
+              <span style={{ color: C.mute, fontSize: 11 }} title="ocupadas/limite (após remoções e promoções confirmadas)">{ativos}/{g.limite ?? "?"}{livre > 0 ? ` · ${livre} livre` : ""}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {g.players.length === 0 && promoted.length === 0
                 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
-                : <>{g.players.map((p, i) => <Linha key={`p${i}`} p={p} />)}
-                    {promoted.map((p, i) => <Linha key={`up${i}`} p={p} prom />)}</>}
+                : <>{g.players.map((p, i) => <LinhaGrupo key={`p${i}`} p={p} />)}
+                    {promoted.map((p, i) => <LinhaGrupo key={`up${i}`} p={p} prom />)}</>}
+              {abertasAqui > 0 && <span style={{ color: C.amarelo, fontSize: 11 }}>⏳ {abertasAqui} vaga(s) aberta(s)</span>}
             </div>
           </div>
         ))}
       </div>
 
-      {/* lista de espera */}
+      {/* lista de espera — ↑ subir quando a pt tem vaga aberta */}
       {listaEspera.length > 0 && (
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "12px 14px" }}>
           <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13.5, marginBottom: 9 }}>Lista de espera ({listaEspera.length})</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "3px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "3px 16px" }}>
             {listaEspera.map((p, i) => {
-              const prom = isProm(p);
-              const pt = dados.promovidoPara.get(chaveNome(p.nome));
+              const k = chaveNome(p.nome);
+              const confirmado = dados.promovidoKeys.has(k);
+              const pode = dados.podePromover.has(k);
+              const sugerido = dados.sugeridoKeys.has(k);
+              const g = p.tag ? GUILD[p.tag] : null;
               return (
-                <div key={i}>
-                  <Linha p={p} prom={prom} estado="espera" />
-                  {prom && <div style={{ color: C.verde, fontSize: 10.5, marginLeft: 33 }}>↑ subiu p/ {pt}</div>}
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                  <Icone iconKey={p.iconKey ?? null} size={13} />
+                  {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
+                  <span style={{ color: confirmado ? C.verde : C.texto }}>{confirmado && "↑ "}{p.nome}</span>
+                  {confirmado && <span style={{ color: C.verde, fontSize: 10.5 }}>p/ {dados.promovidoPara.get(k)}</span>}
+                  {canEdit && confirmado && (
+                    <button onClick={() => togglePromover(p)} title="desfazer promoção" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 12, padding: "0 2px" }}>↺</button>
+                  )}
+                  {canEdit && !confirmado && pode && (
+                    <button onClick={() => togglePromover(p)} title={sugerido ? "subir (sugerido)" : "subir esta pessoa"}
+                      style={{ marginLeft: "auto", borderRadius: 6, border: `1px solid ${sugerido ? C.verde : C.border2}`, background: sugerido ? C.verdeTint : "transparent", color: C.verde, cursor: "pointer", fontSize: 11.5, fontWeight: 700, padding: "1px 7px", lineHeight: 1.4 }}>
+                      {sugerido ? "✓ subir" : "↑"}
+                    </button>
+                  )}
                 </div>
               );
             })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
@@ -38,9 +38,9 @@ function PtGlyph({ k, size = 14 }: { k: string; size?: number }) {
 type Mark = { nome: string; pt: string | null; lider: boolean };
 
 export default function MontarPtsBoard({
-  grupos, hidden, marcacoesInit, canEdit, warKey,
+  grupos, hidden, roubo, marcacoesInit, canEdit, warKey,
 }: {
-  grupos: GrupoConf[]; hidden: PlayerConf[]; marcacoesInit: PtRow[]; canEdit: boolean; warKey: string | null;
+  grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; canEdit: boolean; warKey: string | null;
 }) {
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
     const m = new Map<string, Mark>();
@@ -51,15 +51,16 @@ export default function MontarPtsBoard({
   const [erro, setErro] = useState("");
   const [popup, setPopup] = useState(false);
 
-  // ordem estável dos membros (grupos do bot, depois reservas) p/ filar as PTs
+  // ordem estável dos membros (grupos do bot, reservas, depois roubos) p/ filar as PTs
   const membros = useMemo(() => {
     const out: PlayerConf[] = [];
     const visto = new Set<string>();
     const add = (p: PlayerConf) => { const k = chaveNome(p.nome); if (k && !visto.has(k)) { visto.add(k); out.push(p); } };
     for (const g of grupos) for (const p of g.players) add(p);
     for (const p of hidden) add(p);
+    for (const p of roubo) add(p);
     return out;
-  }, [grupos, hidden]);
+  }, [grupos, hidden, roubo]);
 
   // ---- persistência serializada (replace-all; o último estado vence) ----
   const latestRef = useRef<{ familia: string; pt: string | null; lider: boolean }[]>([]);
@@ -83,6 +84,20 @@ export default function MontarPtsBoard({
   }
 
   function commit(next: Map<string, Mark>) { setMarks(next); persist(next); }
+
+  // poda marcações de quem não é mais membro (ex.: roubo some ao desligar pós-liberação),
+  // pra o popup não contar errado nem re-gravar marca órfã. Só staff persiste a limpeza.
+  const marksRef = useRef(marks);
+  marksRef.current = marks;
+  useEffect(() => {
+    const valid = new Set(membros.map((p) => chaveNome(p.nome)));
+    const cur = marksRef.current;
+    let mudou = false;
+    const next = new Map(cur);
+    for (const k of [...next.keys()]) if (!valid.has(k)) { next.delete(k); mudou = true; }
+    if (mudou) { setMarks(next); if (canEdit) persist(next); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membros]);
 
   function togglePt(p: PlayerConf, ptKey: string) {
     if (!canEdit) return;
@@ -199,6 +214,16 @@ export default function MontarPtsBoard({
           <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Reservas (fora do bot) <span style={{ color: C.mute, fontWeight: 400 }}>({hidden.length})</span></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "5px 16px" }}>
             {hidden.map((p, i) => <MemberRow key={i} p={p} />)}
+          </div>
+        </div>
+      )}
+
+      {/* roubaram vaga (pós-liberação 20:30 — Participar in-game sem ser oficial) */}
+      {roubo.length > 0 && (
+        <div style={{ border: `1px dashed ${C.laranja}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px", marginTop: 12 }}>
+          <div style={{ color: C.laranja, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🏴 Roubaram vaga <span style={{ color: C.mute, fontWeight: 400 }}>({roubo.length})</span></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "5px 16px" }}>
+            {roubo.map((p, i) => <MemberRow key={i} p={p} />)}
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
 
@@ -20,13 +21,15 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 export default function ParticiparReconcile({
-  confirmados, espera, offBot, canEdit, statusInicial,
+  confirmados, espera, offBot, canEdit, statusInicial, posInicial, warKey,
 }: {
   confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean;
-  statusInicial: Row[];
+  statusInicial: Row[]; posInicial: boolean; warKey: string | null;
 }) {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Row[]>(statusInicial);
+  const [pos, setPos] = useState(posInicial);
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
@@ -44,6 +47,21 @@ export default function ParticiparReconcile({
   for (const nome of esperadoMap.values()) (participarSet.has(chaveNome(nome)) ? certo : faltaMarcar).push(nome);
   const retirarEspera: string[] = [], retirarFora: string[] = [];
   for (const s of participarRows) { const k = chaveNome(s.familia); if (esperadoSet.has(k)) continue; (espSet.has(k) ? retirarEspera : retirarFora).push(s.familia); }
+  // pós-liberação (20:30): quem está com Participar e não é oficial "roubou" a vaga (legítimo)
+  const roubo = [...retirarEspera, ...retirarFora];
+
+  async function togglePos() {
+    if (!canEdit) return;
+    const novo = !pos;
+    setPos(novo); // otimista
+    try {
+      const res = await fetch("/api/participar/pos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ posLiberacao: novo, warKey }) });
+      const j = await res.json().catch(() => ({} as { error?: string; posLiberacao?: boolean }));
+      if (!res.ok) throw new Error(j.error || "falha ao salvar pós-liberação");
+      setPos(!!j.posLiberacao); // valor autoritativo (servidor pode recusar: bot fora / war mudou)
+      router.refresh(); // o board de PTs recomputa os "roubos" no servidor
+    } catch (e) { setPos(!novo); setErro((e as Error).message); }
+  }
 
   async function rodar(files: FileList) {
     setBusy(true); setErro(""); setFalhas([]);
@@ -74,6 +92,7 @@ export default function ParticiparReconcile({
         const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[] }));
         if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
         setStatus(sj.status ?? []);
+        if (pos) router.refresh(); // pós-liberação: atualiza os "roubos" no board de PTs
       }
       setProg("");
     } catch (e) {
@@ -116,11 +135,15 @@ export default function ParticiparReconcile({
         <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Conferir “Participar” (in-game)</div>
         {canEdit && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button onClick={togglePos} title="Após 20:30 as vagas são liberadas: quem está com Participar e não é oficial conta como roubo de vaga (entra no visualizador de PT)."
+              style={{ borderRadius: 8, border: `1px solid ${pos ? C.amarelo : C.border2}`, background: pos ? C.amareloTint : "transparent", color: pos ? C.amarelo : C.mute, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              🏴 Pós-liberação {pos ? "ON" : "OFF"}
+            </button>
             <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy}
               onChange={(e) => e.target.files?.length && rodar(e.target.files)} style={{ display: "none" }} id="participar-file" />
             <label htmlFor="participar-file"
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: busy ? C.inputBg : C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: busy ? "default" : "pointer" }}>
-              {busy ? (prog || "lendo…") : "📷 Subir print(s)"}
+              {busy ? (prog || "lendo…") : pos ? "📷 Subir prints finais" : "📷 Subir print(s)"}
             </label>
             {status.length > 0 && !busy && (
               <button onClick={resetar} title="limpar o status lido" style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>↺ Reset</button>
@@ -153,9 +176,15 @@ export default function ParticiparReconcile({
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
             <Col titulo="✅ Certo" cor={C.verde} nomes={certo} hint="Tem vaga (bot/fora) e marcou Participar" />
-            <Col titulo="⚠ Falta marcar" cor={C.amarelo} nomes={faltaMarcar} hint="Tem vaga, mas sem Participar → avisar p/ MARCAR" />
-            <Col titulo="⚠ Deve retirar (espera)" cor={C.amarelo} nomes={retirarEspera} hint="Participar in-game, mas na lista de espera → avisar p/ RETIRAR" />
-            <Col titulo="⛔ Deve retirar (fora)" cor={C.vermelho} nomes={retirarFora} hint="Participar in-game, mas fora do bot → avisar p/ RETIRAR" />
+            <Col titulo={pos ? "⚠ Não marcou (perdeu?)" : "⚠ Falta marcar"} cor={C.amarelo} nomes={faltaMarcar} hint={pos ? "Tinha vaga e não marcou — pode ter perdido a vaga" : "Tem vaga, mas sem Participar → avisar p/ MARCAR"} />
+            {pos ? (
+              <Col titulo="🏴 Roubaram vaga" cor={C.laranja} nomes={roubo} hint="Pós-liberação: pegaram vaga in-game (não eram oficiais). Entram no visualizador de PT." />
+            ) : (
+              <>
+                <Col titulo="⚠ Deve retirar (espera)" cor={C.amarelo} nomes={retirarEspera} hint="Participar in-game, mas na lista de espera → avisar p/ RETIRAR" />
+                <Col titulo="⛔ Deve retirar (fora)" cor={C.vermelho} nomes={retirarFora} hint="Participar in-game, mas fora do bot → avisar p/ RETIRAR" />
+              </>
+            )}
           </div>
           <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
             Cruzamento por nome de família. Se um nome no jogo diferir do nome no bot, pode aparecer como divergência — confira esses casos.

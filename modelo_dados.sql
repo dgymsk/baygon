@@ -53,16 +53,19 @@ CREATE TABLE IF NOT EXISTS participar_scan (
   atualizado TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS participar_meta (
-  id      INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  war_key TEXT
+  id            INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  war_key       TEXT,
+  pos_liberacao BOOLEAN NOT NULL DEFAULT FALSE  -- 20:30: vagas liberadas → conta "roubo de vaga"
 );
 INSERT INTO participar_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
 
--- Remoções manuais (staff tira alguém do grupo do bot; sobe o próximo da espera
--- da mesma pt). Replace-all; atrelado à war_key p/ auto-reset quando troca a war.
+-- Substituições manuais: staff tira alguém do grupo do bot (tipo='remover') e
+-- CONFIRMA quem sobe da espera da mesma pt (tipo='subir'). Replace-all; atrelado
+-- à war_key p/ auto-reset quando troca a war.
 CREATE TABLE IF NOT EXISTS remocao_scan (
   chave      TEXT PRIMARY KEY,   -- chaveNome(familia)
   familia    TEXT NOT NULL,      -- nome de exibição
+  tipo       TEXT NOT NULL DEFAULT 'remover',  -- 'remover' | 'subir'
   atualizado TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS remocao_meta (

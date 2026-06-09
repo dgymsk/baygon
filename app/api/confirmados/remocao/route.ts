@@ -7,14 +7,14 @@ import { requireEditor } from "@/lib/requireAuth";
 export async function POST(req: Request) {
   const unauth = await requireEditor();
   if (unauth) return unauth;
-  let body: { familias?: unknown; warKey?: unknown };
+  let body: { removidos?: unknown; promovidos?: unknown; warKey?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
   try {
-    const remocoes = await saveRemocoes(body.familias, typeof body.warKey === "string" ? body.warKey : null);
+    const remocoes = await saveRemocoes(body.removidos, body.promovidos, typeof body.warKey === "string" ? body.warKey : null);
     return NextResponse.json({ remocoes });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

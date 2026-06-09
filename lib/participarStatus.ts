@@ -44,7 +44,10 @@ export async function saveStatus(membros: unknown): Promise<StatusRow[]> {
 
   const stmts = [];
   if (warKey && stored !== warKey) stmts.push(sql`DELETE FROM participar_scan`); // war mudou → limpa antes
-  if (warKey) stmts.push(sql`INSERT INTO participar_meta (id, war_key) VALUES (1, ${warKey}) ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key`);
+  // ao trocar de war, pos_liberacao volta a FALSE; na mesma war, preserva o valor
+  if (warKey) stmts.push(sql`INSERT INTO participar_meta (id, war_key, pos_liberacao) VALUES (1, ${warKey}, FALSE)
+    ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key,
+      pos_liberacao = CASE WHEN participar_meta.war_key IS DISTINCT FROM EXCLUDED.war_key THEN FALSE ELSE participar_meta.pos_liberacao END`);
   for (const [k, v] of map) {
     stmts.push(sql`INSERT INTO participar_scan (chave, familia, participar, atualizado) VALUES (${k}, ${v.familia}, ${v.participar}, now())
       ON CONFLICT (chave) DO UPDATE SET familia = EXCLUDED.familia, participar = EXCLUDED.participar, atualizado = now()`);
@@ -55,4 +58,30 @@ export async function saveStatus(membros: unknown): Promise<StatusRow[]> {
 
 export async function resetStatus(): Promise<void> {
   await sql`DELETE FROM participar_scan`;
+}
+
+/** LEITURA PURA do toggle "pós-liberação" (20:30). War nova → false. */
+export async function getPosLiberacao(currentWarKey: string | null): Promise<boolean> {
+  const meta = (await sql`SELECT war_key, pos_liberacao FROM participar_meta WHERE id = 1`) as { war_key: string | null; pos_liberacao: boolean }[];
+  const row = meta[0];
+  if (!row) return false;
+  if (currentWarKey && row.war_key !== currentWarKey) return false; // war nova → reset
+  return !!row.pos_liberacao;
+}
+
+/** Liga/desliga o "pós-liberação" da war atual (relê a war no servidor; rejeita cliente stale). */
+export async function setPosLiberacao(valor: boolean, warKeyCliente?: string | null): Promise<boolean> {
+  const conf = await fetchConfirmados();
+  const warKey = conf.ok ? (conf.messageId ?? null) : null;
+  if (!warKey) return getPosLiberacao(null); // war desconhecida (bot fora) → não escreve
+  if (warKeyCliente && warKeyCliente !== warKey) return getPosLiberacao(warKey); // cliente stale
+
+  const meta = (await sql`SELECT war_key FROM participar_meta WHERE id = 1`) as { war_key: string | null }[];
+  const stored = meta[0]?.war_key ?? null;
+  const stmts = [];
+  if (stored !== warKey) stmts.push(sql`DELETE FROM participar_scan`); // war mudou → limpa scan antigo
+  stmts.push(sql`INSERT INTO participar_meta (id, war_key, pos_liberacao) VALUES (1, ${warKey}, ${valor})
+    ON CONFLICT (id) DO UPDATE SET war_key = EXCLUDED.war_key, pos_liberacao = EXCLUDED.pos_liberacao`);
+  await sql.transaction(stmts);
+  return valor;
 }

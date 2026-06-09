@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { fetchConfirmados } from "@/lib/confirmados";
 import { getVagas, nomesDoTexto } from "@/lib/vagas";
-import { getStatus } from "@/lib/participarStatus";
+import { getStatus, getPosLiberacao } from "@/lib/participarStatus";
 import { getRemocoes } from "@/lib/remocaoStatus";
 import { getPt } from "@/lib/ptStatus";
 import { chaveNome } from "@/lib/nomes";
@@ -46,8 +46,10 @@ export default async function ConfirmadosPage() {
   const offBotNomes = [...offBotMani, ...offBotReso];
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const [statusInicial, remocoesInit, ptInit] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey)]);
+  const [statusInicial, remocoesInit, ptInit, posLiberacao] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey)]);
   const rosterNomes = (rosterRows as { n: string }[]).map((r) => r.n);
+  const removidosInit = remocoesInit.filter((r) => r.tipo === "remover").map((r) => r.familia);
+  const promovidosInit = remocoesInit.filter((r) => r.tipo === "subir").map((r) => r.familia);
 
   // reservas (hidden) como linhas de roster, deduplicadas contra os nomes do bot
   const botChaves = new Set(confirmadosNomes.map(chaveNome));
@@ -55,6 +57,14 @@ export default async function ConfirmadosPage() {
     ...offBotMani.map((n) => ({ tag: "M" as const, nome: n, nota: null, iconKey: null })),
     ...offBotReso.map((n) => ({ tag: "R" as const, nome: n, nota: null, iconKey: null })),
   ].filter((p) => { const k = chaveNome(p.nome); return k && !botChaves.has(k); });
+
+  // roubo de vaga (pós-liberação): Participar in-game e NÃO oficial (nem bot, nem reserva)
+  const oficiaisChaves = new Set([...confirmadosNomes, ...offBotNomes].map(chaveNome));
+  const rouboMembros = posLiberacao
+    ? statusInicial
+        .filter((s) => s.participar && !oficiaisChaves.has(chaveNome(s.familia)))
+        .map((s) => ({ tag: null, nome: s.familia, nota: null, iconKey: null }))
+    : [];
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
@@ -106,6 +116,7 @@ export default async function ConfirmadosPage() {
               <Stat><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nR}</Stat>
               <Stat>{conf.listaEspera.length} na lista de espera</Stat>
               {hiddenTotal > 0 && <Stat>{hiddenTotal} reservada(s) fora do bot</Stat>}
+              {posLiberacao && <Stat><span style={{ color: C.laranja }}>🏴 {rouboMembros.length} roubaram vaga</span></Stat>}
               {conf.messageTs && <Stat>atualizado {fmtData(Math.floor(new Date(conf.messageTs).getTime() / 1000))}</Stat>}
             </div>
 
@@ -113,13 +124,13 @@ export default async function ConfirmadosPage() {
             <VagasEditor vagasInit={vagas} canEdit={canEdit} />
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} />
+            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} />
 
-            {/* substituições: remover do grupo + subir o próximo da espera (mesma pt) */}
-            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={remocoesInit.map((r) => r.familia)} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
+            {/* substituições: remover do grupo + confirmar quem sobe da espera */}
+            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
 
             {/* montar PTs (squads): coroa de líder + 1/2/Defesa/UngaBunga + popup */}
-            <MontarPtsBoard grupos={conf.grupos} hidden={hiddenMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
+            <MontarPtsBoard grupos={conf.grupos} hidden={hiddenMembros} roubo={rouboMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.
