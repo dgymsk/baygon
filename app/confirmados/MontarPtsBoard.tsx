@@ -169,6 +169,9 @@ export default function MontarPtsBoard({
     return { pt, dentro: lista.slice(0, VAGAS_PT), fora: lista.slice(VAGAS_PT), total: lista.length };
   }), [membros, marks]);
 
+  // confirmados sem nenhuma PT atribuída (precisam entrar em alguma)
+  const foraDasPts = useMemo(() => membros.filter((p) => !marks.get(chaveNome(p.nome))?.pt), [membros, marks]);
+
   const Coroa = ({ p }: { p: PlayerConf }) => {
     const on = !!marks.get(chaveNome(p.nome))?.lider;
     return (
@@ -221,6 +224,23 @@ export default function MontarPtsBoard({
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
+
+      {/* quem confirmou mas ainda não está em nenhuma PT */}
+      {foraDasPts.length > 0 && (
+        <div style={{ border: `1px solid ${C.vermelho}`, borderRadius: 10, background: C.inputBg, padding: "9px 13px", marginBottom: 14 }}>
+          <div style={{ color: C.vermelho, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⚠ Fora das PTs ({foraDasPts.length}) <span style={{ color: C.mute, fontWeight: 400, fontSize: 11.5 }}>— confirmaram mas não estão em nenhum squad</span></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "3px 14px" }}>
+            {foraDasPts.map((p, i) => {
+              const g = p.tag ? GUILD[p.tag] : null;
+              return (
+                <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: C.texto }}>
+                  {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}{p.nome}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {membros.length === 0 ? (
         <div style={{ color: C.mute, fontSize: 13, border: `1px dashed ${C.border2}`, borderRadius: 10, padding: "14px 16px" }}>

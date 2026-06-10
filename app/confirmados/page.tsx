@@ -35,7 +35,7 @@ function fmtData(unix?: number): string {
 export default async function ConfirmadosPage() {
   const [conf, rosterRows, canEdit, vagas] = await Promise.all([
     fetchConfirmados(),
-    sql`SELECT nome_familia, pt_preferida FROM players`,
+    sql`SELECT nome_familia, pt_preferida, guilda FROM players`,
     canEditNow(),
     getVagas(),
   ]);
@@ -50,12 +50,17 @@ export default async function ConfirmadosPage() {
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
   const [statusBruto, remocoesInit, ptInit, posLiberacao] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey)]);
-  const playersRows = rosterRows as { nome_familia: string; pt_preferida: string | null }[];
+  const playersRows = rosterRows as { nome_familia: string; pt_preferida: string | null; guilda: string }[];
   const playersNomes = playersRows.map((r) => r.nome_familia);
   const rosterNomes = playersNomes.map((n) => n.toLowerCase());
-  // PT preferida (base de nodewar) por chave canônica
+  // PT preferida (base de nodewar) + guilda (p/ o ícone) por chave canônica
   const prefPorChave = new Map<string, string>();
-  for (const r of playersRows) { if (r.pt_preferida) prefPorChave.set(chaveNome(r.nome_familia), r.pt_preferida); }
+  const guildaPorChave = new Map<string, "M" | "R">();
+  for (const r of playersRows) {
+    const k = chaveNome(r.nome_familia);
+    if (r.pt_preferida) prefPorChave.set(k, r.pt_preferida);
+    if (k) guildaPorChave.set(k, r.guilda === "RESO" ? "R" : "M");
+  }
 
   // canonicaliza os nomes lidos pela IA (Sykoltic→Sykotic, Denzell→Denzel) com PRIORIDADE
   // pro roster do bot/espera/reservas sobre a tabela players. Conserta o scan já salvo.
@@ -102,7 +107,7 @@ export default async function ConfirmadosPage() {
   const rouboMembros = posLiberacao
     ? statusInicial
         .filter((s) => s.participar && !oficiaisChaves.has(chaveNome(s.familia)))
-        .map((s) => ({ tag: null, nome: s.familia, nota: null, iconKey: null }))
+        .map((s) => ({ tag: guildaPorChave.get(chaveNome(s.familia)) ?? null, nome: s.familia, nota: null, iconKey: null }))
     : [];
 
   // Montar PTs = SÓ quem confirmou Participar in-game (panorama real de quem vai pra war).
