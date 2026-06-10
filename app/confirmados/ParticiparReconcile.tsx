@@ -23,11 +23,12 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 const GUILD = { M: { label: "Manicômio", icon: "/guilds/manicomio.png" }, R: { label: "Resonance", icon: "/guilds/resonance.png" } } as const;
 
 export default function ParticiparReconcile({
-  confirmados, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados, guildas,
+  confirmados, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados, guildas, totalBot,
 }: {
   confirmados: string[]; offBot: string[]; canEdit: boolean;
   statusInicial: Row[]; posInicial: boolean; warKey: string | null;
   correcoesInit: { de: string; para: string }[]; naoEncontrados: string[]; guildas: Record<string, "M" | "R">;
+  totalBot: { M: number; R: number };
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,9 +81,13 @@ export default function ParticiparReconcile({
   const retirar: string[] = [];
   for (const s of participarRows) { if (!esperadoSet.has(chaveNome(s.familia))) retirar.push(s.familia); }
 
-  // confirmados (com vaga + Participar) por guilda, p/ o indicador
+  // membros DO BOT que marcaram Participar, por guilda (p/ o "X de Y no bot")
   const conta = { M: 0, R: 0 };
-  for (const nome of certo) { const g = guildas[chaveNome(nome)]; if (g === "M") conta.M++; else if (g === "R") conta.R++; }
+  for (const nome of confirmados) {
+    if (!participarSet.has(chaveNome(nome))) continue;
+    const g = guildas[chaveNome(nome)];
+    if (g === "M") conta.M++; else if (g === "R") conta.R++;
+  }
 
   async function togglePos() {
     if (!canEdit) return;
@@ -240,10 +245,9 @@ export default function ParticiparReconcile({
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 10px" }}>
             <span><b style={{ color: C.texto }}>{status.length}</b> membros no status; <b style={{ color: C.texto }}>{participarRows.length}</b> com “Participar”.</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 10 }}>
-              <span style={{ color: C.verde, fontWeight: 700 }}>Confirmados:</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.M}</b></span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.R}</b></span>
-              <span style={{ color: C.mute }}>(total {conta.M + conta.R})</span>
+              <span style={{ color: C.verde, fontWeight: 700 }} title="quantos do bot marcaram Participar, de cada guilda / total da guilda no bot">Confirmados:</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.M}</b><span style={{ color: C.mute }}>/{totalBot.M}</span></span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.R}</b><span style={{ color: C.mute }}>/{totalBot.R}</span></span>
             </span>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>

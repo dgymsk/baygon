@@ -185,7 +185,7 @@ export default async function ConfirmadosPage() {
             <VagasEditor vagasInit={vagas} canEdit={canEdit} />
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} guildas={guildasConf} />
+            <ParticiparReconcile confirmados={confirmadosNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} guildas={guildasConf} totalBot={{ M: nM, R: nR }} />
 
             {/* substituições: remover do grupo + confirmar quem sobe da espera */}
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
