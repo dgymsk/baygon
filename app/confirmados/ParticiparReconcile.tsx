@@ -46,6 +46,27 @@ export default function ParticiparReconcile({
     setPos(posInicial);
   });
 
+  // colar imagem do clipboard (Windows Shift+S → Ctrl+V) entra no mesmo fluxo do upload
+  const rodarRef = useRef<(files: ArrayLike<File>) => void>(() => {});
+  rodarRef.current = rodar;
+  const busyRef = useRef(busy); busyRef.current = busy;
+  useEffect(() => {
+    if (!canEdit) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (busyRef.current) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imgs: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) imgs.push(f); }
+      }
+      if (imgs.length) { e.preventDefault(); rodarRef.current(imgs); }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [canEdit]);
+
   // reconciliação (chave canônica em tudo)
   const participarRows = status.filter((s) => s.participar);
   const participarSet = new Set(participarRows.map((s) => chaveNome(s.familia)));
@@ -74,7 +95,7 @@ export default function ParticiparReconcile({
     } catch (e) { setPos(!novo); setErro((e as Error).message); }
   }
 
-  async function rodar(files: FileList) {
+  async function rodar(files: ArrayLike<File>) {
     setBusy(true); setErro(""); setFalhas([]);
     const arr = Array.from(files);
     const falhasLocal: { nome: string; erro: string }[] = [];
@@ -164,7 +185,7 @@ export default function ParticiparReconcile({
       </div>
       <div style={{ color: C.mute, fontSize: 11.5, marginBottom: status.length || erro ? 12 : 0 }}>
         {canEdit
-          ? "Suba print(s) da janela de Guilda (coluna Guerra). O status acumula entre prints — o mais recente vence. Reseta sozinho quando entra mensagem nova do bot; ou use ↺ Reset."
+          ? "Suba print(s) da janela de Guilda (coluna Guerra) — ou cole direto do clipboard (Shift+S → Ctrl+V). O status acumula entre prints — o mais recente vence. Reseta sozinho quando entra mensagem nova do bot; ou use ↺ Reset."
           : "Status lido pela staff. (Só staff sobe/reseta prints.)"}
       </div>
 
