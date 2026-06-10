@@ -35,7 +35,7 @@ function fmtData(unix?: number): string {
 export default async function ConfirmadosPage() {
   const [conf, rosterRows, canEdit, vagas] = await Promise.all([
     fetchConfirmados(),
-    sql`SELECT nome_familia FROM players`,
+    sql`SELECT nome_familia, pt_preferida FROM players`,
     canEditNow(),
     getVagas(),
   ]);
@@ -50,8 +50,12 @@ export default async function ConfirmadosPage() {
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
   const [statusBruto, remocoesInit, ptInit, posLiberacao] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey)]);
-  const playersNomes = (rosterRows as { nome_familia: string }[]).map((r) => r.nome_familia);
+  const playersRows = rosterRows as { nome_familia: string; pt_preferida: string | null }[];
+  const playersNomes = playersRows.map((r) => r.nome_familia);
   const rosterNomes = playersNomes.map((n) => n.toLowerCase());
+  // PT preferida (base de nodewar) por chave canônica
+  const prefPorChave = new Map<string, string>();
+  for (const r of playersRows) { if (r.pt_preferida) prefPorChave.set(chaveNome(r.nome_familia), r.pt_preferida); }
 
   // canonicaliza os nomes lidos pela IA (Sykoltic→Sykotic, Denzell→Denzel) com PRIORIDADE
   // pro roster do bot/espera/reservas sobre a tabela players. Conserta o scan já salvo.
@@ -68,7 +72,10 @@ export default async function ConfirmadosPage() {
     for (const n of playersNomes) { const k = chaveNome(n); if (k && !m.has(k)) m.set(k, n); }
     return [...m].map(([chave, nome]) => ({ chave, nome }));
   })();
-  const { mapa: canonMapa, correcoes: correcoesScan } = canonicalizarNomes(statusBruto.map((s) => s.familia), rosterCand, playersCand);
+  const { mapa: canonMapa, correcoes: correcoesScan, naoEncontrados } = canonicalizarNomes(statusBruto.map((s) => s.familia), rosterCand, playersCand);
+  // só avisa "não encontrado" de quem marcou Participar (quem marcou "Não" é ruído)
+  const participarChaves = new Set(statusBruto.filter((s) => s.participar).map((s) => chaveNome(s.familia)));
+  const naoEncontradosPart = naoEncontrados.filter((n) => participarChaves.has(chaveNome(n)));
   // re-deduplica por chave canônica (se 2 leituras viram a mesma pessoa, Participar=true vence)
   const statusMap = new Map<string, { familia: string; participar: boolean }>();
   for (const s of statusBruto) {
@@ -102,7 +109,12 @@ export default async function ConfirmadosPage() {
   // Filtra o roster do bot + reservas pelo scan; roubo já é participar=true por definição.
   const confirmadosIngame = new Set(statusInicial.filter((s) => s.participar).map((s) => chaveNome(s.familia)));
   const gruposPtConf = gruposPt.map((g) => ({ ...g, players: g.players.filter((p) => confirmadosIngame.has(chaveNome(p.nome))) }));
-  const hiddenConf = hiddenMembros.filter((p) => confirmadosIngame.has(chaveNome(p.nome)));
+  // dedup: ninguém aparece 2x. Quem já está nos grupos (inclui promovidos) não repete em reservas/roubo.
+  const ptBotChaves = new Set(gruposPtConf.flatMap((g) => g.players).map((p) => chaveNome(p.nome)));
+  const hiddenConf = hiddenMembros.filter((p) => { const k = chaveNome(p.nome); return confirmadosIngame.has(k) && !ptBotChaves.has(k); });
+  const hiddenChaves = new Set(hiddenConf.map((p) => chaveNome(p.nome)));
+  const rouboConf = rouboMembros.filter((p) => { const k = chaveNome(p.nome); return !ptBotChaves.has(k) && !hiddenChaves.has(k); });
+  const preferidas = Object.fromEntries(prefPorChave); // chave -> pt preferida (base do board)
 
   const Stat = ({ children }: { children: React.ReactNode }) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, border: `1px solid ${C.borderSoft}`, background: C.inputBg, fontSize: 12, color: C.mute }}>{children}</span>
@@ -163,13 +175,13 @@ export default async function ConfirmadosPage() {
             <VagasEditor vagasInit={vagas} canEdit={canEdit} />
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} />
+            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} />
 
             {/* substituições: remover do grupo + confirmar quem sobe da espera */}
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
 
             {/* montar PTs (squads): SÓ confirmados in-game; coroa de líder + 1/2/Defesa/UngaBunga + popup */}
-            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboMembros} marcacoesInit={ptInit} canEdit={canEdit} warKey={warKey} />
+            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboConf} marcacoesInit={ptInit} preferidas={preferidas} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.

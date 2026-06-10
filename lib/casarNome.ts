@@ -15,16 +15,23 @@ export function casarNome(nome: string, roster: Cand[], players: Cand[]): string
   return exato(roster) ?? acharSimilar(k, roster)?.nome ?? exato(players) ?? acharSimilar(k, players)?.nome ?? nome;
 }
 
-/** Canonicaliza uma lista de nomes (de exibição) e devolve as correções aplicadas. */
-export function canonicalizarNomes(nomes: string[], roster: Cand[], players: Cand[]): { mapa: Map<string, string>; correcoes: Correcao[] } {
+/**
+ * Canonicaliza uma lista de nomes (de exibição). Devolve o mapa, as correções
+ * aplicadas (mudou de nome) e os NÃO ENCONTRADOS (não bateram com ninguém — nem
+ * exato nem similar; podem ser roubo legítimo OU leitura ruim da IA, conferir).
+ */
+export function canonicalizarNomes(nomes: string[], roster: Cand[], players: Cand[]): { mapa: Map<string, string>; correcoes: Correcao[]; naoEncontrados: string[] } {
   const mapa = new Map<string, string>(); // chaveNome(original) -> nome canônico
   const correcoes: Correcao[] = [];
+  const naoEncontrados: string[] = [];
+  const exato = (k: string, cands: Cand[]) => cands.some((c) => c.chave === k);
   for (const nome of nomes) {
     const k = chaveNome(nome);
     if (!k || mapa.has(k)) continue;
     const canon = casarNome(nome, roster, players);
     mapa.set(k, canon);
     if (chaveNome(canon) !== k) correcoes.push({ de: nome, para: canon });
+    else if (!exato(k, roster) && !exato(k, players)) naoEncontrados.push(nome);
   }
-  return { mapa, correcoes };
+  return { mapa, correcoes, naoEncontrados };
 }

@@ -59,6 +59,7 @@ export async function PATCH(req: Request) {
         classe_tipo: typeof x.classe_tipo === "string" ? x.classe_tipo : null,
         is_core: Boolean(x.is_core),
         guilda: typeof x.guilda === "string" ? x.guilda : "MANI",
+        pt_preferida: typeof x.pt_preferida === "string" && x.pt_preferida ? x.pt_preferida : null,
       });
     }
   }

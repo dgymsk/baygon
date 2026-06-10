@@ -39,11 +39,12 @@ function PtGlyph({ k, size = 14 }: { k: string; size?: number }) {
 type Mark = { nome: string; pt: string | null; lider: boolean };
 
 export default function MontarPtsBoard({
-  grupos, hidden, roubo, marcacoesInit, canEdit, warKey,
+  grupos, hidden, roubo, marcacoesInit, preferidas, canEdit, warKey,
 }: {
-  grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; canEdit: boolean; warKey: string | null;
+  grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; preferidas: Record<string, string>; canEdit: boolean; warKey: string | null;
 }) {
   const router = useRouter();
+  const ptNome = (k: string | null) => PTS.find((x) => x.key === k)?.nome ?? k ?? "";
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
     const m = new Map<string, Mark>();
     for (const r of marcacoesInit) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
@@ -102,14 +103,22 @@ export default function MontarPtsBoard({
   // atropelar edição local e loops; effect sem dep-array re-tenta após o flush.
   const initSig = useMemo(() => marcacoesInit.map((r) => `${r.chave}:${r.pt}:${r.lider ? 1 : 0}`).join("\n"), [marcacoesInit]);
   const membrosSig = useMemo(() => membros.map((p) => chaveNome(p.nome)).join("\n"), [membros]);
+  const prefSig = useMemo(() => JSON.stringify(preferidas), [preferidas]);
   const lastSyncSig = useRef("");
   useEffect(() => {
-    const sig = initSig + "##" + membrosSig;
+    const sig = initSig + "##" + membrosSig + "##" + prefSig;
     if (sig === lastSyncSig.current || flushingRef.current) return; // sem mudança ou edição em voo
     lastSyncSig.current = sig;
-    const valid = new Set(membros.map((p) => chaveNome(p.nome)));
+    // por membro confirmado: usa a marca da war (pt_scan) se existir; senão SEMEIA com a PT
+    // preferida (a "base"). Marca de não-membro não entra (some sem apagar no banco).
+    const scanPorChave = new Map(marcacoesInit.map((r) => [r.chave, r]));
     const m = new Map<string, Mark>();
-    for (const r of marcacoesInit) if (valid.has(r.chave)) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
+    for (const p of membros) {
+      const k = chaveNome(p.nome);
+      const row = scanPorChave.get(k);
+      if (row) m.set(k, { nome: p.nome, pt: row.pt, lider: row.lider });
+      else if (preferidas[k] && PTS.some((x) => x.key === preferidas[k])) m.set(k, { nome: p.nome, pt: preferidas[k], lider: false });
+    }
     setMarks(m);
   });
 
@@ -131,7 +140,10 @@ export default function MontarPtsBoard({
     const cur = marks.get(k);
     const novoLider = !cur?.lider;
     const next = new Map(marks);
-    if (novoLider && cur?.pt) { // 1 líder por PT: tira a coroa de outros da mesma PT
+    if (novoLider && cur?.pt) { // 1 líder por PT: avisa se já tem, e tira a coroa dos outros da mesma PT
+      let outro: string | null = null;
+      for (const [kk, v] of next) if (kk !== k && v.pt === cur.pt && v.lider) { outro = v.nome; break; }
+      if (outro && !confirm(`A ${ptNome(cur.pt)} já tem líder: ${outro}. Trocar a coroa para ${p.nome}?`)) return;
       for (const [kk, v] of next) if (kk !== k && v.pt === cur.pt && v.lider) next.set(kk, { ...v, lider: false });
     }
     const m: Mark = { nome: p.nome, pt: cur?.pt ?? null, lider: novoLider };

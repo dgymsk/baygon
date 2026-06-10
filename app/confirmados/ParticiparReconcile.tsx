@@ -21,11 +21,11 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 export default function ParticiparReconcile({
-  confirmados, espera, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit,
+  confirmados, espera, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados,
 }: {
   confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean;
   statusInicial: Row[]; posInicial: boolean; warKey: string | null;
-  correcoesInit: { de: string; para: string }[];
+  correcoesInit: { de: string; para: string }[]; naoEncontrados: string[];
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -182,6 +182,14 @@ export default function ParticiparReconcile({
           <b>✏ {correcoesInit.length} nome(s) corrigido(s) por similaridade</b> — confira se bateu certo:
           <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", marginTop: 4 }}>
             {correcoesInit.map((c, i) => <span key={i} style={{ color: C.mute }}>{c.de} → <b style={{ color: C.texto }}>{c.para}</b></span>)}
+          </div>
+        </div>
+      )}
+      {naoEncontrados.length > 0 && (
+        <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 6, marginBottom: 10, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "8px 11px", background: C.inputBg }}>
+          <b>⚠ {naoEncontrados.length} nome(s) não bateram com ninguém</b> — leitura da IA pode estar errada{pos ? ", ou são roubo de vaga" : ""}. Confira:
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", marginTop: 4 }}>
+            {naoEncontrados.map((n, i) => <span key={i} style={{ color: C.texto }}>{n}</span>)}
           </div>
         </div>
       )}

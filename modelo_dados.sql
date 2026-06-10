@@ -12,6 +12,7 @@ CREATE TABLE players (
   classe_bdo   TEXT,                             -- classe do BDO (ex: Guerreiro)
   classe_tipo  TEXT,                             -- especialização: Despertar/Sucessão/Ascensão/Talento
   guilda       TEXT    NOT NULL DEFAULT 'MANI' CHECK (guilda IN ('MANI','RESO')),  -- guilda da aliança
+  pt_preferida TEXT,                             -- PT preferida de nodewar (1/2/defesa/ungabunga) — base do board
   ativo        BOOLEAN NOT NULL DEFAULT TRUE,    -- FALSE = ex-membro (aba "membros antigos")
   saida_tipo   TEXT CHECK (saida_tipo IS NULL OR saida_tipo IN ('Saiu','Kikado')),  -- motivo da saída
   saida_data   DATE                              -- quando virou ex-membro

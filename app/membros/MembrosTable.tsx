@@ -21,7 +21,9 @@ const STATS = [
 ];
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda]);
+const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? ""]);
+// PT preferida de nodewar (vira a "base" na montagem das PTs)
+const PT_OPTS: { v: string; l: string }[] = [{ v: "1", l: "PT1" }, { v: "2", l: "PT2" }, { v: "defesa", l: "Defesa" }, { v: "ungabunga", l: "UngaBunga" }];
 
 export default function MembrosTable({ initial, gruposExtra = [], medias = {}, canEdit = true }: { initial: PlayerRow[]; gruposExtra?: string[]; medias?: MediasMap; canEdit?: boolean }) {
   const ro = !canEdit; // somente leitura
@@ -226,7 +228,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
           <table>
             <thead>
               <tr>
-                <th>Família</th><th>Grupo</th><th>Classe</th><th>Tipo</th>
+                <th>Família</th><th>Grupo</th><th>Classe</th><th>Tipo</th><th>PT nodewar</th>
                 <th style={{ textAlign: "center" }}>Guilda</th>
                 {tab === "ativos" ? <th style={{ textAlign: "center" }}>Core</th> : <th>Saída</th>}
                 <th style={{ textAlign: "center" }}>Wars</th>
@@ -256,6 +258,12 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                       <select value={r.classe_tipo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_tipo: e.target.value || null })} disabled={ro || !r.classe_bdo} style={{ ...inp, width: 115, cursor: ro ? "default" : "pointer", opacity: r.classe_bdo ? 1 : 0.5 }}>
                         <option value="">—</option>
                         {[...new Set([...tiposDe(r.classe_bdo), ...(r.classe_tipo ? [r.classe_tipo] : [])])].map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select value={r.pt_preferida ?? ""} disabled={ro} onChange={(e) => patch(r.nome_familia, { pt_preferida: e.target.value || null })} style={{ ...inp, width: 120, cursor: ro ? "default" : "pointer" }}>
+                        <option value="">—</option>
+                        {PT_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
                       </select>
                     </td>
                     <td style={{ textAlign: "center" }}>
@@ -313,7 +321,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={9} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
+                <tr><td colSpan={10} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
               )}
             </tbody>
           </table>

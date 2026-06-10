@@ -13,6 +13,7 @@ export type PlayerRow = {
   is_core: boolean;
   ativo: boolean;
   guilda: Guilda;
+  pt_preferida: string | null;
   saida_tipo: SaidaTipo | null;
   saida_data: string | null;
   n_wars: number;
@@ -20,12 +21,12 @@ export type PlayerRow = {
 
 export async function listPlayers(): Promise<PlayerRow[]> {
   return (await sql`
-    SELECT p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda,
+    SELECT p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida,
            p.saida_tipo, p.saida_data::text AS saida_data,
            count(DISTINCT d.war_id)::int AS n_wars
     FROM players p
     LEFT JOIN desempenho d ON d.nome_familia = p.nome_familia
-    GROUP BY p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.saida_tipo, p.saida_data
+    GROUP BY p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida, p.saida_tipo, p.saida_data
     ORDER BY p.grupo, p.nome_familia
   `) as PlayerRow[];
 }
@@ -47,6 +48,9 @@ export async function addPlayer(
 }
 
 /** Edição em lote dos campos do membro (NÃO mexe em ativo/saída — isso é arquivar/reativar). */
+const PTS_PREF = new Set(["1", "2", "defesa", "ungabunga"]);
+const ptOr = (p: string | null) => (p && PTS_PREF.has(p) ? p : null);
+
 export type PlayerUpdate = {
   nome_familia: string;
   grupo: string;
@@ -54,6 +58,7 @@ export type PlayerUpdate = {
   classe_tipo: string | null;
   is_core: boolean;
   guilda: string;
+  pt_preferida: string | null;
 };
 
 export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
@@ -61,7 +66,8 @@ export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
   const queries = updates.map((u) => sql`
     UPDATE players
     SET grupo = ${grupoOr(u.grupo)}, classe_bdo = ${u.classe_bdo?.trim() || null},
-        classe_tipo = ${u.classe_tipo?.trim() || null}, is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)}
+        classe_tipo = ${u.classe_tipo?.trim() || null}, is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)},
+        pt_preferida = ${ptOr(u.pt_preferida)}
     WHERE nome_familia = ${u.nome_familia}
   `);
   await sql.transaction(queries);
