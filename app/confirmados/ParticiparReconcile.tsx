@@ -20,12 +20,14 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
   });
 }
 
+const GUILD = { M: { label: "Manicômio", icon: "/guilds/manicomio.png" }, R: { label: "Resonance", icon: "/guilds/resonance.png" } } as const;
+
 export default function ParticiparReconcile({
-  confirmados, espera, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados,
+  confirmados, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados, guildas,
 }: {
-  confirmados: string[]; espera: string[]; offBot: string[]; canEdit: boolean;
+  confirmados: string[]; offBot: string[]; canEdit: boolean;
   statusInicial: Row[]; posInicial: boolean; warKey: string | null;
-  correcoesInit: { de: string; para: string }[]; naoEncontrados: string[];
+  correcoesInit: { de: string; para: string }[]; naoEncontrados: string[]; guildas: Record<string, "M" | "R">;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -68,17 +70,19 @@ export default function ParticiparReconcile({
   // reconciliação (chave canônica em tudo)
   const participarRows = status.filter((s) => s.participar);
   const participarSet = new Set(participarRows.map((s) => chaveNome(s.familia)));
-  const espSet = new Set(espera.map(chaveNome));
   const esperadoMap = new Map<string, string>();
   for (const n of confirmados) esperadoMap.set(chaveNome(n), n);
   for (const n of offBot) { const k = chaveNome(n); if (k && !esperadoMap.has(k)) esperadoMap.set(k, n); }
   const esperadoSet = new Set(esperadoMap.keys());
   const certo: string[] = [], faltaMarcar: string[] = [];
   for (const nome of esperadoMap.values()) (participarSet.has(chaveNome(nome)) ? certo : faltaMarcar).push(nome);
-  const retirarEspera: string[] = [], retirarFora: string[] = [];
-  for (const s of participarRows) { const k = chaveNome(s.familia); if (esperadoSet.has(k)) continue; (espSet.has(k) ? retirarEspera : retirarFora).push(s.familia); }
-  // pós-liberação (20:30): quem está com Participar e não é oficial "roubou" a vaga (legítimo)
-  const roubo = [...retirarEspera, ...retirarFora];
+  // Participar in-game mas sem vaga (espera OU fora do bot): "deve retirar" (ou "roubou" se pós-liberação)
+  const retirar: string[] = [];
+  for (const s of participarRows) { if (!esperadoSet.has(chaveNome(s.familia))) retirar.push(s.familia); }
+
+  // confirmados (com vaga + Participar) por guilda, p/ o indicador
+  const conta = { M: 0, R: 0 };
+  for (const nome of certo) { const g = guildas[chaveNome(nome)]; if (g === "M") conta.M++; else if (g === "R") conta.R++; }
 
   async function togglePos() {
     if (!canEdit) return;
@@ -233,19 +237,22 @@ export default function ParticiparReconcile({
         <div style={{ color: C.mute, fontSize: 13 }}>Nenhum print lido ainda{canEdit ? " — suba um print pra conferir." : "."}</div>
       ) : (
         <>
-          <div style={{ color: C.mute, fontSize: 12, marginBottom: 10 }}>
-            <b style={{ color: C.texto }}>{status.length}</b> membros no status; <b style={{ color: C.texto }}>{participarRows.length}</b> com “Participar”.
+          <div style={{ color: C.mute, fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 10px" }}>
+            <span><b style={{ color: C.texto }}>{status.length}</b> membros no status; <b style={{ color: C.texto }}>{participarRows.length}</b> com “Participar”.</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 10 }}>
+              <span style={{ color: C.verde, fontWeight: 700 }}>Confirmados:</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.M}</b></span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.R}</b></span>
+              <span style={{ color: C.mute }}>(total {conta.M + conta.R})</span>
+            </span>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
             <Col titulo="✅ Certo" cor={C.verde} nomes={certo} hint="Tem vaga (bot/fora) e marcou Participar" />
             <Col titulo={pos ? "⚠ Não marcou (perdeu?)" : "⚠ Falta marcar"} cor={C.amarelo} nomes={faltaMarcar} hint={pos ? "Tinha vaga e não marcou — pode ter perdido a vaga" : "Tem vaga, mas sem Participar → avisar p/ MARCAR"} />
             {pos ? (
-              <Col titulo="🏴 Roubaram vaga" cor={C.laranja} nomes={roubo} hint="Pós-liberação: pegaram vaga in-game (não eram oficiais). Entram no visualizador de PT." />
+              <Col titulo="🏴 Roubaram vaga" cor={C.laranja} nomes={retirar} hint="Pós-liberação: pegaram vaga in-game (não eram oficiais). Entram no visualizador de PT." />
             ) : (
-              <>
-                <Col titulo="⚠ Deve retirar (espera)" cor={C.amarelo} nomes={retirarEspera} hint="Participar in-game, mas na lista de espera → avisar p/ RETIRAR" />
-                <Col titulo="⛔ Deve retirar (fora)" cor={C.vermelho} nomes={retirarFora} hint="Participar in-game, mas fora do bot → avisar p/ RETIRAR" />
-              </>
+              <Col titulo="⛔ Deve retirar" cor={C.vermelho} nomes={retirar} hint="Participar in-game mas sem vaga (espera ou fora do bot) → avisar p/ RETIRAR" />
             )}
           </div>
           <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>

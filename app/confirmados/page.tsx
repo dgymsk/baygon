@@ -43,7 +43,6 @@ export default async function ConfirmadosPage() {
   const nM = conf.grupos.reduce((s, g) => s + g.players.filter((p) => p.tag === "M").length, 0);
   const nR = totalConf - nM;
   const confirmadosNomes = conf.grupos.flatMap((g) => g.players.map((p) => p.nome));
-  const esperaNomes = conf.listaEspera.map((p) => p.nome);
   const offBotMani = nomesDoTexto(vagas.MANI.texto);
   const offBotReso = nomesDoTexto(vagas.RESO.texto);
   const offBotNomes = [...offBotMani, ...offBotReso];
@@ -61,6 +60,12 @@ export default async function ConfirmadosPage() {
     if (r.pt_preferida) prefPorChave.set(k, r.pt_preferida);
     if (k) guildaPorChave.set(k, r.guilda === "RESO" ? "R" : "M");
   }
+  // guilda por chave p/ a conferência (tag do bot tem prioridade; depois reservas; depois players)
+  const guildasConf: Record<string, "M" | "R"> = {};
+  for (const g of conf.grupos) for (const p of g.players) if (p.tag) guildasConf[chaveNome(p.nome)] = p.tag;
+  for (const n of offBotMani) guildasConf[chaveNome(n)] = "M";
+  for (const n of offBotReso) guildasConf[chaveNome(n)] = "R";
+  for (const [k, gg] of guildaPorChave) if (!(k in guildasConf)) guildasConf[k] = gg;
 
   // canonicaliza os nomes lidos pela IA (Sykoltic→Sykotic, Denzell→Denzel) com PRIORIDADE
   // pro roster do bot/espera/reservas sobre a tabela players. Conserta o scan já salvo.
@@ -180,7 +185,7 @@ export default async function ConfirmadosPage() {
             <VagasEditor vagasInit={vagas} canEdit={canEdit} />
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} espera={esperaNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} />
+            <ParticiparReconcile confirmados={confirmadosNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} guildas={guildasConf} />
 
             {/* substituições: remover do grupo + confirmar quem sobe da espera */}
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
