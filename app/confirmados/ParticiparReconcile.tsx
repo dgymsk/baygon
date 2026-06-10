@@ -46,14 +46,12 @@ export default function ParticiparReconcile({
     setPos(posInicial);
   });
 
-  // colar imagem do clipboard (Windows Shift+S → Ctrl+V) entra no mesmo fluxo do upload
-  const rodarRef = useRef<(files: ArrayLike<File>) => void>(() => {});
-  rodarRef.current = rodar;
-  const busyRef = useRef(busy); busyRef.current = busy;
+  // colar imagem do clipboard (Windows Shift+S → Ctrl+V) entra na MESMA fila do upload
+  const enqueueRef = useRef<(files: ArrayLike<File>) => void>(() => {});
+  enqueueRef.current = enqueue;
   useEffect(() => {
     if (!canEdit) return;
     const onPaste = (e: ClipboardEvent) => {
-      if (busyRef.current) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       const imgs: File[] = [];
@@ -61,7 +59,7 @@ export default function ParticiparReconcile({
         const it = items[i];
         if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) imgs.push(f); }
       }
-      if (imgs.length) { e.preventDefault(); rodarRef.current(imgs); }
+      if (imgs.length) { e.preventDefault(); enqueueRef.current(imgs); } // enfileira mesmo se já estiver lendo
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
@@ -95,43 +93,59 @@ export default function ParticiparReconcile({
     } catch (e) { setPos(!novo); setErro((e as Error).message); }
   }
 
-  async function rodar(files: ArrayLike<File>) {
+  // FILA: cada print colado/enviado entra na fila e é processado em sequência (um lote
+  // por vez), sem upload "em cima" do outro. Novos prints durante a leitura só estendem a fila.
+  const filaRef = useRef<File[]>([]);
+  const drenandoRef = useRef(false);
+  async function enqueue(files: ArrayLike<File>) {
+    const novos = Array.from(files);
+    if (!canEdit || !novos.length) return;
+    filaRef.current.push(...novos);
+    if (inputRef.current) inputRef.current.value = "";
+    if (drenandoRef.current) { setProg(`lendo… · ${filaRef.current.length} na fila`); return; } // já processando → só enfileira
+
+    drenandoRef.current = true;
     setBusy(true); setErro(""); setFalhas([]);
-    const arr = Array.from(files);
     const falhasLocal: { nome: string; erro: string }[] = [];
+    let salvou = false;
+    let n = 0;
     try {
-      const lote = new Map<string, Row>(); // dedupe do lote (último vence)
-      for (let i = 0; i < arr.length; i++) {
-        setProg(`lendo print ${i + 1}/${arr.length}…`);
-        try {
-          const image = await fileToBase64(arr[i]);
-          const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
-          const j = await res.json().catch(() => ({} as { error?: string; membros?: Row[] }));
-          if (!res.ok) throw new Error(j.error || `erro ${res.status}`);
-          for (const m of (j.membros ?? []) as Row[]) {
-            const familia = (m.familia ?? "").replace(/\s+/g, " ").trim();
-            const k = chaveNome(familia);
-            if (k) lote.set(k, { familia, participar: !!m.participar });
+      while (filaRef.current.length) {
+        const lote = filaRef.current; filaRef.current = []; // pega tudo que está na fila agora
+        const map = new Map<string, Row>(); // dedupe do lote (último vence)
+        for (let i = 0; i < lote.length; i++) {
+          n++;
+          setProg(`lendo print ${n}${filaRef.current.length ? ` · ${filaRef.current.length} na fila` : ""}…`);
+          try {
+            const image = await fileToBase64(lote[i]);
+            const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
+            const j = await res.json().catch(() => ({} as { error?: string; membros?: Row[] }));
+            if (!res.ok) throw new Error(j.error || `erro ${res.status}`);
+            for (const m of (j.membros ?? []) as Row[]) {
+              const familia = (m.familia ?? "").replace(/\s+/g, " ").trim();
+              const k = chaveNome(familia);
+              if (k) map.set(k, { familia, participar: !!m.participar });
+            }
+          } catch (e) {
+            falhasLocal.push({ nome: lote[i].name || `print ${n}`, erro: (e as Error).message });
           }
-        } catch (e) {
-          falhasLocal.push({ nome: arr[i].name || `print ${i + 1}`, erro: (e as Error).message });
+        }
+        setFalhas(falhasLocal.slice()); // antes do save: lista de falhas não some se o save der erro
+        if (map.size > 0) {
+          setProg("salvando…");
+          const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...map.values()] }) });
+          const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[] }));
+          if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
+          setStatus(sj.status ?? []);
+          salvou = true;
         }
       }
-      setFalhas(falhasLocal); // antes do save: a lista de prints que falharam não some se o save der erro
-      if (lote.size > 0) {
-        setProg("salvando…");
-        const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...lote.values()] }) });
-        const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[] }));
-        if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
-        setStatus(sj.status ?? []);
-        router.refresh(); // canonicaliza nomes (Denzell→Denzel) + atualiza roubos/PT no servidor
-      }
-      setProg("");
+      if (salvou) router.refresh(); // canonicaliza nomes + atualiza roubos/PT (uma vez no fim da fila)
     } catch (e) {
       setErro((e as Error).message);
     } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
+      filaRef.current = []; drenandoRef.current = false;
+      setBusy(false); setProg("");
     }
   }
 
@@ -171,10 +185,10 @@ export default function ParticiparReconcile({
               style={{ borderRadius: 8, border: `1px solid ${pos ? C.amarelo : C.border2}`, background: pos ? C.amareloTint : "transparent", color: pos ? C.amarelo : C.mute, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
               🏴 Pós-liberação {pos ? "ON" : "OFF"}
             </button>
-            <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy}
-              onChange={(e) => e.target.files?.length && rodar(e.target.files)} style={{ display: "none" }} id="participar-file" />
-            <label htmlFor="participar-file"
-              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: busy ? C.inputBg : C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: busy ? "default" : "pointer" }}>
+            <input ref={inputRef} type="file" accept="image/*" multiple
+              onChange={(e) => e.target.files?.length && enqueue(e.target.files)} style={{ display: "none" }} id="participar-file" />
+            <label htmlFor="participar-file" title={busy ? "pode ir colando/subindo mais — entram na fila" : ""}
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: busy ? C.inputBg : C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               {busy ? (prog || "lendo…") : pos ? "📷 Subir prints finais" : "📷 Subir print(s)"}
             </label>
             {status.length > 0 && !busy && (
@@ -185,7 +199,7 @@ export default function ParticiparReconcile({
       </div>
       <div style={{ color: C.mute, fontSize: 11.5, marginBottom: status.length || erro ? 12 : 0 }}>
         {canEdit
-          ? "Suba print(s) da janela de Guilda (coluna Guerra) — ou cole direto do clipboard (Shift+S → Ctrl+V). O status acumula entre prints — o mais recente vence. Reseta sozinho quando entra mensagem nova do bot; ou use ↺ Reset."
+          ? "Suba print(s) da janela de Guilda (coluna Guerra) — ou cole direto do clipboard (Shift+S → Ctrl+V). Pode ir colando vários seguidos: entram numa fila e são lidos em sequência. O status acumula — o mais recente vence. Reseta sozinho quando entra mensagem nova do bot; ou use ↺ Reset."
           : "Status lido pela staff. (Só staff sobe/reseta prints.)"}
       </div>
 
