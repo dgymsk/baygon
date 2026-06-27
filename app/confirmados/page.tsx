@@ -3,7 +3,7 @@ import { fetchConfirmados } from "@/lib/confirmados";
 import { getVagas, nomesDoTexto } from "@/lib/vagas";
 import { getStatus, getPosLiberacao } from "@/lib/participarStatus";
 import { getRemocoes } from "@/lib/remocaoStatus";
-import { getPt } from "@/lib/ptStatus";
+import { getPt, getModoPt } from "@/lib/ptStatus";
 import { gruposEfetivos } from "@/lib/substituicoes";
 import { canonicalizarNomes } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
@@ -48,7 +48,7 @@ export default async function ConfirmadosPage() {
   const offBotNomes = [...offBotMani, ...offBotReso];
   const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
-  const [statusBruto, remocoesInit, ptInit, posLiberacao] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey)]);
+  const [statusBruto, remocoesInit, ptInit, posLiberacao, modoPt] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey), getModoPt()]);
   const playersRows = rosterRows as { nome_familia: string; pt_preferida: string | null; guilda: string }[];
   const playersNomes = playersRows.map((r) => r.nome_familia);
   const rosterNomes = playersNomes.map((n) => n.toLowerCase());
@@ -191,7 +191,7 @@ export default async function ConfirmadosPage() {
             <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
 
             {/* montar PTs (squads): SÓ confirmados in-game; coroa de líder + 1/2/Defesa/UngaBunga + popup */}
-            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboConf} marcacoesInit={ptInit} preferidas={preferidas} canEdit={canEdit} warKey={warKey} />
+            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboConf} marcacoesInit={ptInit} preferidas={preferidas} modoInit={modoPt.modo} siegePtsInit={modoPt.siegePts} canEdit={canEdit} warKey={warKey} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.

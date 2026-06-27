@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
+import { ptsAtivas, SIEGE_MIN, SIEGE_MAX, type PtIcon } from "@/lib/ptConfig";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
 import type { PtRow } from "@/lib/ptStatus";
@@ -11,48 +12,44 @@ const GUILD: Record<string, { label: string; icon: string }> = {
   M: { label: "Manicômio", icon: "/guilds/manicomio.png" },
   R: { label: "Resonance", icon: "/guilds/resonance.png" },
 };
-
-// ===== Config das 4 PTs (squads) =====
-const FLAME_ID = "1459738870592835584"; // emoji "flame" do bot = ícone do Defesa
-// Ícone do UngaBunga = emoji ":ungaungacore:" do bot.
-const UNGA: { kind: "emoji"; emoji: string } | { kind: "cdn"; id: string } | { kind: "img"; src: string } = { kind: "cdn", id: "1512543325851353208" };
-
-const PTS = [
-  { key: "1", nome: "PT1" },
-  { key: "2", nome: "PT2" },
-  { key: "defesa", nome: "Defesa" },
-  { key: "ungabunga", nome: "UngaBunga" },
-] as const;
 const VAGAS_PT = 20;
-
 const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = "none"; };
 
-function PtGlyph({ k, size = 14 }: { k: string; size?: number }) {
-  if (k === "1" || k === "2") return <b style={{ fontSize: size, fontFamily: "'Share Tech Mono', monospace" }}>{k}</b>;
-  if (k === "defesa") return <img src={`https://cdn.discordapp.com/emojis/${FLAME_ID}.png`} width={size} height={size} alt="" onError={imgErr} style={{ verticalAlign: "-2px" }} />;
-  // ungabunga
-  if (UNGA.kind === "emoji") return <span style={{ fontSize: size }}>{UNGA.emoji}</span>;
-  if (UNGA.kind === "cdn") return <img src={`https://cdn.discordapp.com/emojis/${UNGA.id}.png`} width={size} height={size} alt="" onError={imgErr} style={{ verticalAlign: "-2px" }} />;
-  return <img src={UNGA.src} width={size} height={size} alt="" onError={imgErr} style={{ verticalAlign: "-2px" }} />;
+// ícone de uma PT do template ativo (número, emoji do Discord, ou emoji unicode)
+function Glyph({ icon, size = 14 }: { icon: PtIcon; size?: number }) {
+  if (icon.kind === "num") return <b style={{ fontSize: size, fontFamily: "'Share Tech Mono', monospace" }}>{icon.n}</b>;
+  if (icon.kind === "cdn") return <img src={`https://cdn.discordapp.com/emojis/${icon.id}.png`} width={size} height={size} alt="" onError={imgErr} style={{ verticalAlign: "-2px" }} />;
+  return <span style={{ fontSize: size }}>{icon.e}</span>;
 }
 
 type Mark = { nome: string; pt: string | null; lider: boolean };
 
 export default function MontarPtsBoard({
-  grupos, hidden, roubo, marcacoesInit, preferidas, canEdit, warKey,
+  grupos, hidden, roubo, marcacoesInit, preferidas, modoInit, siegePtsInit, canEdit, warKey,
 }: {
-  grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; preferidas: Record<string, string>; canEdit: boolean; warKey: string | null;
+  grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; preferidas: Record<string, string>;
+  modoInit: string; siegePtsInit: number; canEdit: boolean; warKey: string | null;
 }) {
   const router = useRouter();
-  const ptNome = (k: string | null) => PTS.find((x) => x.key === k)?.nome ?? k ?? "";
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
     const m = new Map<string, Mark>();
     for (const r of marcacoesInit) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
     return m;
   });
-  const [saving, setSaving] = useState(false);
+  const [modo, setModo] = useState(modoInit);
+  const [siegePts, setSiegePts] = useState(siegePtsInit);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [savingOps, setSavingOps] = useState(false); // flush de marcações
+  const [savingCfg, setSavingCfg] = useState(false); // salvar config (modo/slider)
+  const saving = savingOps || savingCfg;
   const [erro, setErro] = useState("");
   const [popup, setPopup] = useState(false);
+
+  // template das PTs conforme o modo (nodewar | siege)
+  const pts = useMemo(() => ptsAtivas(modo, siegePts), [modo, siegePts]);
+  const defPorKey = useMemo(() => new Map(pts.map((p) => [p.key, p])), [pts]);
+  const ptAtivaSet = useMemo(() => new Set(pts.map((p) => p.key)), [pts]);
+  const ptNome = (k: string | null) => (k ? defPorKey.get(k)?.nome ?? k : "");
 
   // ordem estável dos membros (grupos do bot, reservas, depois roubos) p/ filar as PTs
   const membros = useMemo(() => {
@@ -75,7 +72,7 @@ export default function MontarPtsBoard({
     if (!ops.length) return;
     opQueueRef.current.push(...ops);
     if (flushingRef.current) return;
-    flushingRef.current = true; setSaving(true);
+    flushingRef.current = true; setSavingOps(true);
     try {
       while (opQueueRef.current.length) {
         const batch = opQueueRef.current; opQueueRef.current = [];
@@ -84,7 +81,7 @@ export default function MontarPtsBoard({
       }
       setErro(""); router.refresh(); // propaga e re-sincroniza
     } catch (e) { setErro((e as Error).message); }
-    finally { flushingRef.current = false; setSaving(false); }
+    finally { flushingRef.current = false; setSavingOps(false); }
   }
 
   // diff entre o estado anterior e o novo → ops (upsert dos mudados; delete dos sumidos)
@@ -97,29 +94,53 @@ export default function MontarPtsBoard({
     enviarOps(ops);
   }
 
-  // re-sincroniza do servidor (outro PC editou) FILTRANDO a quem é membro agora. Quem não
-  // é mais membro (removido na substituição, ou roubo que sumiu) some da visão sem apagar a
-  // marca no banco — assim "desfazer" a substituição traz a marca de volta. lastSig evita
-  // atropelar edição local e loops; effect sem dep-array re-tenta após o flush.
+  // re-sincroniza do servidor (outro PC editou) FILTRANDO a quem é membro agora; semeia a PT
+  // preferida (a "base") só se a chave for válida no template ATIVO. lastSig evita atropelar
+  // edição local e loops; sem dep-array re-tenta após o flush e em troca de modo.
   const initSig = useMemo(() => marcacoesInit.map((r) => `${r.chave}:${r.pt}:${r.lider ? 1 : 0}`).join("\n"), [marcacoesInit]);
   const membrosSig = useMemo(() => membros.map((p) => chaveNome(p.nome)).join("\n"), [membros]);
   const prefSig = useMemo(() => JSON.stringify(preferidas), [preferidas]);
   const lastSyncSig = useRef("");
   useEffect(() => {
-    const sig = initSig + "##" + membrosSig + "##" + prefSig;
-    if (sig === lastSyncSig.current || flushingRef.current) return; // sem mudança ou edição em voo
+    const sig = `${initSig}##${membrosSig}##${prefSig}##${modo}:${siegePts}`;
+    if (sig === lastSyncSig.current || flushingRef.current) return;
     lastSyncSig.current = sig;
-    // por membro confirmado: usa a marca da war (pt_scan) se existir; senão SEMEIA com a PT
-    // preferida (a "base"). Marca de não-membro não entra (some sem apagar no banco).
     const scanPorChave = new Map(marcacoesInit.map((r) => [r.chave, r]));
     const m = new Map<string, Mark>();
     for (const p of membros) {
       const k = chaveNome(p.nome);
       const row = scanPorChave.get(k);
       if (row) m.set(k, { nome: p.nome, pt: row.pt, lider: row.lider });
-      else if (preferidas[k] && PTS.some((x) => x.key === preferidas[k])) m.set(k, { nome: p.nome, pt: preferidas[k], lider: false });
+      else if (preferidas[k] && defPorKey.has(preferidas[k])) m.set(k, { nome: p.nome, pt: preferidas[k], lider: false });
     }
     setMarks(m);
+  });
+
+  // ---- config do template (modo/siege) — persiste e sincroniza entre PCs ----
+  const cfgSavingRef = useRef(false);
+  const cfgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  async function persistConfig(novoModo: string, novoSiege: number) {
+    if (!canEdit) return;
+    setModo(novoModo); setSiegePts(novoSiege); // otimista
+    cfgSavingRef.current = true; setSavingCfg(true);
+    try {
+      const res = await fetch("/api/confirmados/pt-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modo: novoModo, siegePts: novoSiege }) });
+      if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || "falha ao salvar config"); }
+      setErro(""); router.refresh();
+    } catch (e) { setErro((e as Error).message); }
+    finally { cfgSavingRef.current = false; setSavingCfg(false); }
+  }
+  function mudarSiege(n: number) { // slider: estado imediato, persiste com debounce
+    setSiegePts(n);
+    if (cfgTimerRef.current) clearTimeout(cfgTimerRef.current);
+    cfgTimerRef.current = setTimeout(() => persistConfig("siege", n), 400);
+  }
+  const cfgInitSig = `${modoInit}:${siegePtsInit}`;
+  const lastCfgSig = useRef(cfgInitSig);
+  useEffect(() => {
+    if (cfgInitSig === lastCfgSig.current || cfgSavingRef.current) return;
+    lastCfgSig.current = cfgInitSig;
+    setModo(modoInit); setSiegePts(siegePtsInit);
   });
 
   function togglePt(p: PlayerConf, ptKey: string) {
@@ -128,8 +149,7 @@ export default function MontarPtsBoard({
     const cur = marks.get(k);
     const novoPt = cur?.pt === ptKey ? null : ptKey;
     const next = new Map(marks);
-    // trocar/limpar o squad zera a coroa — líder é por-PT (re-marque a coroa na PT nova
-    // se quiser). Evita 2 líderes na PT destino e coroa órfã (líder sem PT).
+    // trocar/limpar o squad zera a coroa — líder é por-PT (re-marque na PT nova se quiser).
     if (!novoPt) next.delete(k); else next.set(k, { nome: p.nome, pt: novoPt, lider: false });
     commit(next);
   }
@@ -153,24 +173,24 @@ export default function MontarPtsBoard({
 
   async function resetar() {
     if (!canEdit || !confirm("Limpar todas as marcações de PT (coroas e quadrados)?")) return;
-    setMarks(new Map()); opQueueRef.current = []; setSaving(true);
+    setMarks(new Map()); opQueueRef.current = []; setSavingOps(true);
     try {
       const res = await fetch("/api/confirmados/pt", { method: "DELETE" });
       if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || "falha ao limpar"); }
       setErro(""); router.refresh();
     } catch (e) { setErro((e as Error).message); }
-    finally { setSaving(false); }
+    finally { setSavingOps(false); }
   }
 
-  // listas do popup
-  const ptListas = useMemo(() => PTS.map((pt) => {
+  // listas do popup (só PTs do template ativo)
+  const ptListas = useMemo(() => pts.map((pt) => {
     const lista = membros.filter((p) => marks.get(chaveNome(p.nome))?.pt === pt.key);
     lista.sort((a, b) => (marks.get(chaveNome(b.nome))?.lider ? 1 : 0) - (marks.get(chaveNome(a.nome))?.lider ? 1 : 0));
     return { pt, dentro: lista.slice(0, VAGAS_PT), fora: lista.slice(VAGAS_PT), total: lista.length };
-  }), [membros, marks]);
+  }), [membros, marks, pts]);
 
-  // confirmados sem nenhuma PT atribuída (precisam entrar em alguma)
-  const foraDasPts = useMemo(() => membros.filter((p) => !marks.get(chaveNome(p.nome))?.pt), [membros, marks]);
+  // confirmados sem PT ATIVA (precisam entrar em alguma do template atual)
+  const foraDasPts = useMemo(() => membros.filter((p) => { const pt = marks.get(chaveNome(p.nome))?.pt; return !pt || !ptAtivaSet.has(pt); }), [membros, marks, ptAtivaSet]);
 
   const Coroa = ({ p }: { p: PlayerConf }) => {
     const on = !!marks.get(chaveNome(p.nome))?.lider;
@@ -191,12 +211,12 @@ export default function MontarPtsBoard({
         <span style={{ color: C.texto, fontWeight: m?.lider ? 700 : 400 }}>{p.nome}</span>
         {p.nota && <span style={{ color: C.mute, fontSize: 11 }}>({p.nota})</span>}
         <span style={{ marginLeft: "auto", display: "inline-flex", gap: 3 }}>
-          {PTS.map((pt) => {
+          {pts.map((pt) => {
             const active = m?.pt === pt.key;
             return (
               <button key={pt.key} onClick={() => togglePt(p, pt.key)} disabled={!canEdit} title={pt.nome}
                 style={{ width: 22, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 5, border: `1px solid ${active ? C.verde : C.border2}`, background: active ? C.verdeTint : "transparent", color: active ? C.verde : C.mute, cursor: canEdit ? "pointer" : "default", padding: 0 }}>
-                <PtGlyph k={pt.key} />
+                <Glyph icon={pt.icon} />
               </button>
             );
           })}
@@ -205,27 +225,50 @@ export default function MontarPtsBoard({
     );
   };
 
+  const modoBtn = (m: "nodewar" | "siege", label: string) => (
+    <button onClick={() => persistConfig(m, siegePts)} style={{ borderRadius: 8, border: `1px solid ${modo === m ? C.verde : C.border2}`, background: modo === m ? C.verdeTint : "transparent", color: modo === m ? C.verde : C.mute, padding: "5px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>
+  );
+
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "14px 16px", marginBottom: 18 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-        <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Montar PTs <span style={{ color: C.mute, fontWeight: 400, fontSize: 12 }}>(squads)</span></div>
+        <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Montar PTs <span style={{ color: C.mute, fontWeight: 400, fontSize: 12 }}>({modo === "siege" ? "siege" : "nodewar"})</span></div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {saving && <span style={{ color: C.mute, fontSize: 12 }}>salvando…</span>}
+          {canEdit && (
+            <button onClick={() => setConfigOpen((o) => !o)} style={{ borderRadius: 8, border: `1px solid ${configOpen ? C.verde : C.border2}`, background: "transparent", color: configOpen ? C.verde : C.mute, padding: "6px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>⚙ Config</button>
+          )}
           <button onClick={() => setPopup(true)} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "6px 13px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>👁 Visualizar PT&apos;s</button>
           {canEdit && marks.size > 0 && !saving && (
             <button onClick={resetar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "6px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>
           )}
         </div>
       </div>
+
+      {configOpen && canEdit && (
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px 14px", border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "10px 13px", marginBottom: 12 }}>
+          <span style={{ color: C.mute, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Tipo de evento</span>
+          {modoBtn("nodewar", "Nodewar")}
+          {modoBtn("siege", "Siege")}
+          {modo === "siege" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.texto, fontSize: 12.5 }}>
+              <span style={{ borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 12 }}>PTs numeradas: <b style={{ color: C.verde }}>{siegePts}</b></span>
+              <input type="range" min={SIEGE_MIN} max={SIEGE_MAX} step={1} value={siegePts} onChange={(e) => mudarSiege(Number(e.target.value))} style={{ accentColor: C.verde, cursor: "pointer" }} />
+              <span style={{ color: C.mute }}>+ Flanco + Defesa</span>
+            </span>
+          )}
+        </div>
+      )}
+
       <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 12 }}>
         <b style={{ color: C.amarelo }}>Só quem confirmou Participar in-game</b> ({membros.length}). {canEdit
-          ? "👑 = líder da PT (1 por PT). Quadrados = em qual squad cada um vai (1 / 2 / Defesa / UngaBunga). Reseta com a war."
+          ? `👑 = líder (1 por PT). Quadrados = squad (${pts.map((p) => p.nome).join(" / ")}). Use ⚙ Config p/ trocar Nodewar/Siege. Marcações resetam com a war.`
           : "Composição montada pela staff. Use “Visualizar PT’s” pra ver as listas."}
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
 
-      {/* quem confirmou mas ainda não está em nenhuma PT */}
+      {/* quem confirmou mas ainda não está em nenhuma PT (do template atual) */}
       {foraDasPts.length > 0 && (
         <div style={{ border: `1px solid ${C.vermelho}`, borderRadius: 10, background: C.inputBg, padding: "9px 13px", marginBottom: 14 }}>
           <div style={{ color: C.vermelho, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⚠ Fora das PTs ({foraDasPts.length}) <span style={{ color: C.mute, fontWeight: 400, fontSize: 11.5 }}>— confirmaram mas não estão em nenhum squad</span></div>
@@ -247,17 +290,17 @@ export default function MontarPtsBoard({
           Ninguém confirmou “Participar” in-game ainda — suba os prints na seção <b style={{ color: C.texto }}>Conferir “Participar”</b> acima pra ver quem vai pra war.
         </div>
       ) : (
-      /* grupos do bot — só os que têm gente confirmada */
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
-        {grupos.filter((g) => g.players.length > 0).map((g) => (
-          <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
-            <div style={{ color: C.verde, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{g.nome}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {g.players.map((p, i) => <MemberRow key={i} p={p} />)}
+        /* grupos do bot — só os que têm gente confirmada */
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+          {grupos.filter((g) => g.players.length > 0).map((g) => (
+            <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
+              <div style={{ color: C.verde, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{g.nome}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {g.players.map((p, i) => <MemberRow key={i} p={p} />)}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
       )}
 
       {/* reservas (hidden, como se estivessem no bot) */}
@@ -285,14 +328,14 @@ export default function MontarPtsBoard({
         <div onClick={() => setPopup(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 50, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 1100, border: `1px solid ${C.border2}`, borderRadius: 14, background: C.bg0, padding: "18px 20px", boxShadow: "0 0 40px rgba(0,0,0,.6)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ color: C.amarelo, fontWeight: 800, fontSize: 16, fontFamily: "'Share Tech Mono', monospace", letterSpacing: 1 }}>PTs montadas</div>
+              <div style={{ color: C.amarelo, fontWeight: 800, fontSize: 16, fontFamily: "'Share Tech Mono', monospace", letterSpacing: 1 }}>PTs montadas <span style={{ color: C.mute, fontSize: 12 }}>({modo === "siege" ? "siege" : "nodewar"})</span></div>
               <button onClick={() => setPopup(false)} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 20, lineHeight: 1 }}>✕</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14 }}>
               {ptListas.map(({ pt, dentro, fora, total }) => (
                 <div key={pt.key} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                    <span style={{ color: C.verde, fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}><PtGlyph k={pt.key} size={16} /> {pt.nome}</span>
+                    <span style={{ color: C.verde, fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}><Glyph icon={pt.icon} size={16} /> {pt.nome}</span>
                     <span style={{ color: total > VAGAS_PT ? C.amarelo : C.mute, fontSize: 12 }}>{Math.min(total, VAGAS_PT)}/{VAGAS_PT}</span>
                   </div>
                   {dentro.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : (

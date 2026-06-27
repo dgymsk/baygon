@@ -85,8 +85,10 @@ CREATE TABLE IF NOT EXISTS pt_scan (
   atualizado TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS pt_meta (
-  id      INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  war_key TEXT
+  id        INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  war_key   TEXT,
+  modo      TEXT NOT NULL DEFAULT 'nodewar',  -- 'nodewar' | 'siege' (template das PTs; persiste entre wars)
+  siege_pts INT  NOT NULL DEFAULT 3           -- nº de PTs numeradas no siege (1-5); + Flanco + Defesa fixas
 );
 INSERT INTO pt_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
 
