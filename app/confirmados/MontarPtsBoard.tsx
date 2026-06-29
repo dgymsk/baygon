@@ -47,6 +47,7 @@ export default function MontarPtsBoard({
 
   // template das PTs conforme o modo (nodewar | siege)
   const pts = useMemo(() => ptsAtivas(modo, siegePts), [modo, siegePts]);
+  const cardMin = Math.max(240, 156 + pts.length * 26); // alarga o card conforme o nº de PTs (quadrados)
   const defPorKey = useMemo(() => new Map(pts.map((p) => [p.key, p])), [pts]);
   const ptAtivaSet = useMemo(() => new Set(pts.map((p) => p.key)), [pts]);
   const ptNome = (k: string | null) => (k ? defPorKey.get(k)?.nome ?? k : "");
@@ -205,12 +206,12 @@ export default function MontarPtsBoard({
     const m = marks.get(k);
     const g = p.tag ? GUILD[p.tag] : null;
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "3px 6px", fontSize: 12.5 }}>
         <Coroa p={p} />
         {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
         <span style={{ color: C.texto, fontWeight: m?.lider ? 700 : 400 }}>{p.nome}</span>
         {p.nota && <span style={{ color: C.mute, fontSize: 11 }}>({p.nota})</span>}
-        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 3 }}>
+        <span style={{ marginLeft: "auto", display: "inline-flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 3 }}>
           {pts.map((pt) => {
             const active = m?.pt === pt.key;
             return (
@@ -291,7 +292,7 @@ export default function MontarPtsBoard({
         </div>
       ) : (
         /* grupos do bot — só os que têm gente confirmada */
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${cardMin}px, 1fr))`, gap: 12 }}>
           {grupos.filter((g) => g.players.length > 0).map((g) => (
             <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
               <div style={{ color: C.verde, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{g.nome}</div>
@@ -307,7 +308,7 @@ export default function MontarPtsBoard({
       {hidden.length > 0 && (
         <div style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px", marginTop: 12 }}>
           <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Reservas (fora do bot) <span style={{ color: C.mute, fontWeight: 400 }}>({hidden.length})</span></div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "5px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${cardMin}px, 1fr))`, gap: "5px 16px" }}>
             {hidden.map((p, i) => <MemberRow key={i} p={p} />)}
           </div>
         </div>
@@ -317,7 +318,7 @@ export default function MontarPtsBoard({
       {roubo.length > 0 && (
         <div style={{ border: `1px dashed ${C.laranja}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px", marginTop: 12 }}>
           <div style={{ color: C.laranja, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🏴 Roubaram vaga <span style={{ color: C.mute, fontWeight: 400 }}>({roubo.length})</span></div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "5px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${cardMin}px, 1fr))`, gap: "5px 16px" }}>
             {roubo.map((p, i) => <MemberRow key={i} p={p} />)}
           </div>
         </div>
