@@ -87,9 +87,10 @@ CREATE TABLE IF NOT EXISTS pt_scan (
 CREATE TABLE IF NOT EXISTS pt_meta (
   id           INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   war_key      TEXT,
-  modo         TEXT NOT NULL DEFAULT 'nodewar',       -- 'nodewar' | 'siege' (template das PTs; persiste entre wars)
-  siege_pts    INT  NOT NULL DEFAULT 3,               -- nº de PTs numeradas no siege (1-5)
-  siege_extras TEXT NOT NULL DEFAULT 'Flanco,Defesa'  -- PTs nomeadas do siege (editáveis; sep. por vírgula/linha)
+  modo         TEXT NOT NULL DEFAULT 'nodewar',       -- legado (a fonte da verdade é pt_config.modo)
+  siege_pts    INT  NOT NULL DEFAULT 3,               -- legado
+  siege_extras TEXT NOT NULL DEFAULT 'Flanco,Defesa', -- legado
+  pt_config    TEXT  -- JSON: {modo, nodewar:{num,extras[]}, siege:{num,extras[]}}; extras = {id,nome,icone}
 );
 INSERT INTO pt_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
 

@@ -1,33 +1,28 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 import { fetchConfirmados } from "@/lib/confirmados";
-import { ptChaveValida, clampSiege, parseExtras, MAX_EXTRAS } from "@/lib/ptConfig";
+import { ptChaveValida, parseConfig, configPadrao, type PtConfig } from "@/lib/ptConfig";
 
 /**
  * Composição de PTs (squads), por LINHA (delta) — seguro p/ duas pessoas editando junto.
  * Por membro: em qual PT está (chave do template ativo) e se é líder (coroa).
- * Atrelado à war_key (auto-reset ao trocar a war). O TEMPLATE (modo/siege) persiste.
+ * Atrelado à war_key (auto-reset ao trocar a war). O TEMPLATE (pt_config) persiste.
  */
 export type PtRow = { chave: string; familia: string; pt: string | null; lider: boolean };
 export type PtOp = { familia: string; pt?: string | null; lider?: boolean };
-export type ModoPt = { modo: string; siegePts: number; siegeExtras: string };
 
-/** LEITURA PURA do template das PTs (modo + nº de PTs + PTs nomeadas do siege). Persiste entre wars. */
-export async function getModoPt(): Promise<ModoPt> {
-  const meta = (await sql`SELECT modo, siege_pts, siege_extras FROM pt_meta WHERE id = 1`) as { modo: string | null; siege_pts: number | null; siege_extras: string | null }[];
-  const row = meta[0];
-  return { modo: row?.modo === "siege" ? "siege" : "nodewar", siegePts: clampSiege(row?.siege_pts ?? 3), siegeExtras: row?.siege_extras ?? "Flanco,Defesa" };
+/** LEITURA PURA do template das PTs (config por modo). Persiste entre wars. */
+export async function getPtConfig(): Promise<PtConfig> {
+  const meta = (await sql`SELECT pt_config FROM pt_meta WHERE id = 1`) as { pt_config: string | null }[];
+  return meta[0]?.pt_config ? parseConfig(meta[0].pt_config) : configPadrao();
 }
 
-/** Define o template das PTs (não mexe nas marcações nem na war). */
-export async function setModoPt(modo: unknown, siegePts: unknown, siegeExtras: unknown): Promise<ModoPt> {
-  const m = modo === "siege" ? "siege" : "nodewar";
-  const n = clampSiege(typeof siegePts === "number" ? siegePts : Number(siegePts));
-  // re-serializa as PTs nomeadas já normalizadas/limitadas (evita lixo no banco)
-  const extras = parseExtras(typeof siegeExtras === "string" ? siegeExtras : "").slice(0, MAX_EXTRAS).map((e) => e.nome).join(",");
-  await sql`INSERT INTO pt_meta (id, modo, siege_pts, siege_extras) VALUES (1, ${m}, ${n}, ${extras})
-    ON CONFLICT (id) DO UPDATE SET modo = EXCLUDED.modo, siege_pts = EXCLUDED.siege_pts, siege_extras = EXCLUDED.siege_extras`;
-  return { modo: m, siegePts: n, siegeExtras: extras };
+/** Define o template das PTs (não mexe nas marcações nem na war). Sanitiza antes de gravar. */
+export async function setPtConfig(raw: unknown): Promise<PtConfig> {
+  const cfg = parseConfig(raw);
+  await sql`INSERT INTO pt_meta (id, pt_config) VALUES (1, ${JSON.stringify(cfg)})
+    ON CONFLICT (id) DO UPDATE SET pt_config = EXCLUDED.pt_config`;
+  return cfg;
 }
 
 async function readPt(): Promise<PtRow[]> {

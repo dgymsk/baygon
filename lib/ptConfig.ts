@@ -1,63 +1,97 @@
 import { chaveNome } from "@/lib/nomes";
 
 /**
- * Template das PTs (squads) do board "Montar PTs", conforme o tipo de evento.
- *  - nodewar: PT1, PT2, Defesa, UngaBunga (fixo);
- *  - siege:   N PTs numeradas (1-5, slider) + PTs NOMEADAS editáveis (ex.: Flanco, Defesa).
- * As chaves do siege (sg.. e x..) são separadas das de nodewar, então marcar num modo
- * não mistura com o outro. Puro (sem imports de servidor) — usável no client.
+ * Template das PTs (squads) do board "Montar PTs". Config POR MODO (nodewar | siege),
+ * cada um com N PTs numeradas (slider) + PTs NOMEADAS editáveis, cada uma com um ícone
+ * (emoji unicode, emoji do Discord "<:nome:id>", ou nada → iniciais).
+ * Chaves: numeradas = "1".."5" (nodewar) / "sg1".."sg5" (siege); nomeadas = id estável.
+ * Modos não misturam marcações (chaves distintas). Puro — usável no client.
  */
 export type PtIcon = { kind: "num"; n: string } | { kind: "cdn"; id: string } | { kind: "emoji"; e: string } | { kind: "txt"; t: string };
 export type PtDef = { key: string; nome: string; icon: PtIcon };
 
-const FLAME_ID = "1459738870592835584"; // emoji "flame" do bot = Defesa (nodewar)
-const UNGA_ID = "1512543325851353208"; // emoji ":ungaungacore:" = UngaBunga (nodewar)
+export type PtEntry = { id: string; nome: string; icone: string };
+export type ModoCfg = { num: number; extras: PtEntry[] };
+export type PtConfig = { modo: "nodewar" | "siege"; nodewar: ModoCfg; siege: ModoCfg };
 
-export const SIEGE_MIN = 1;
-export const SIEGE_MAX = 5;
+export const NUM_MIN = 0;
+export const NUM_MAX = 5;
 export const MAX_EXTRAS = 8;
-export const clampSiege = (n: number) => Math.max(SIEGE_MIN, Math.min(SIEGE_MAX, Math.trunc(Number(n) || SIEGE_MIN)));
+export const clampNum = (n: unknown) => Math.max(NUM_MIN, Math.min(NUM_MAX, Math.trunc(Number(n) || 0)));
 
-const FIXAS = new Set(["1", "2", "defesa", "ungabunga", "sg1", "sg2", "sg3", "sg4", "sg5"]);
-
-/** Chave estável de uma PT nomeada (namespace "x" + slug do nome). */
-export function xKey(nome: string): string {
-  return "x" + chaveNome(nome).replace(/[^a-z0-9]/g, "").slice(0, 40);
+/** Config padrão (preserva as chaves atuais: "1","2","defesa","ungabunga","sg1..","xflanco","xdefesa"). */
+export function configPadrao(): PtConfig {
+  return {
+    modo: "nodewar",
+    nodewar: { num: 2, extras: [{ id: "defesa", nome: "Defesa", icone: "🔥" }, { id: "ungabunga", nome: "UngaBunga", icone: "🦍" }] },
+    siege: { num: 3, extras: [{ id: "xflanco", nome: "Flanco", icone: "⚔️" }, { id: "xdefesa", nome: "Defesa", icone: "🔥" }] },
+  };
 }
 
-/** Parseia o texto das PTs nomeadas (sep. por vírgula/linha/;) → lista {key, nome} sem repetir. */
-export function parseExtras(texto: string): { key: string; nome: string }[] {
-  const out: { key: string; nome: string }[] = [];
-  const visto = new Set<string>();
-  for (const raw of (texto || "").split(/[\n,;]+/)) {
-    const nome = raw.replace(/\s+/g, " ").trim().slice(0, 24);
+/** id estável de uma PT nomeada nova (slug do nome + sufixo, alfanumérico). */
+export function novoId(nome: string, usados: Set<string>): string {
+  const base = ("x" + chaveNome(nome).replace(/[^a-z0-9]/g, "").slice(0, 30)) || "x";
+  let id = base;
+  let i = 2;
+  while (id === "x" || usados.has(id)) id = `${base}${i++}`;
+  return id;
+}
+
+const idOk = (s: string) => /^[a-z0-9]{1,40}$/.test(s);
+
+function sanitizaModo(raw: unknown, padrao: ModoCfg): ModoCfg {
+  const r = (raw ?? {}) as { num?: unknown; extras?: unknown };
+  const num = clampNum(r.num ?? padrao.num);
+  const extras: PtEntry[] = [];
+  const usados = new Set<string>();
+  for (const e of Array.isArray(r.extras) ? r.extras : []) {
+    const o = (e ?? {}) as { id?: unknown; nome?: unknown; icone?: unknown };
+    const nome = typeof o.nome === "string" ? o.nome.replace(/\s+/g, " ").trim().slice(0, 24) : "";
     if (!nome) continue;
-    const key = xKey(nome);
-    if (key === "x" || visto.has(key)) continue; // vazio após slug, ou duplicado
-    visto.add(key);
-    out.push({ key, nome });
-    if (out.length >= MAX_EXTRAS) break;
+    // aceita o id do cliente só se for alfanumérico E não colidir com chave numerada ("2","sg1")
+    const idCliente = typeof o.id === "string" && idOk(o.id) && !/^(sg)?\d+$/.test(o.id);
+    let id = idCliente ? (o.id as string) : novoId(nome, usados);
+    if (usados.has(id)) id = novoId(nome, usados);
+    usados.add(id);
+    const icone = typeof o.icone === "string" ? o.icone.trim().slice(0, 24) : "";
+    extras.push({ id, nome, icone });
+    if (extras.length >= MAX_EXTRAS) break;
   }
+  return { num, extras };
+}
+
+/** Parseia/sanitiza a config (de JSON do banco ou do cliente) com defaults. */
+export function parseConfig(raw: unknown): PtConfig {
+  let obj: unknown = raw;
+  if (typeof raw === "string") { try { obj = JSON.parse(raw); } catch { obj = null; } }
+  const o = (obj ?? {}) as Partial<PtConfig>;
+  const pad = configPadrao();
+  return {
+    modo: o.modo === "siege" ? "siege" : "nodewar",
+    nodewar: sanitizaModo(o.nodewar, pad.nodewar),
+    siege: sanitizaModo(o.siege, pad.siege),
+  };
+}
+
+export function iconeDe(icone: string, nome: string): PtIcon {
+  const m = (icone || "").trim().match(/^<a?:\w+:(\d+)>$/);
+  if (m) return { kind: "cdn", id: m[1] };
+  const e = (icone || "").trim();
+  if (e) return { kind: "emoji", e: e.slice(0, 4) };
+  return { kind: "txt", t: nome.slice(0, 2).toUpperCase() };
+}
+
+/** PTs ATIVAS do modo atual (numeradas + nomeadas, com ícone). */
+export function ptsAtivas(cfg: PtConfig): PtDef[] {
+  const m = cfg.modo === "siege" ? cfg.siege : cfg.nodewar;
+  const prefixo = cfg.modo === "siege" ? "sg" : "";
+  const out: PtDef[] = [];
+  for (let i = 1; i <= clampNum(m.num); i++) out.push({ key: `${prefixo}${i}`, nome: `PT${i}`, icon: { kind: "num", n: String(i) } });
+  for (const e of m.extras) out.push({ key: e.id, nome: e.nome, icon: iconeDe(e.icone, e.nome) });
   return out;
 }
 
-export function ptsAtivas(modo: string, siegePts: number, siegeExtras: string): PtDef[] {
-  if (modo === "siege") {
-    const n = clampSiege(siegePts);
-    const out: PtDef[] = [];
-    for (let i = 1; i <= n; i++) out.push({ key: `sg${i}`, nome: `PT${i}`, icon: { kind: "num", n: String(i) } });
-    for (const e of parseExtras(siegeExtras)) out.push({ key: e.key, nome: e.nome, icon: { kind: "txt", t: e.nome.slice(0, 2).toUpperCase() } });
-    return out;
-  }
-  return [
-    { key: "1", nome: "PT1", icon: { kind: "num", n: "1" } },
-    { key: "2", nome: "PT2", icon: { kind: "num", n: "2" } },
-    { key: "defesa", nome: "Defesa", icon: { kind: "cdn", id: FLAME_ID } },
-    { key: "ungabunga", nome: "UngaBunga", icon: { kind: "cdn", id: UNGA_ID } },
-  ];
-}
-
-/** Chave de PT válida p/ gravar (fixas do template OU PT nomeada "x<slug>"). */
+/** Chave de PT válida p/ gravar (numeradas ou id de PT nomeada — alfanumérico). */
 export function ptChaveValida(k: string): boolean {
-  return FIXAS.has(k) || /^x[a-z0-9]{1,40}$/.test(k);
+  return idOk(k);
 }

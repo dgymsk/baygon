@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
-import { ptsAtivas, parseExtras, SIEGE_MIN, SIEGE_MAX, MAX_EXTRAS, type PtIcon } from "@/lib/ptConfig";
+import { ptsAtivas, iconeDe, novoId, NUM_MIN, NUM_MAX, MAX_EXTRAS, type PtIcon, type PtConfig, type ModoCfg } from "@/lib/ptConfig";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
 import type { PtRow } from "@/lib/ptStatus";
@@ -26,10 +26,10 @@ function Glyph({ icon, size = 14 }: { icon: PtIcon; size?: number }) {
 type Mark = { nome: string; pt: string | null; lider: boolean };
 
 export default function MontarPtsBoard({
-  grupos, hidden, roubo, marcacoesInit, preferidas, modoInit, siegePtsInit, siegeExtrasInit, canEdit, warKey,
+  grupos, hidden, roubo, marcacoesInit, preferidas, cfgInit, canEdit, warKey,
 }: {
   grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; preferidas: Record<string, string>;
-  modoInit: string; siegePtsInit: number; siegeExtrasInit: string; canEdit: boolean; warKey: string | null;
+  cfgInit: PtConfig; canEdit: boolean; warKey: string | null;
 }) {
   const router = useRouter();
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
@@ -37,20 +37,20 @@ export default function MontarPtsBoard({
     for (const r of marcacoesInit) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
     return m;
   });
-  const [modo, setModo] = useState(modoInit);
-  const [siegePts, setSiegePts] = useState(siegePtsInit);
-  const [siegeExtras, setSiegeExtras] = useState(siegeExtrasInit);
-  const [novoExtra, setNovoExtra] = useState("");
+  const [cfg, setCfg] = useState<PtConfig>(cfgInit);
+  const [novoNome, setNovoNome] = useState("");
+  const [novoIcone, setNovoIcone] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const [savingOps, setSavingOps] = useState(false); // flush de marcações
-  const [savingCfg, setSavingCfg] = useState(false); // salvar config (modo/slider)
+  const [savingCfg, setSavingCfg] = useState(false); // salvar config (modo/slider/PTs)
   const saving = savingOps || savingCfg;
   const [erro, setErro] = useState("");
   const [popup, setPopup] = useState(false);
 
   // template das PTs conforme o modo (nodewar | siege)
-  const pts = useMemo(() => ptsAtivas(modo, siegePts, siegeExtras), [modo, siegePts, siegeExtras]);
-  const extrasList = useMemo(() => parseExtras(siegeExtras), [siegeExtras]);
+  const modo = cfg.modo;
+  const ativa = modo === "siege" ? cfg.siege : cfg.nodewar; // config do modo atual
+  const pts = useMemo(() => ptsAtivas(cfg), [cfg]);
   const cardMin = Math.max(240, 156 + pts.length * 26); // alarga o card conforme o nº de PTs (quadrados)
   const defPorKey = useMemo(() => new Map(pts.map((p) => [p.key, p])), [pts]);
   const ptAtivaSet = useMemo(() => new Set(pts.map((p) => p.key)), [pts]);
@@ -105,9 +105,10 @@ export default function MontarPtsBoard({
   const initSig = useMemo(() => marcacoesInit.map((r) => `${r.chave}:${r.pt}:${r.lider ? 1 : 0}`).join("\n"), [marcacoesInit]);
   const membrosSig = useMemo(() => membros.map((p) => chaveNome(p.nome)).join("\n"), [membros]);
   const prefSig = useMemo(() => JSON.stringify(preferidas), [preferidas]);
+  const ptsSig = useMemo(() => pts.map((p) => p.key).join(","), [pts]);
   const lastSyncSig = useRef("");
   useEffect(() => {
-    const sig = `${initSig}##${membrosSig}##${prefSig}##${modo}:${siegePts}:${siegeExtras}`;
+    const sig = `${initSig}##${membrosSig}##${prefSig}##${ptsSig}`;
     if (sig === lastSyncSig.current || flushingRef.current) return;
     lastSyncSig.current = sig;
     const scanPorChave = new Map(marcacoesInit.map((r) => [r.chave, r]));
@@ -121,41 +122,43 @@ export default function MontarPtsBoard({
     setMarks(m);
   });
 
-  // ---- config do template (modo/siege) — persiste e sincroniza entre PCs ----
+  // ---- config do template (por modo) — persiste e sincroniza entre PCs ----
   const cfgSavingRef = useRef(false);
   const cfgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  async function persistConfig(novoModo: string, novoSiege: number, novoExtras: string) {
-    if (!canEdit) return;
-    setModo(novoModo); setSiegePts(novoSiege); setSiegeExtras(novoExtras); // otimista
+  async function salvarRemoto(novoCfg: PtConfig) {
     cfgSavingRef.current = true; setSavingCfg(true);
     try {
-      const res = await fetch("/api/confirmados/pt-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modo: novoModo, siegePts: novoSiege, siegeExtras: novoExtras }) });
+      const res = await fetch("/api/confirmados/pt-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(novoCfg) });
       if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || "falha ao salvar config"); }
       setErro(""); router.refresh();
     } catch (e) { setErro((e as Error).message); }
     finally { cfgSavingRef.current = false; setSavingCfg(false); }
   }
-  function mudarSiege(n: number) { // slider: estado imediato, persiste com debounce
-    setSiegePts(n);
+  function aplicarCfg(novoCfg: PtConfig, debounce = false) {
+    if (!canEdit) return;
+    setCfg(novoCfg); // otimista
     if (cfgTimerRef.current) clearTimeout(cfgTimerRef.current);
-    cfgTimerRef.current = setTimeout(() => persistConfig("siege", n, siegeExtras), 400);
+    if (debounce) {
+      cfgSavingRef.current = true; // protege o valor otimista de um refresh remoto durante o debounce
+      cfgTimerRef.current = setTimeout(() => salvarRemoto(novoCfg), 400);
+    } else salvarRemoto(novoCfg);
   }
-  // adicionar / remover PT nomeada do siege
+  const patchAtiva = (patch: Partial<ModoCfg>, debounce = false) => aplicarCfg({ ...cfg, [modo]: { ...ativa, ...patch } }, debounce);
+  function mudarNum(n: number) { patchAtiva({ num: n }, true); } // slider: estado imediato, salva com debounce
   function addExtra() {
-    const nome = novoExtra.replace(/\s+/g, " ").trim();
-    if (!nome || extrasList.length >= MAX_EXTRAS) return;
-    persistConfig("siege", siegePts, [...extrasList.map((e) => e.nome), nome].join(","));
-    setNovoExtra("");
+    const nome = novoNome.replace(/\s+/g, " ").trim();
+    if (!nome || ativa.extras.length >= MAX_EXTRAS) return;
+    const id = novoId(nome, new Set(ativa.extras.map((e) => e.id)));
+    patchAtiva({ extras: [...ativa.extras, { id, nome, icone: novoIcone.trim().slice(0, 24) }] });
+    setNovoNome(""); setNovoIcone("");
   }
-  function removerExtra(i: number) {
-    persistConfig("siege", siegePts, extrasList.filter((_, idx) => idx !== i).map((e) => e.nome).join(","));
-  }
-  const cfgInitSig = `${modoInit}:${siegePtsInit}:${siegeExtrasInit}`;
-  const lastCfgSig = useRef(cfgInitSig);
+  const removerExtra = (i: number) => patchAtiva({ extras: ativa.extras.filter((_, idx) => idx !== i) });
+  const cfgSig = useMemo(() => JSON.stringify(cfgInit), [cfgInit]);
+  const lastCfgSig = useRef(cfgSig);
   useEffect(() => {
-    if (cfgInitSig === lastCfgSig.current || cfgSavingRef.current) return;
-    lastCfgSig.current = cfgInitSig;
-    setModo(modoInit); setSiegePts(siegePtsInit); setSiegeExtras(siegeExtrasInit);
+    if (cfgSig === lastCfgSig.current || cfgSavingRef.current) return;
+    lastCfgSig.current = cfgSig;
+    setCfg(cfgInit);
   });
 
   function togglePt(p: PlayerConf, ptKey: string) {
@@ -241,7 +244,7 @@ export default function MontarPtsBoard({
   };
 
   const modoBtn = (m: "nodewar" | "siege", label: string) => (
-    <button onClick={() => persistConfig(m, siegePts, siegeExtras)} style={{ borderRadius: 8, border: `1px solid ${modo === m ? C.verde : C.border2}`, background: modo === m ? C.verdeTint : "transparent", color: modo === m ? C.verde : C.mute, padding: "5px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>
+    <button onClick={() => aplicarCfg({ ...cfg, modo: m })} style={{ borderRadius: 8, border: `1px solid ${modo === m ? C.verde : C.border2}`, background: modo === m ? C.verdeTint : "transparent", color: modo === m ? C.verde : C.mute, padding: "5px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>
   );
 
   return (
@@ -261,34 +264,36 @@ export default function MontarPtsBoard({
       </div>
 
       {configOpen && canEdit && (
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px 14px", border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "10px 13px", marginBottom: 12 }}>
-          <span style={{ color: C.mute, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Tipo de evento</span>
-          {modoBtn("nodewar", "Nodewar")}
-          {modoBtn("siege", "Siege")}
-          {modo === "siege" && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.texto, fontSize: 12.5 }}>
-              <span style={{ borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 12 }}>PTs numeradas: <b style={{ color: C.verde }}>{siegePts}</b></span>
-              <input type="range" min={SIEGE_MIN} max={SIEGE_MAX} step={1} value={siegePts} onChange={(e) => mudarSiege(Number(e.target.value))} style={{ accentColor: C.verde, cursor: "pointer" }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "11px 13px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px 14px" }}>
+            <span style={{ color: C.mute, fontSize: 12, textTransform: "uppercase", letterSpacing: 1 }}>Tipo de evento</span>
+            {modoBtn("nodewar", "Nodewar")}
+            {modoBtn("siege", "Siege")}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.texto, fontSize: 12.5, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 12 }}>
+              PTs numeradas: <b style={{ color: C.verde }}>{ativa.num}</b>
+              <input type="range" min={NUM_MIN} max={NUM_MAX} step={1} value={ativa.num} onChange={(e) => mudarNum(Number(e.target.value))} style={{ accentColor: C.verde, cursor: "pointer" }} />
             </span>
-          )}
-          {modo === "siege" && (
-            <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 6, color: C.texto, fontSize: 12.5, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 12 }}>
-              <span style={{ color: C.mute }}>PTs nomeadas:</span>
-              {extrasList.map((e, i) => (
-                <span key={e.key} style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "2px 4px 2px 9px", fontSize: 12 }}>
-                  {e.nome}
-                  <button onClick={() => removerExtra(i)} title="remover" style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "0 2px" }}>✕</button>
-                </span>
-              ))}
-              {extrasList.length < MAX_EXTRAS && (
-                <>
-                  <input value={novoExtra} onChange={(e) => setNovoExtra(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExtra(); } }} placeholder="ex: Flanco" maxLength={24}
-                    style={{ width: 110, background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "4px 8px", fontSize: 12.5, outline: "none" }} />
-                  <button onClick={addExtra} disabled={!novoExtra.trim()} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: novoExtra.trim() ? C.verdeTint : "transparent", color: C.verde, padding: "4px 10px", fontSize: 12.5, fontWeight: 700, cursor: novoExtra.trim() ? "pointer" : "default" }}>+ add</button>
-                </>
-              )}
-            </span>
-          )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, color: C.texto, fontSize: 12.5 }}>
+            <span style={{ color: C.mute }}>PTs nomeadas:</span>
+            {ativa.extras.map((e, i) => (
+              <span key={e.id} style={{ display: "inline-flex", alignItems: "center", gap: 5, borderRadius: 999, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "2px 5px 2px 7px", fontSize: 12 }}>
+                <span style={{ display: "inline-flex", width: 16, justifyContent: "center" }}><Glyph icon={iconeDe(e.icone, e.nome)} size={13} /></span>
+                {e.nome}
+                <button onClick={() => removerExtra(i)} title="remover" style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "0 2px" }}>✕</button>
+              </span>
+            ))}
+            {ativa.extras.length < MAX_EXTRAS && (
+              <>
+                <input value={novoIcone} onChange={(e) => setNovoIcone(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExtra(); } }} placeholder="🛡" maxLength={24} title="ícone/emoji (opcional)"
+                  style={{ width: 38, textAlign: "center", background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "4px 4px", fontSize: 13, outline: "none" }} />
+                <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExtra(); } }} placeholder="nome (ex: Flanco)" maxLength={24}
+                  style={{ width: 130, background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "4px 8px", fontSize: 12.5, outline: "none" }} />
+                <button onClick={addExtra} disabled={!novoNome.trim()} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: novoNome.trim() ? C.verdeTint : "transparent", color: C.verde, padding: "4px 10px", fontSize: 12.5, fontWeight: 700, cursor: novoNome.trim() ? "pointer" : "default" }}>+ add</button>
+              </>
+            )}
+          </div>
+          <div style={{ color: C.mute, fontSize: 11 }}>Ícone: emoji (🛡 ⚔️ 🔥) ou emoji do Discord no formato <code style={{ color: C.texto }}>&lt;:nome:id&gt;</code>. Vazio = iniciais do nome.</div>
         </div>
       )}
 
