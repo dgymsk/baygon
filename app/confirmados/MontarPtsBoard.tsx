@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
-import { ptsAtivas, SIEGE_MIN, SIEGE_MAX, type PtIcon } from "@/lib/ptConfig";
+import { ptsAtivas, parseExtras, SIEGE_MIN, SIEGE_MAX, MAX_EXTRAS, type PtIcon } from "@/lib/ptConfig";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
 import type { PtRow } from "@/lib/ptStatus";
@@ -18,6 +18,7 @@ const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.
 // ícone de uma PT do template ativo (número, emoji do Discord, ou emoji unicode)
 function Glyph({ icon, size = 14 }: { icon: PtIcon; size?: number }) {
   if (icon.kind === "num") return <b style={{ fontSize: size, fontFamily: "'Share Tech Mono', monospace" }}>{icon.n}</b>;
+  if (icon.kind === "txt") return <b style={{ fontSize: Math.round(size * 0.72), fontFamily: "'Share Tech Mono', monospace" }}>{icon.t}</b>;
   if (icon.kind === "cdn") return <img src={`https://cdn.discordapp.com/emojis/${icon.id}.png`} width={size} height={size} alt="" onError={imgErr} style={{ verticalAlign: "-2px" }} />;
   return <span style={{ fontSize: size }}>{icon.e}</span>;
 }
@@ -25,10 +26,10 @@ function Glyph({ icon, size = 14 }: { icon: PtIcon; size?: number }) {
 type Mark = { nome: string; pt: string | null; lider: boolean };
 
 export default function MontarPtsBoard({
-  grupos, hidden, roubo, marcacoesInit, preferidas, modoInit, siegePtsInit, canEdit, warKey,
+  grupos, hidden, roubo, marcacoesInit, preferidas, modoInit, siegePtsInit, siegeExtrasInit, canEdit, warKey,
 }: {
   grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; preferidas: Record<string, string>;
-  modoInit: string; siegePtsInit: number; canEdit: boolean; warKey: string | null;
+  modoInit: string; siegePtsInit: number; siegeExtrasInit: string; canEdit: boolean; warKey: string | null;
 }) {
   const router = useRouter();
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
@@ -38,6 +39,8 @@ export default function MontarPtsBoard({
   });
   const [modo, setModo] = useState(modoInit);
   const [siegePts, setSiegePts] = useState(siegePtsInit);
+  const [siegeExtras, setSiegeExtras] = useState(siegeExtrasInit);
+  const [novoExtra, setNovoExtra] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const [savingOps, setSavingOps] = useState(false); // flush de marcações
   const [savingCfg, setSavingCfg] = useState(false); // salvar config (modo/slider)
@@ -46,7 +49,8 @@ export default function MontarPtsBoard({
   const [popup, setPopup] = useState(false);
 
   // template das PTs conforme o modo (nodewar | siege)
-  const pts = useMemo(() => ptsAtivas(modo, siegePts), [modo, siegePts]);
+  const pts = useMemo(() => ptsAtivas(modo, siegePts, siegeExtras), [modo, siegePts, siegeExtras]);
+  const extrasList = useMemo(() => parseExtras(siegeExtras), [siegeExtras]);
   const cardMin = Math.max(240, 156 + pts.length * 26); // alarga o card conforme o nº de PTs (quadrados)
   const defPorKey = useMemo(() => new Map(pts.map((p) => [p.key, p])), [pts]);
   const ptAtivaSet = useMemo(() => new Set(pts.map((p) => p.key)), [pts]);
@@ -103,7 +107,7 @@ export default function MontarPtsBoard({
   const prefSig = useMemo(() => JSON.stringify(preferidas), [preferidas]);
   const lastSyncSig = useRef("");
   useEffect(() => {
-    const sig = `${initSig}##${membrosSig}##${prefSig}##${modo}:${siegePts}`;
+    const sig = `${initSig}##${membrosSig}##${prefSig}##${modo}:${siegePts}:${siegeExtras}`;
     if (sig === lastSyncSig.current || flushingRef.current) return;
     lastSyncSig.current = sig;
     const scanPorChave = new Map(marcacoesInit.map((r) => [r.chave, r]));
@@ -120,12 +124,12 @@ export default function MontarPtsBoard({
   // ---- config do template (modo/siege) — persiste e sincroniza entre PCs ----
   const cfgSavingRef = useRef(false);
   const cfgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  async function persistConfig(novoModo: string, novoSiege: number) {
+  async function persistConfig(novoModo: string, novoSiege: number, novoExtras: string) {
     if (!canEdit) return;
-    setModo(novoModo); setSiegePts(novoSiege); // otimista
+    setModo(novoModo); setSiegePts(novoSiege); setSiegeExtras(novoExtras); // otimista
     cfgSavingRef.current = true; setSavingCfg(true);
     try {
-      const res = await fetch("/api/confirmados/pt-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modo: novoModo, siegePts: novoSiege }) });
+      const res = await fetch("/api/confirmados/pt-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modo: novoModo, siegePts: novoSiege, siegeExtras: novoExtras }) });
       if (!res.ok) { const j = await res.json().catch(() => ({} as { error?: string })); throw new Error(j.error || "falha ao salvar config"); }
       setErro(""); router.refresh();
     } catch (e) { setErro((e as Error).message); }
@@ -134,14 +138,24 @@ export default function MontarPtsBoard({
   function mudarSiege(n: number) { // slider: estado imediato, persiste com debounce
     setSiegePts(n);
     if (cfgTimerRef.current) clearTimeout(cfgTimerRef.current);
-    cfgTimerRef.current = setTimeout(() => persistConfig("siege", n), 400);
+    cfgTimerRef.current = setTimeout(() => persistConfig("siege", n, siegeExtras), 400);
   }
-  const cfgInitSig = `${modoInit}:${siegePtsInit}`;
+  // adicionar / remover PT nomeada do siege
+  function addExtra() {
+    const nome = novoExtra.replace(/\s+/g, " ").trim();
+    if (!nome || extrasList.length >= MAX_EXTRAS) return;
+    persistConfig("siege", siegePts, [...extrasList.map((e) => e.nome), nome].join(","));
+    setNovoExtra("");
+  }
+  function removerExtra(i: number) {
+    persistConfig("siege", siegePts, extrasList.filter((_, idx) => idx !== i).map((e) => e.nome).join(","));
+  }
+  const cfgInitSig = `${modoInit}:${siegePtsInit}:${siegeExtrasInit}`;
   const lastCfgSig = useRef(cfgInitSig);
   useEffect(() => {
     if (cfgInitSig === lastCfgSig.current || cfgSavingRef.current) return;
     lastCfgSig.current = cfgInitSig;
-    setModo(modoInit); setSiegePts(siegePtsInit);
+    setModo(modoInit); setSiegePts(siegePtsInit); setSiegeExtras(siegeExtrasInit);
   });
 
   function togglePt(p: PlayerConf, ptKey: string) {
@@ -227,7 +241,7 @@ export default function MontarPtsBoard({
   };
 
   const modoBtn = (m: "nodewar" | "siege", label: string) => (
-    <button onClick={() => persistConfig(m, siegePts)} style={{ borderRadius: 8, border: `1px solid ${modo === m ? C.verde : C.border2}`, background: modo === m ? C.verdeTint : "transparent", color: modo === m ? C.verde : C.mute, padding: "5px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>
+    <button onClick={() => persistConfig(m, siegePts, siegeExtras)} style={{ borderRadius: 8, border: `1px solid ${modo === m ? C.verde : C.border2}`, background: modo === m ? C.verdeTint : "transparent", color: modo === m ? C.verde : C.mute, padding: "5px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>
   );
 
   return (
@@ -255,7 +269,24 @@ export default function MontarPtsBoard({
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.texto, fontSize: 12.5 }}>
               <span style={{ borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 12 }}>PTs numeradas: <b style={{ color: C.verde }}>{siegePts}</b></span>
               <input type="range" min={SIEGE_MIN} max={SIEGE_MAX} step={1} value={siegePts} onChange={(e) => mudarSiege(Number(e.target.value))} style={{ accentColor: C.verde, cursor: "pointer" }} />
-              <span style={{ color: C.mute }}>+ Flanco + Defesa</span>
+            </span>
+          )}
+          {modo === "siege" && (
+            <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 6, color: C.texto, fontSize: 12.5, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 12 }}>
+              <span style={{ color: C.mute }}>PTs nomeadas:</span>
+              {extrasList.map((e, i) => (
+                <span key={e.key} style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "2px 4px 2px 9px", fontSize: 12 }}>
+                  {e.nome}
+                  <button onClick={() => removerExtra(i)} title="remover" style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12, lineHeight: 1, padding: "0 2px" }}>✕</button>
+                </span>
+              ))}
+              {extrasList.length < MAX_EXTRAS && (
+                <>
+                  <input value={novoExtra} onChange={(e) => setNovoExtra(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addExtra(); } }} placeholder="ex: Flanco" maxLength={24}
+                    style={{ width: 110, background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "4px 8px", fontSize: 12.5, outline: "none" }} />
+                  <button onClick={addExtra} disabled={!novoExtra.trim()} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: novoExtra.trim() ? C.verdeTint : "transparent", color: C.verde, padding: "4px 10px", fontSize: 12.5, fontWeight: 700, cursor: novoExtra.trim() ? "pointer" : "default" }}>+ add</button>
+                </>
+              )}
             </span>
           )}
         </div>

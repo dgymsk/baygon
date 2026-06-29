@@ -1,33 +1,33 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 import { fetchConfirmados } from "@/lib/confirmados";
-import { PT_KEYS_VALIDAS, clampSiege } from "@/lib/ptConfig";
+import { ptChaveValida, clampSiege, parseExtras, MAX_EXTRAS } from "@/lib/ptConfig";
 
 /**
  * Composição de PTs (squads), por LINHA (delta) — seguro p/ duas pessoas editando junto.
  * Por membro: em qual PT está (chave do template ativo) e se é líder (coroa).
- * Atrelado à war_key (auto-reset ao trocar a war). O TEMPLATE (modo/siege_pts) persiste.
+ * Atrelado à war_key (auto-reset ao trocar a war). O TEMPLATE (modo/siege) persiste.
  */
 export type PtRow = { chave: string; familia: string; pt: string | null; lider: boolean };
 export type PtOp = { familia: string; pt?: string | null; lider?: boolean };
-export type ModoPt = { modo: string; siegePts: number };
+export type ModoPt = { modo: string; siegePts: number; siegeExtras: string };
 
-const PTS_VALIDAS = PT_KEYS_VALIDAS;
-
-/** LEITURA PURA do template das PTs (modo + nº de PTs do siege). Persiste entre wars. */
+/** LEITURA PURA do template das PTs (modo + nº de PTs + PTs nomeadas do siege). Persiste entre wars. */
 export async function getModoPt(): Promise<ModoPt> {
-  const meta = (await sql`SELECT modo, siege_pts FROM pt_meta WHERE id = 1`) as { modo: string | null; siege_pts: number | null }[];
+  const meta = (await sql`SELECT modo, siege_pts, siege_extras FROM pt_meta WHERE id = 1`) as { modo: string | null; siege_pts: number | null; siege_extras: string | null }[];
   const row = meta[0];
-  return { modo: row?.modo === "siege" ? "siege" : "nodewar", siegePts: clampSiege(row?.siege_pts ?? 3) };
+  return { modo: row?.modo === "siege" ? "siege" : "nodewar", siegePts: clampSiege(row?.siege_pts ?? 3), siegeExtras: row?.siege_extras ?? "Flanco,Defesa" };
 }
 
 /** Define o template das PTs (não mexe nas marcações nem na war). */
-export async function setModoPt(modo: unknown, siegePts: unknown): Promise<ModoPt> {
+export async function setModoPt(modo: unknown, siegePts: unknown, siegeExtras: unknown): Promise<ModoPt> {
   const m = modo === "siege" ? "siege" : "nodewar";
   const n = clampSiege(typeof siegePts === "number" ? siegePts : Number(siegePts));
-  await sql`INSERT INTO pt_meta (id, modo, siege_pts) VALUES (1, ${m}, ${n})
-    ON CONFLICT (id) DO UPDATE SET modo = EXCLUDED.modo, siege_pts = EXCLUDED.siege_pts`;
-  return { modo: m, siegePts: n };
+  // re-serializa as PTs nomeadas já normalizadas/limitadas (evita lixo no banco)
+  const extras = parseExtras(typeof siegeExtras === "string" ? siegeExtras : "").slice(0, MAX_EXTRAS).map((e) => e.nome).join(",");
+  await sql`INSERT INTO pt_meta (id, modo, siege_pts, siege_extras) VALUES (1, ${m}, ${n}, ${extras})
+    ON CONFLICT (id) DO UPDATE SET modo = EXCLUDED.modo, siege_pts = EXCLUDED.siege_pts, siege_extras = EXCLUDED.siege_extras`;
+  return { modo: m, siegePts: n, siegeExtras: extras };
 }
 
 async function readPt(): Promise<PtRow[]> {
@@ -63,7 +63,7 @@ export async function aplicarOps(ops: unknown, warKeyCliente?: string | null): P
     const k = chaveNome(familia);
     if (!k) continue;
     const ptRaw = (o as { pt?: unknown })?.pt;
-    const pt = typeof ptRaw === "string" && PTS_VALIDAS.has(ptRaw) ? ptRaw : null;
+    const pt = typeof ptRaw === "string" && ptChaveValida(ptRaw) ? ptRaw : null;
     const lider = !!(o as { lider?: unknown })?.lider;
     if (!pt && !lider) {
       stmts.push(sql`DELETE FROM pt_scan WHERE chave = ${k}`);
