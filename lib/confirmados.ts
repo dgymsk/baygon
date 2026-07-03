@@ -3,8 +3,27 @@
  * via bot token, e extrai os players confirmados por grupo + a lista de espera.
  */
 
+import { sql } from "@/lib/db";
+import { parseConfig } from "@/lib/ptConfig";
+
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const CHANNEL = process.env.DISCORD_CONFIRM_CHANNEL_ID;
+// Canal do embed de confirmação (Apollo), escolhido pelo MODO do "Montar PTs":
+// nodewar → _NODEWAR, siege → _SIEGE. Sem os dois novos envs, cai no legado _ID.
+const CH_NODEWAR = process.env.DISCORD_CONFIRM_CHANNEL_ID_NODEWAR;
+const CH_SIEGE = process.env.DISCORD_CONFIRM_CHANNEL_ID_SIEGE;
+const CH_LEGADO = process.env.DISCORD_CONFIRM_CHANNEL_ID;
+
+/** Canal a ler agora, conforme o modo salvo em pt_meta.pt_config (nodewar|siege). */
+async function canalDoModo(): Promise<string | undefined> {
+  if (!CH_NODEWAR && !CH_SIEGE) return CH_LEGADO; // sem os novos envs → comportamento antigo
+  try {
+    const rows = (await sql`SELECT pt_config FROM pt_meta WHERE id = 1`) as { pt_config: string | null }[];
+    const siege = rows[0]?.pt_config ? parseConfig(rows[0].pt_config).modo === "siege" : false;
+    return (siege ? CH_SIEGE : CH_NODEWAR) || CH_LEGADO;
+  } catch {
+    return CH_NODEWAR || CH_LEGADO; // banco indisponível → assume nodewar
+  }
+}
 
 export type Tag = "M" | "R" | null;
 // iconKey: chave do ícone (pt) da linha — usado p/ casar quem está na espera com seu grupo.
@@ -58,14 +77,15 @@ function parsePlayer(line: string): PlayerConf | null {
 
 // Cache curto em memória: o Discord limita por canal (429). Numa rajada de leituras
 // (render da página + cada save relendo a war + router.refresh) compartilhamos 1 chamada.
-let cache: { at: number; data: Confirmados } | null = null;
+let cache: { at: number; channel: string; data: Confirmados } | null = null;
 const TTL_MS = Number(process.env.CONFIRMADOS_TTL_MS ?? 10_000);
 const sleepC = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function fetchConfirmados(): Promise<Confirmados> {
+  const CHANNEL = await canalDoModo();
   if (!BOT_TOKEN || !CHANNEL) return { ok: false, erro: "bot não configurado", grupos: [], listaEspera: [] };
 
-  if (cache && cache.data.ok && Date.now() - cache.at < TTL_MS) return cache.data;
+  if (cache && cache.data.ok && cache.channel === CHANNEL && Date.now() - cache.at < TTL_MS) return cache.data;
 
   let msgs: { id?: string; embeds?: { title?: string; fields?: { name: string; value: string }[] }[]; author?: { username?: string; bot?: boolean }; timestamp?: string }[];
   try {
@@ -81,8 +101,8 @@ export async function fetchConfirmados(): Promise<Confirmados> {
     }
     if (!res || !res.ok) {
       const status = res?.status ?? 0;
-      // erro transiente (limite/instabilidade) → devolve o último bom, em vez de quebrar a tela
-      if (cache?.data.ok && (status === 429 || status >= 500 || status === 0)) return cache.data;
+      // erro transiente (limite/instabilidade) → devolve o último bom (do MESMO canal), em vez de quebrar a tela
+      if (cache?.data.ok && cache.channel === CHANNEL && (status === 429 || status >= 500 || status === 0)) return cache.data;
       const erro = status === 403 ? "bot sem acesso ao canal"
         : status === 429 ? "Discord 429 (limite de chamadas — tente de novo em alguns segundos)"
         : `Discord ${status || "rede"}`;
@@ -90,7 +110,7 @@ export async function fetchConfirmados(): Promise<Confirmados> {
     }
     msgs = await res.json();
   } catch (e) {
-    if (cache?.data.ok) return cache.data; // rede caiu → usa o último bom
+    if (cache?.data.ok && cache.channel === CHANNEL) return cache.data; // rede caiu → usa o último bom (mesmo canal)
     return { ok: false, erro: (e as Error).message, grupos: [], listaEspera: [] };
   }
 
@@ -126,6 +146,6 @@ export async function fetchConfirmados(): Promise<Confirmados> {
   }
 
   const data: Confirmados = { ok: true, title: embed.title, inicioUnix, messageTs: apollo?.timestamp, messageId: apollo?.id, grupos, listaEspera };
-  cache = { at: Date.now(), data };
+  cache = { at: Date.now(), channel: CHANNEL, data };
   return data;
 }
