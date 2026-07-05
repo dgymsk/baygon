@@ -94,6 +94,34 @@ CREATE TABLE IF NOT EXISTS pt_meta (
 );
 INSERT INTO pt_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
 
+-- ============ BOT DE PARTICIPAÇÃO PRÓPRIO (área /participacao, isolada) ============
+-- Bot com botões Can/Cant. war_key = id da mensagem postada. Ver scripts/migrate_participacao.mjs.
+CREATE TABLE IF NOT EXISTS participacao_config (       -- singleton JSON: canais/textos/agenda por tipo
+  id     INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  config TEXT  -- JSON: { nodewar:{channelId,titulo,mensagem,pingRoleId,agenda}, siege:{...} }
+);
+INSERT INTO participacao_config (id) VALUES (1) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS participacao_post (         -- cada mensagem postada = uma rodada
+  message_id TEXT PRIMARY KEY,
+  tipo       TEXT NOT NULL,                            -- 'nodewar' | 'siege'
+  channel_id TEXT NOT NULL,
+  titulo     TEXT,
+  criado     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_participacao_post_tipo ON participacao_post (tipo, criado DESC);
+CREATE TABLE IF NOT EXISTS participacao_resp (         -- 1 resposta por Discord user por rodada (upsert)
+  war_key    TEXT NOT NULL,                            -- = participacao_post.message_id
+  user_id    TEXT NOT NULL,                            -- Discord user.id
+  username   TEXT NOT NULL,                            -- nick no servidor (auditoria)
+  familia    TEXT,                                     -- nome canonizado (casarNome)
+  chave      TEXT,                                     -- chaveNome(familia) p/ casar com players
+  tipo       TEXT NOT NULL,
+  resposta   TEXT NOT NULL CHECK (resposta IN ('can','cant')),
+  atualizado TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (war_key, user_id)
+);
+CREATE INDEX IF NOT EXISTS ix_participacao_resp_warkey ON participacao_resp (war_key);
+
 -- ============ FATO CRU (a extração dos prints) ============
 
 CREATE TABLE wars (

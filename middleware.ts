@@ -11,9 +11,11 @@ export default auth((req) => {
 });
 
 // Exclusões ANCORADAS no início do path (não por extensão "em qualquer lugar",
-// senão /api/x.png burlava o gate). Só libera: auth, _next, /login e os assets
-// públicos da tela de login (mascote/ícones/favicon). Todo o resto — incluindo
-// TODAS as /api de escrita/leitura — passa pelo gate.
+// senão /api/x.png burlava o gate). Libera: auth, _next, /login e os assets
+// públicos da tela de login. TAMBÉM libera do gate de sessão os endpoints chamados
+// por serviços externos: api/discord (webhook de Interações, protegido por assinatura
+// Ed25519) e api/participacao/cron (Vercel Cron, protegido por CRON_SECRET). Todo o
+// resto — incluindo as demais /api de escrita/leitura — passa pelo gate.
 export const config = {
-  matcher: ["/((?!api/auth|_next|login|guilds/|mascot\\.png|favicon\\.ico).*)"],
+  matcher: ["/((?!api/auth|api/discord|api/participacao/cron|_next|login|guilds/|mascot\\.png|favicon\\.ico).*)"],
 };

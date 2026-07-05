@@ -1,0 +1,26 @@
+// Registra os slash commands /participacao-nodewar e /participacao-siege NO SERVIDOR
+// (guild command = aparece na hora, sem espera global). Idempotente (PUT sobrescreve).
+// Uso: node --env-file=.env.local scripts/register_commands.mjs
+const TOKEN = process.env.DISCORD_BOT_TOKEN;
+const APP_ID = process.env.DISCORD_APP_ID;
+const GUILD_ID = (process.env.DISCORD_GUILD_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean)[0];
+
+if (!TOKEN || !APP_ID || !GUILD_ID) {
+  console.error("Faltando env: DISCORD_BOT_TOKEN, DISCORD_APP_ID e/ou DISCORD_GUILD_ID.");
+  process.exit(1);
+}
+
+const comandos = [
+  { name: "participacao-nodewar", type: 1, description: "Posta a mensagem de participação da Nodewar (botões Can/Cant)." },
+  { name: "participacao-siege", type: 1, description: "Posta a mensagem de participação da Siege (botões Can/Cant)." },
+];
+
+const res = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`, {
+  method: "PUT",
+  headers: { Authorization: `Bot ${TOKEN}`, "Content-Type": "application/json" },
+  body: JSON.stringify(comandos),
+});
+const txt = await res.text();
+if (!res.ok) { console.error("ERRO", res.status, txt.slice(0, 500)); process.exit(1); }
+const arr = JSON.parse(txt);
+console.log(`OK — ${arr.length} comandos registrados no guild ${GUILD_ID}:`, arr.map((c) => "/" + c.name).join(", "));
