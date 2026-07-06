@@ -96,13 +96,22 @@ async function aplicar(userId: string, guildId: string, familiaTyped: string, ap
   const cfg = await getDiscordConfig();
   const gid = guildId || cfg.guildId;
   const avisos: string[] = [];
-  const tentar = async (fn: () => Promise<Response>, aviso: string) => { try { const r = await fn(); if (!r.ok) avisos.push(aviso); } catch { avisos.push(aviso); } };
-  if (cfg.registroRoleId && gid) await tentar(() => botFetch(`/guilds/${gid}/members/${userId}/roles/${cfg.registroRoleId}`, { method: "PUT" }), "não consegui te dar o cargo de registrado");
+  // roda o efeito, loga o motivo REAL do Discord (status+corpo) e devolve um aviso específico p/ 403 (permissão/hierarquia/dono).
+  const efeito = async (o: string, fn: () => Promise<Response>, aviso403: string, avisoOutro: string) => {
+    try {
+      const r = await fn();
+      if (r.ok) return;
+      const corpo = (await r.text().catch(() => "")).slice(0, 200);
+      console.error(`[registro] ${o} falhou ${r.status}: ${corpo}`);
+      avisos.push(r.status === 403 ? aviso403 : avisoOutro);
+    } catch (e) { console.error(`[registro] ${o} erro`, (e as Error).message); avisos.push(avisoOutro); }
+  };
+  if (cfg.registroRoleId && gid) await efeito("cargo", () => botFetch(`/guilds/${gid}/members/${userId}/roles/${cfg.registroRoleId}`, { method: "PUT" }), "não te dei o cargo — o bot precisa de Gerenciar Cargos e o cargo de registrado tem que estar ABAIXO do cargo do bot", "não consegui te dar o cargo agora");
   else avisos.push("cargo de registrado não configurado (avise a staff)");
   if (gid) {
     const suf = ` [${familia}]`;
     const nick = (apelido.slice(0, Math.max(1, 32 - suf.length)) + suf).slice(0, 32); // reserva o sufixo — nunca corta o colchete
-    await tentar(() => botFetch(`/guilds/${gid}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ nick }) }), "não consegui trocar seu nick (peça pra staff)");
+    await efeito("nick", () => botFetch(`/guilds/${gid}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ nick }) }), "não troquei seu nick — se você é o DONO do server o Discord não deixa (troque à mão); senão o bot precisa de Gerenciar Apelidos e cargo acima do seu", "não consegui trocar seu nick agora");
   }
 
   const base = `✅ Registro concluído! Bem-vindo(a), **${apelido} [${familia}]**.\nGS **${gs ?? "—"}** · AP ${g.ap} / AAP ${g.aap} / DP ${g.dp}${g.classeBdo ? ` · ${g.classeBdo}${g.classeTipo ? ` (${g.classeTipo})` : ""}` : ""}`;
