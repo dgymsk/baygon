@@ -4,34 +4,35 @@ import { ehTipo } from "@/lib/participacaoConfig";
 import { listarEmojisGuild, resolverEmoji } from "@/lib/discordApi";
 
 /** Modelo do bot de participação: PTs (catálogo global) + atribuição por tipo + templates. */
-export type Pt = { id: number; nome: string; emoji: string };
+export type Pt = { id: number; nome: string; emoji: string; cor: string }; // cor = "#rrggbb" ou "" (usa paleta)
 export type Membro = { tipo: string; chave: string; familia: string; pt_id: number };
 export type TemplatePt = { pt_id: number; limite: number | null }; // limite = quantos players nesse PT
 export type Template = { id: number; nome: string; tipo: string; tamanho_max: number | null; pts: TemplatePt[] };
 
 const nomeOk = (s: unknown) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, 50) : "");
 const emojiOk = (s: unknown) => (typeof s === "string" ? s.trim().slice(0, 64) : "");
+const corOk = (s: unknown) => (typeof s === "string" && /^#[0-9a-fA-F]{6}$/.test(s.trim()) ? s.trim().toLowerCase() : null); // null → sem cor (paleta)
 const limiteOk = (n: unknown) => { const v = Math.trunc(Number(n)); return Number.isFinite(v) && v > 0 && v <= 500 ? v : null; };
 // ids serial vêm como BIGINT (string) do Postgres → normaliza p/ número em todo lugar (::int nas queries)
 
 // ---------- PTs (catálogo global) ----------
 export async function listPts(): Promise<Pt[]> {
-  return (await sql`SELECT id::int AS id, nome, COALESCE(emoji,'') AS emoji FROM participacao_pt ORDER BY nome`) as Pt[];
+  return (await sql`SELECT id::int AS id, nome, COALESCE(emoji,'') AS emoji, COALESCE(cor,'') AS cor FROM participacao_pt ORDER BY nome`) as Pt[];
 }
-export async function criarPt(nome: unknown, emoji: unknown): Promise<Pt | null> {
+export async function criarPt(nome: unknown, emoji: unknown, cor?: unknown): Promise<Pt | null> {
   const n = nomeOk(nome);
   if (!n) return null;
   const emj = resolverEmoji(emojiOk(emoji), await listarEmojisGuild()) || null;
-  const rows = (await sql`INSERT INTO participacao_pt (nome, emoji) VALUES (${n}, ${emj}) RETURNING id::int AS id, nome, COALESCE(emoji,'') AS emoji`) as Pt[];
+  const rows = (await sql`INSERT INTO participacao_pt (nome, emoji, cor) VALUES (${n}, ${emj}, ${corOk(cor)}) RETURNING id::int AS id, nome, COALESCE(emoji,'') AS emoji, COALESCE(cor,'') AS cor`) as Pt[];
   return rows[0] ?? null;
 }
-export async function atualizarPt(id: unknown, patch: { nome?: unknown; emoji?: unknown }): Promise<void> {
+export async function atualizarPt(id: unknown, patch: { nome?: unknown; emoji?: unknown; cor?: unknown }): Promise<void> {
   const pid = Math.trunc(Number(id));
   if (!Number.isFinite(pid)) return;
   const n = nomeOk(patch.nome);
   if (!n) return;
   const emj = resolverEmoji(emojiOk(patch.emoji), await listarEmojisGuild()) || null;
-  await sql`UPDATE participacao_pt SET nome = ${n}, emoji = ${emj} WHERE id = ${pid}`;
+  await sql`UPDATE participacao_pt SET nome = ${n}, emoji = ${emj}, cor = ${corOk(patch.cor)} WHERE id = ${pid}`;
 }
 export async function excluirPt(id: unknown): Promise<void> {
   const pid = Math.trunc(Number(id));

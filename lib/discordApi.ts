@@ -38,6 +38,27 @@ export async function listarEmojisGuild(): Promise<EmojiGuild[]> {
   } catch { return emojiCache?.data ?? []; }
 }
 
+export type RoleGuild = { id: string; name: string };
+let roleCache: { at: number; data: RoleGuild[] } | null = null;
+
+/** Cargos do servidor ATIVO (sem @everyone), do topo pro fim (cache de 60s). Vazio se sem bot/guild. */
+export async function listarRolesGuild(): Promise<RoleGuild[]> {
+  const gid = (await getDiscordConfig()).guildId;
+  if (!BOT_TOKEN || !gid) return [];
+  if (roleCache && Date.now() - roleCache.at < 60_000) return roleCache.data;
+  try {
+    const res = await botFetch(`/guilds/${gid}/roles`);
+    if (!res.ok) return roleCache?.data ?? [];
+    const arr = (await res.json()) as { id: string; name: string; position: number }[];
+    const data = arr
+      .filter((r) => r.id && r.id !== gid) // remove @everyone (id == guildId)
+      .sort((a, b) => b.position - a.position)
+      .map((r) => ({ id: r.id, name: r.name }));
+    roleCache = { at: Date.now(), data };
+    return data;
+  } catch { return roleCache?.data ?? []; }
+}
+
 /** Resolve um input de emoji: ':nome:'/'nome' → '<:nome:id>' (via emojis do server); mantém unicode/já-formatado. */
 export function resolverEmoji(input: string, emojis: EmojiGuild[]): string {
   const s = (input || "").trim();

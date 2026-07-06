@@ -32,10 +32,10 @@ function NomePerfil({ nome, userId, bold }: { nome: string; userId: string | nul
 const statusIcon = (s: MembroSit["status"]) => (s === "can" ? "✅" : s === "espera" ? "⏳" : s === "cant" ? "❌" : "⬜");
 
 export default function ParticipacaoBoard({
-  cfgInit, pts, membros, templates, situacao, playersAtivos, emojis, imagens, canEdit,
+  cfgInit, pts, membros, templates, situacao, playersAtivos, emojis, roles, imagens, canEdit,
 }: {
   cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; situacao: Record<Tipo, SituacaoVM>;
-  playersAtivos: string[]; emojis: EmojiGuild[]; imagens: { url: string; nome: string }[]; canEdit: boolean;
+  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; canEdit: boolean;
 }) {
   const router = useRouter();
   const ro = !canEdit;
@@ -44,7 +44,7 @@ export default function ParticipacaoBoard({
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [disparando, setDisparando] = useState(false);
   const [disparoSel, setDisparoSel] = useState<Record<Tipo, string>>({ nodewar: "", siege: "" });
-  const [novoPt, setNovoPt] = useState({ nome: "", emoji: "" });
+  const [novoPt, setNovoPt] = useState({ nome: "", emoji: "", cor: "" });
   const [novoTpl, setNovoTpl] = useState<{ nome: string; tipo: Tipo; tamanhoMax: string; pts: { pt_id: number; limite: number | null }[] }>({ nome: "", tipo: "nodewar", tamanhoMax: "", pts: [] });
   const [tipoAtrib, setTipoAtrib] = useState<Tipo>("nodewar");
   const [filtro, setFiltro] = useState("");
@@ -57,9 +57,12 @@ export default function ParticipacaoBoard({
   useEffect(() => { setTplDrafts(templates); }, [templates]); // ressincroniza após refresh
 
   // Buzinador (disparo de DM em massa)
-  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "" });
-  const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; erro?: string } | null>(null);
+  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[] }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "", opcoes: [] });
+  const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; naoEncontrados?: string[]; erro?: string } | null>(null);
   const setBuzF = <K extends keyof typeof buz>(k: K, v: (typeof buz)[K]) => setBuz((b) => ({ ...b, [k]: v }));
+  const addOpcao = () => setBuz((b) => (b.opcoes.length >= 25 ? b : { ...b, opcoes: [...b.opcoes, { label: "", estilo: 2, emoji: "" }] }));
+  const setOpcao = (i: number, patch: Partial<{ label: string; estilo: number; emoji: string }>) => setBuz((b) => ({ ...b, opcoes: b.opcoes.map((o, j) => (j === i ? { ...o, ...patch } : o)) }));
+  const rmOpcao = (i: number) => setBuz((b) => ({ ...b, opcoes: b.opcoes.filter((_, j) => j !== i) }));
 
   const temPost = TIPOS.some((t) => situacao[t]);
   useEffect(() => {
@@ -130,16 +133,17 @@ export default function ParticipacaoBoard({
       const res = await fetch("/api/buzinador/criar", jsonInit("POST", {
         mensagem: buz.mensagem, imagemUrl: buz.imagem || undefined, canalReportId: buz.canal,
         audiencia: { tipo: buz.tipo, roleId: buz.roleId, userIds: buz.userIds },
+        opcoes: buz.opcoes.filter((o) => o.label.trim()).map((o) => ({ label: o.label, estilo: o.estilo, emoji: o.emoji || undefined })),
       }));
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setBuzProg({ ativo: false, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false, erro: d.error || "falha ao criar" }); return; }
-      const { envioId, total } = d as { envioId: number; total: number };
-      setBuzProg({ ativo: true, total, enviados: 0, falhas: 0, pendentes: total, concluido: false });
+      const { envioId, total, naoEncontrados } = d as { envioId: number; total: number; naoEncontrados?: string[] };
+      setBuzProg({ ativo: true, total, enviados: 0, falhas: 0, pendentes: total, concluido: false, naoEncontrados });
       for (let i = 0; i < 1000; i++) {
         const pr = await fetch("/api/buzinador/processar", jsonInit("POST", { envioId }));
         const p = await pr.json().catch(() => ({}));
         if (!pr.ok) { setBuzProg((b) => ({ ...(b ?? { total, enviados: 0, falhas: 0, pendentes: total, concluido: false }), ativo: false, erro: p.error || "falha no lote" })); return; }
-        setBuzProg({ ativo: !p.concluido, total: p.total, enviados: p.enviados, falhas: p.falhas, pendentes: p.pendentes, concluido: p.concluido, reportOk: p.reportOk });
+        setBuzProg({ ativo: !p.concluido, total: p.total, enviados: p.enviados, falhas: p.falhas, pendentes: p.pendentes, concluido: p.concluido, reportOk: p.reportOk, naoEncontrados });
         if (p.concluido) break;
       }
       setStatus({ kind: "ok", msg: "buzinada concluída" });
@@ -149,8 +153,8 @@ export default function ParticipacaoBoard({
   }
 
   // ---- PTs ----
-  const criarPt = () => { if (!novoPt.nome.trim()) return; api("/api/participacao/pts", jsonInit("POST", novoPt), `PT "${novoPt.nome}" criado.`); setNovoPt({ nome: "", emoji: "" }); };
-  const editarPt = (p: PtVM, patch: Partial<{ nome: string; emoji: string }>) => api("/api/participacao/pts", jsonInit("PATCH", { id: p.id, nome: patch.nome ?? p.nome, emoji: patch.emoji ?? p.emoji }), "PT atualizado.");
+  const criarPt = () => { if (!novoPt.nome.trim()) return; api("/api/participacao/pts", jsonInit("POST", novoPt), `PT "${novoPt.nome}" criado.`); setNovoPt({ nome: "", emoji: "", cor: "" }); };
+  const editarPt = (p: PtVM, patch: Partial<{ nome: string; emoji: string; cor: string }>) => api("/api/participacao/pts", jsonInit("PATCH", { id: p.id, nome: patch.nome ?? p.nome, emoji: patch.emoji ?? p.emoji, cor: patch.cor ?? p.cor }), "PT atualizado.");
   const excluirPt = (p: PtVM) => { if (confirm(`Excluir o PT "${p.nome}"? Sai dos templates e das atribuições.`)) api("/api/participacao/pts", jsonInit("DELETE", { id: p.id }), "PT excluído."); };
 
   // ---- templates ----
@@ -237,12 +241,6 @@ export default function ParticipacaoBoard({
                     <div><label style={label}>Cargo a mencionar</label><input value={c.pingRoleId} readOnly={ro} onChange={(e) => setField(t, "pingRoleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="opcional" style={{ ...input, width: "100%" }} /></div>
                   </div>
                   <div style={{ marginTop: 8 }}><label style={label}>Mensagem (descrição)</label><textarea value={c.mensagem} readOnly={ro} onChange={(e) => setField(t, "mensagem", e.target.value)} rows={2} style={{ ...input, width: "100%", resize: "vertical" }} /></div>
-                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 9 }}>
-                    <span style={{ ...label, marginBottom: 0 }}>Cor da faixa</span>
-                    <input type="color" value={c.cor} disabled={ro} onChange={(e) => setField(t, "cor", e.target.value)} style={{ width: 44, height: 28, padding: 0, border: `1px solid ${C.border2}`, borderRadius: 6, background: C.inputBg, cursor: ro ? "default" : "pointer" }} />
-                    <span style={{ color: C.mute, fontSize: 11.5, fontFamily: "'Share Tech Mono', monospace" }}>{c.cor}</span>
-                    <span style={{ color: C.borderSoft, fontSize: 11 }}>(barra à esquerda do embed — salve a config)</span>
-                  </div>
                 <div style={{ marginTop: 8 }} onPaste={(e) => canEdit && colarImagem(t, e)}>
                   <label style={label}>Imagem no final (opcional)</label>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -285,7 +283,7 @@ export default function ParticipacaoBoard({
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                         {sit.pts.map((g) => (
-                          <div key={g.id} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.surfaceSolid, padding: "8px 10px" }}>
+                          <div key={g.id} style={{ border: `1px solid ${C.border2}`, borderLeft: `3px solid ${g.cor || C.border2}`, borderRadius: 10, background: C.surfaceSolid, padding: "8px 10px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, paddingBottom: 5, borderBottom: `1px solid ${C.borderSoft}` }}>
                               <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b><span style={{ color: g.limite != null && g.confirmados.length >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados.length}{g.limite != null ? `/${g.limite}` : ""}</span>
                             </div>
@@ -328,11 +326,13 @@ export default function ParticipacaoBoard({
         {/* ===================== PTs ===================== */}
         {aba === "pts" && (
           <div style={{ ...card, maxWidth: 620 }}>
-            <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 12 }}>Catálogo de PTs (nome + emoji do servidor). Depois use nos <b style={{ color: C.verde }}>templates</b> e na <b style={{ color: C.verde }}>atribuição</b>.</div>
+            <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 12 }}>Catálogo de PTs (nome + emoji + <b style={{ color: C.verde }}>cor do card</b>). A cor é a barra do card no embed; sem cor, usa uma paleta automática. Depois use nos <b style={{ color: C.verde }}>templates</b> e na <b style={{ color: C.verde }}>atribuição</b>.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               {pts.map((p) => (
                 <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <EmojiPicker emojis={emojis} value={p.emoji} onPick={(v) => canEdit && editarPt(p, { emoji: v })} />
+                  <input type="color" value={p.cor || "#5865f2"} disabled={ro} onChange={(e) => canEdit && editarPt(p, { cor: e.target.value })} title={p.cor ? `cor ${p.cor}` : "cor automática (clique p/ definir)"} style={{ width: 34, height: 30, padding: 0, border: `1px solid ${C.border2}`, borderRadius: 6, background: C.inputBg, cursor: ro ? "default" : "pointer", opacity: p.cor ? 1 : 0.45 }} />
+                  {canEdit && p.cor && <button onClick={() => editarPt(p, { cor: "" })} title="voltar p/ cor automática" style={{ ...btn(C.mute), padding: "4px 7px", fontSize: 10.5 }}>auto</button>}
                   <input defaultValue={p.nome} readOnly={ro} onBlur={(e) => canEdit && e.target.value.trim() && e.target.value !== p.nome && editarPt(p, { nome: e.target.value })} style={{ ...input, flex: 1 }} />
                   {canEdit && <button onClick={() => excluirPt(p)} title="excluir" style={{ ...btn(C.vermelho), padding: "5px 9px" }}>✕</button>}
                 </div>
@@ -341,6 +341,7 @@ export default function ParticipacaoBoard({
               {canEdit && (
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.borderSoft}` }}>
                   <EmojiPicker emojis={emojis} value={novoPt.emoji} onPick={(v) => setNovoPt((n) => ({ ...n, emoji: v }))} />
+                  <input type="color" value={novoPt.cor || "#5865f2"} onChange={(e) => setNovoPt((n) => ({ ...n, cor: e.target.value }))} title="cor do card (opcional)" style={{ width: 34, height: 30, padding: 0, border: `1px solid ${C.border2}`, borderRadius: 6, background: C.inputBg, cursor: "pointer", opacity: novoPt.cor ? 1 : 0.45 }} />
                   <input value={novoPt.nome} onChange={(e) => setNovoPt((n) => ({ ...n, nome: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && criarPt()} placeholder="novo PT (ex: Flanco)" style={{ ...input, flex: 1 }} />
                   <button onClick={criarPt} disabled={!novoPt.nome.trim()} style={{ ...btn(C.verde), fontWeight: 700 }}>+ criar</button>
                 </div>
@@ -466,7 +467,12 @@ export default function ParticipacaoBoard({
                   <button key={v} onClick={() => !ro && setBuzF("tipo", v)} disabled={ro} style={{ ...btn(buz.tipo === v ? C.verde : C.mute), background: buz.tipo === v ? C.verdeTint : "transparent" }}>{txt}</button>
                 ))}
               </div>
-              {buz.tipo === "role" && <input value={buz.roleId} readOnly={ro} onChange={(e) => setBuzF("roleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do cargo" style={{ ...input, width: "100%", marginTop: 8 }} />}
+              {buz.tipo === "role" && (
+                <select value={buz.roleId} disabled={ro} onChange={(e) => setBuzF("roleId", e.target.value)} style={{ ...input, width: "100%", marginTop: 8 }}>
+                  <option value="">{roles.length ? "— escolha o cargo —" : "— nenhum cargo carregado (bot/guild?) —"}</option>
+                  {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              )}
               {buz.tipo === "lista" && <textarea value={buz.userIds} readOnly={ro} onChange={(e) => setBuzF("userIds", e.target.value)} rows={3} placeholder="Cole IDs ou menções separados por espaço, vírgula ou linha" style={{ ...input, width: "100%", marginTop: 8, resize: "vertical" }} />}
               {buz.tipo === "todos" && <div style={{ color: C.amarelo, fontSize: 11.5, marginTop: 6 }}>⚠ Envia pra TODOS os membros (menos bots). Requer o &quot;Server Members Intent&quot; ativo no bot.</div>}
               {buz.tipo === "role" && <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 4 }}>Requer o &quot;Server Members Intent&quot; ativo no bot (Developer Portal → Bot).</div>}
@@ -476,6 +482,27 @@ export default function ParticipacaoBoard({
               <label style={label}>Canal do relatório (ID)</label>
               <input value={buz.canal} readOnly={ro} onChange={(e) => setBuzF("canal", e.target.value.replace(/[^0-9]/g, ""))} placeholder="onde o bot posta quem recebeu / falhou" style={{ ...input, width: "100%" }} />
             </div>
+
+            {canEdit && (
+              <div style={{ marginTop: 12 }}>
+                <label style={label}>Botões / votação (opcional)</label>
+                <div style={{ color: C.borderSoft, fontSize: 11, marginBottom: 6 }}>Cada botão grava a escolha de quem clica (voto único, trocável); o relatório mostra os votos. A cor é o estilo do Discord. Até 25 botões.</div>
+                {buz.opcoes.map((o, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                    <EmojiPicker emojis={emojis} value={o.emoji} onPick={(v) => setOpcao(i, { emoji: v })} />
+                    <input value={o.label} onChange={(e) => setOpcao(i, { label: e.target.value })} maxLength={80} placeholder={`botão ${i + 1} (ex: Confirmo)`} style={{ ...input, flex: 1 }} />
+                    <select value={o.estilo} onChange={(e) => setOpcao(i, { estilo: Number(e.target.value) })} style={{ ...input, width: 120 }}>
+                      <option value={1}>🔵 Azul</option>
+                      <option value={3}>🟢 Verde</option>
+                      <option value={4}>🔴 Vermelho</option>
+                      <option value={2}>⚪ Cinza</option>
+                    </select>
+                    <button onClick={() => rmOpcao(i)} title="remover" style={{ ...btn(C.vermelho), padding: "5px 9px" }}>✕</button>
+                  </div>
+                ))}
+                {buz.opcoes.length < 25 && <button onClick={addOpcao} style={{ ...btn(C.verde), fontSize: 12 }}>+ adicionar botão</button>}
+              </div>
+            )}
 
             {canEdit && (
               <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
@@ -502,6 +529,9 @@ export default function ParticipacaoBoard({
                       <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 8 }}>
                         🏁 Concluído. {buzProg.reportOk === false ? "⚠ Não consegui postar o relatório no canal (confira permissão/ID)." : "Relatório postado no canal."}
                       </div>
+                    )}
+                    {buzProg.naoEncontrados && buzProg.naoEncontrados.length > 0 && (
+                      <div style={{ color: C.amarelo, fontSize: 12, marginTop: 8 }}>⚠ {buzProg.naoEncontrados.length} nome(s) não encontrado(s) no servidor (ignorados): {buzProg.naoEncontrados.join(", ")}</div>
                     )}
                   </>
                 )}

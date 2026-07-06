@@ -7,6 +7,8 @@ import { listNomesFamilia } from "@/lib/players";
 import { getDiscordConfig } from "@/lib/discordConfig";
 import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
+import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
+import { dispatchVotoHook } from "@/lib/enqueteHooks";
 
 // Endpoint público de Interações do Discord (liberado no middleware). A segurança é a
 // verificação de assinatura Ed25519 — sem ela, 401. Precisa do runtime Node (crypto).
@@ -91,8 +93,31 @@ export async function POST(req: Request) {
     return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero
   }
 
-  // 3 = clique Can/Cant. ACK deferido (type 6) + rebuild em after() (custom_id = part:can|cant:<templateId>)
+  // 3 = clique de botão. ACK deferido (type 6) + trabalho em after().
   if (body.type === 3) {
+    // ENQUETE genérica (buzinador / confirm-por-DM). custom_id = enq:<enqueteId>:<idx>. Testar ANTES do part:.
+    const mEnq = String(body.data?.custom_id ?? "").match(/^enq:(\d+):(\d+)$/);
+    if (mEnq) {
+      const enqueteId = Number(mEnq[1]);
+      const idx = Number(mEnq[2]);
+      const uEnq = body.member?.user ?? body.user;
+      const userId = String(uEnq?.id ?? "");
+      const username = String(body.member?.nick ?? uEnq?.global_name ?? uEnq?.username ?? "").slice(0, 100);
+      const token = String(body.token ?? "");
+      if (!userId) return efemero("Não consegui te identificar.");
+      after(async () => {
+        try {
+          const e = await getEnquete(enqueteId);
+          if (!e || e.status !== "aberta") { await editarMensagem(token, { content: "🔒 Votação encerrada." }); return; }
+          const r = await registrarVoto({ enqueteId, userId, idx, username });
+          if (!r.ok) return; // opção sumiu / enquete fechou entre o ACK e o after — nada a editar
+          await dispatchVotoHook(e, { userId, username, idx }); // efeito por contexto (ex.: espelha na participação)
+          await editarMensagem(token, { components: montarComponents(e, idx) }); // realça a escolha
+        } catch (err) { console.error("clique enquete erro", err); }
+      });
+      return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
+    }
+
     const m = String(body.data?.custom_id ?? "").match(/^part:(can|cant):(\d+)$/);
     if (!m) return efemero("Botão inválido.");
     const resposta = m[1] as "can" | "cant";
