@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS pt_meta (
 );
 INSERT INTO pt_meta (id, war_key) VALUES (1, NULL) ON CONFLICT DO NOTHING;
 
+-- Config geral do Discord: qual servidor está ativo + cargos de staff + canais do Apollo.
+-- Campo vazio → fallback pro env. Usada por auth (login), bot e confirmados. migrate_discord_config.mjs
+CREATE TABLE IF NOT EXISTS discord_config (
+  id     INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  config TEXT  -- JSON: { guildId, staffRoleIds[], confirmNodewar, confirmSiege }
+);
+INSERT INTO discord_config (id) VALUES (1) ON CONFLICT DO NOTHING;
+
 -- ============ BOT DE PARTICIPAÇÃO PRÓPRIO (área /participacao, isolada) ============
 -- Bot com botões Can/Cant. war_key = id da mensagem postada. Ver scripts/migrate_participacao.mjs.
 CREATE TABLE IF NOT EXISTS participacao_config (       -- singleton JSON: canais/textos/agenda por tipo

@@ -4,6 +4,7 @@ import { postarMensagem, registrarClique } from "@/lib/participacao";
 import { listTemplates } from "@/lib/participacaoPt";
 import { type Tipo } from "@/lib/participacaoConfig";
 import { listNomesFamilia } from "@/lib/players";
+import { getDiscordConfig } from "@/lib/discordConfig";
 import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 
@@ -14,7 +15,6 @@ export const dynamic = "force-dynamic";
 
 const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 const APP_ID = process.env.DISCORD_APP_ID;
-const STAFF_ROLES = (process.env.DISCORD_STAFF_ROLE_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
 type DUser = { id?: string; username?: string; global_name?: string | null };
 type Interaction = {
@@ -41,9 +41,10 @@ function tipoDoComando(nome: string): Tipo | null {
   return null;
 }
 /** Só staff dispara o slash. Sem cargos configurados → todo mundo (paridade com auth.ts). */
-function ehStaff(roles?: string[]): boolean {
-  if (!STAFF_ROLES.length) return true;
-  return Array.isArray(roles) && roles.some((r) => STAFF_ROLES.includes(r));
+async function ehStaff(roles?: string[]): Promise<boolean> {
+  const { staffRoleIds } = await getDiscordConfig();
+  if (!staffRoleIds.length) return true;
+  return Array.isArray(roles) && roles.some((r) => staffRoleIds.includes(r));
 }
 
 /** Edita a mensagem original da interação (o token da interação autoriza; sem bot token). */
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
   if (body.type === 2) {
     const tipo = tipoDoComando(String(body.data?.name ?? ""));
     if (!tipo) return efemero("Comando desconhecido.");
-    if (!ehStaff(body.member?.roles)) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
+    if (!(await ehStaff(body.member?.roles))) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
     const token = String(body.token ?? "");
     after(async () => {
       try {

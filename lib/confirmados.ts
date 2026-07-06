@@ -5,23 +5,20 @@
 
 import { sql } from "@/lib/db";
 import { parseConfig } from "@/lib/ptConfig";
+import { getDiscordConfig } from "@/lib/discordConfig";
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-// Canal do embed de confirmação (Apollo), escolhido pelo MODO do "Montar PTs":
-// nodewar → _NODEWAR, siege → _SIEGE. Sem os dois novos envs, cai no legado _ID.
-const CH_NODEWAR = process.env.DISCORD_CONFIRM_CHANNEL_ID_NODEWAR;
-const CH_SIEGE = process.env.DISCORD_CONFIRM_CHANNEL_ID_SIEGE;
-const CH_LEGADO = process.env.DISCORD_CONFIRM_CHANNEL_ID;
 
-/** Canal a ler agora, conforme o modo salvo em pt_meta.pt_config (nodewar|siege). */
+/** Canal do embed do Apollo, escolhido pelo MODO (nodewar|siege) do "Montar PTs".
+ *  Os canais vêm da config geral do Discord (discord_config, com fallback pro env). */
 async function canalDoModo(): Promise<string | undefined> {
-  if (!CH_NODEWAR && !CH_SIEGE) return CH_LEGADO; // sem os novos envs → comportamento antigo
+  const dc = await getDiscordConfig();
   try {
     const rows = (await sql`SELECT pt_config FROM pt_meta WHERE id = 1`) as { pt_config: string | null }[];
     const siege = rows[0]?.pt_config ? parseConfig(rows[0].pt_config).modo === "siege" : false;
-    return (siege ? CH_SIEGE : CH_NODEWAR) || CH_LEGADO;
+    return (siege ? dc.confirmSiege : dc.confirmNodewar) || undefined;
   } catch {
-    return CH_NODEWAR || CH_LEGADO; // banco indisponível → assume nodewar
+    return dc.confirmNodewar || undefined; // banco indisponível → assume nodewar
   }
 }
 

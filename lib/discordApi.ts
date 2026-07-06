@@ -1,3 +1,5 @@
+import { getDiscordConfig } from "@/lib/discordConfig";
+
 /** Chamadas REST autenticadas com o BOT TOKEN (mesmo bot da leitura de confirmados). */
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const API = "https://discord.com/api/v10";
@@ -21,9 +23,9 @@ export async function botFetch(path: string, init: RequestInit = {}, tentativas 
 export type EmojiGuild = { id: string; name: string; animated: boolean };
 let emojiCache: { at: number; data: EmojiGuild[] } | null = null;
 
-/** Emojis customizados do servidor (cache de 60s). Vazio se sem bot/guild. */
+/** Emojis customizados do servidor ATIVO (cache de 60s). Vazio se sem bot/guild. */
 export async function listarEmojisGuild(): Promise<EmojiGuild[]> {
-  const gid = (process.env.DISCORD_GUILD_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean)[0];
+  const gid = (await getDiscordConfig()).guildId;
   if (!BOT_TOKEN || !gid) return [];
   if (emojiCache && Date.now() - emojiCache.at < 60_000) return emojiCache.data;
   try {

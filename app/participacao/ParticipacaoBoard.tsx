@@ -149,6 +149,7 @@ export default function ParticipacaoBoard({
             <Link className="navlink" href="/painel">← Painel</Link>
             <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/membros">Membros</Link>
+            <Link className="navlink" href="/discord">Discord</Link>
             {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ {status.msg}</span>}
             {status.kind === "err" && <span style={{ color: C.vermelho, fontSize: 13 }}>⚠ {status.msg}</span>}
