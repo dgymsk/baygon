@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS participacao_post (         -- cada mensagem postada 
   tipo        TEXT NOT NULL,                           -- 'nodewar' | 'siege'
   channel_id  TEXT NOT NULL,
   titulo      TEXT,
-  template_id BIGINT,                                  -- template usado na rodada (migrate_participacao_templates)
+  template_id BIGINT REFERENCES participacao_template(id) ON DELETE SET NULL, -- template usado na rodada
   criado      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_participacao_post_tipo ON participacao_post (tipo, criado DESC);

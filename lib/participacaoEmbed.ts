@@ -16,7 +16,7 @@ const COR = 0x34e06a;
 
 /** Classifica os Can em confirmados (primeiros tamanho_max por can_em) vs espera. Chaveado por user_id. */
 export function classificar(respostas: { user_id: string; resposta: "can" | "cant"; can_em: string | null }[], max: number | null): { confirmados: Set<string>; espera: Set<string> } {
-  const cans = respostas.filter((r) => r.resposta === "can").sort((a, b) => (a.can_em ?? "").localeCompare(b.can_em ?? ""));
+  const cans = respostas.filter((r) => r.resposta === "can").sort((a, b) => { const c = (a.can_em ?? "").localeCompare(b.can_em ?? ""); return c !== 0 ? c : a.user_id.localeCompare(b.user_id); });
   const confirmados = new Set<string>();
   const espera = new Set<string>();
   cans.forEach((r, i) => (max == null || i < max ? confirmados : espera).add(r.user_id));

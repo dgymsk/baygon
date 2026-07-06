@@ -51,6 +51,13 @@ try {
   // post: qual template foi usado; resp: quando confirmou (ordem da espera)
   await client.query(`ALTER TABLE participacao_post ADD COLUMN IF NOT EXISTS template_id BIGINT`);
   await client.query(`ALTER TABLE participacao_resp ADD COLUMN IF NOT EXISTS can_em TIMESTAMPTZ`);
+  // FK: ao deletar um template, o post não fica órfão (template_id → NULL), preservando a rodada
+  await client.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_participacao_post_template') THEN
+      ALTER TABLE participacao_post ADD CONSTRAINT fk_participacao_post_template
+        FOREIGN KEY (template_id) REFERENCES participacao_template(id) ON DELETE SET NULL;
+    END IF;
+  END $$;`);
 
   const t = await client.query(`SELECT to_regclass('participacao_pt') a, to_regclass('participacao_template') b, to_regclass('participacao_template_pt') c, to_regclass('participacao_membro') d`);
   console.log("OK — tabelas:", t.rows[0]);

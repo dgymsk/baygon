@@ -78,7 +78,12 @@ export async function postarMensagem(templateId: number): Promise<{ ok: boolean;
 /** Grava o clique (resolvendo o tipo pelo template) e devolve o payload atualizado da mensagem. */
 export async function registrarClique(o: { warKey: string; userId: string; username: string; familia: string; chave: string; templateId: number; resposta: "can" | "cant" }): Promise<Record<string, unknown> | null> {
   const tpl = await getTemplate(o.templateId);
-  if (!tpl) return null;
+  if (!tpl) {
+    // template foi deletado no meio da rodada: ainda grava o clique (tipo vem do post), sem perder.
+    const rows = (await sql`SELECT tipo FROM participacao_post WHERE message_id = ${o.warKey}`) as { tipo: string }[];
+    if (rows[0]) await upsertResposta({ warKey: o.warKey, userId: o.userId, username: o.username, familia: o.familia, chave: o.chave, tipo: rows[0].tipo, resposta: o.resposta });
+    return null; // sem template não dá pra reconstruir o embed
+  }
   await upsertResposta({ warKey: o.warKey, userId: o.userId, username: o.username, familia: o.familia, chave: o.chave, tipo: tpl.tipo, resposta: o.resposta });
   const cfg = (await getParticipacaoConfig())[tpl.tipo as Tipo];
   const [pts, membros, respostas] = await Promise.all([listPts(), listMembros(tpl.tipo), getRespostas(o.warKey)]);

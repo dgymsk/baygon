@@ -211,7 +211,7 @@ export default function ParticipacaoBoard({
                             </div>
                             {g.membros.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém atribuído</span> : (
                               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                {g.membros.map((m, i) => <span key={i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}><span>{statusIcon(m.status)}</span><NomePerfil nome={m.familia} userId={m.userId} bold={m.status === "can"} /></span>)}
+                                {g.membros.map((m, i) => <span key={m.familia + i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}><span>{statusIcon(m.status)}</span><NomePerfil nome={m.familia} userId={m.userId} bold={m.status === "can"} /></span>)}
                               </div>
                             )}
                           </div>
