@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getParticipacaoConfig, postarMensagem, postsAtivos } from "@/lib/participacao";
+import { listTemplates } from "@/lib/participacaoPt";
 import { TIPOS } from "@/lib/participacaoConfig";
 
 // Disparo AGENDADO. Chamado pelo Vercel Cron (Authorization: Bearer <CRON_SECRET>).
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
   const hora = br.getUTCHours();
   const hojeBR = dataBR(nowMs);
 
-  const posts = await postsAtivos();
+  const [posts, templates] = await Promise.all([postsAtivos(), listTemplates()]);
   // dedup por DATA (BR): não auto-posta um tipo se já houve QUALQUER post dele hoje (manual ou auto)
   const jaPostouHoje = (tipo: string) => posts.some((p) => p.tipo === tipo && dataBR(new Date(p.criado).getTime()) === hojeBR);
 
@@ -30,8 +31,8 @@ export async function GET(req: Request) {
     const a = cfg[tipo].agenda;
     const hAgenda = Number(a.hora.split(":")[0]); // agenda é por HORA (o cron roda de hora em hora)
     if (a.ativo && a.dias.includes(dia) && hora === hAgenda && !jaPostouHoje(tipo)) {
-      const r = await postarMensagem(tipo);
-      if (r.ok) feitos.push(tipo);
+      const tpl = templates.find((x) => x.tipo === tipo); // usa o 1º template do tipo
+      if (tpl) { const r = await postarMensagem(tpl.id); if (r.ok) feitos.push(tipo); }
     }
   }
   return NextResponse.json({ ok: true, feitos, br: `dia ${dia} ${hora}h` });

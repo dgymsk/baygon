@@ -102,11 +102,12 @@ CREATE TABLE IF NOT EXISTS participacao_config (       -- singleton JSON: canais
 );
 INSERT INTO participacao_config (id) VALUES (1) ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS participacao_post (         -- cada mensagem postada = uma rodada
-  message_id TEXT PRIMARY KEY,
-  tipo       TEXT NOT NULL,                            -- 'nodewar' | 'siege'
-  channel_id TEXT NOT NULL,
-  titulo     TEXT,
-  criado     TIMESTAMPTZ NOT NULL DEFAULT now()
+  message_id  TEXT PRIMARY KEY,
+  tipo        TEXT NOT NULL,                           -- 'nodewar' | 'siege'
+  channel_id  TEXT NOT NULL,
+  titulo      TEXT,
+  template_id BIGINT,                                  -- template usado na rodada (migrate_participacao_templates)
+  criado      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_participacao_post_tipo ON participacao_post (tipo, criado DESC);
 CREATE TABLE IF NOT EXISTS participacao_resp (         -- 1 resposta por Discord user por rodada (upsert)
@@ -117,30 +118,41 @@ CREATE TABLE IF NOT EXISTS participacao_resp (         -- 1 resposta por Discord
   chave      TEXT,                                     -- chaveNome(familia) p/ casar com players
   tipo       TEXT NOT NULL,
   resposta   TEXT NOT NULL CHECK (resposta IN ('can','cant')),
+  can_em     TIMESTAMPTZ,                              -- quando virou 'can' (ordem da espera); NULL se cant
   atualizado TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (war_key, user_id)
 );
 CREATE INDEX IF NOT EXISTS ix_participacao_resp_warkey ON participacao_resp (war_key);
--- Grupos do bot de participação (staff pré-atribui). Ver scripts/migrate_participacao_grupos.mjs.
-CREATE TABLE IF NOT EXISTS participacao_grupo (       -- catálogo de grupos por tipo (reusável)
-  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  tipo       TEXT NOT NULL,                            -- 'nodewar' | 'siege'
-  nome       TEXT NOT NULL,
-  emoji      TEXT,                                     -- unicode ou '<:nome:id>'
-  limite_max INT,                                      -- NULL = sem limite (capacidade planejada)
-  ordem      INT NOT NULL DEFAULT 0,
-  ativo      BOOLEAN NOT NULL DEFAULT TRUE,
-  criado     TIMESTAMPTZ NOT NULL DEFAULT now()
+-- PTs + templates do bot de participação. Ver scripts/migrate_participacao_templates.mjs.
+-- participacao_post.template_id = template usado na rodada; participacao_resp.can_em = quando
+-- confirmou (ordem da espera: os primeiros template.tamanho_max cans entram, o resto espera).
+CREATE TABLE IF NOT EXISTS participacao_pt (          -- catálogo GLOBAL de PTs (nome + emoji)
+  id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nome   TEXT NOT NULL,
+  emoji  TEXT,                                         -- unicode ou '<:nome:id>'
+  criado TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS ix_participacao_grupo_tipo ON participacao_grupo (tipo, ordem);
-CREATE TABLE IF NOT EXISTS participacao_membro (      -- atribuição fixa jogador→grupo (1 por tipo)
-  tipo     TEXT NOT NULL,
-  chave    TEXT NOT NULL,                              -- chaveNome(familia)
-  familia  TEXT NOT NULL,
-  grupo_id BIGINT NOT NULL REFERENCES participacao_grupo(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS participacao_membro (      -- atribuição jogador→PT, SEPARADA por tipo
+  tipo    TEXT NOT NULL,                               -- 'nodewar' | 'siege'
+  chave   TEXT NOT NULL,                               -- chaveNome(familia)
+  familia TEXT NOT NULL,
+  pt_id   BIGINT NOT NULL REFERENCES participacao_pt(id) ON DELETE CASCADE,
   PRIMARY KEY (tipo, chave)
 );
-CREATE INDEX IF NOT EXISTS ix_participacao_membro_grupo ON participacao_membro (grupo_id);
+CREATE INDEX IF NOT EXISTS ix_participacao_membro_pt ON participacao_membro (pt_id);
+CREATE TABLE IF NOT EXISTS participacao_template (    -- template = nome + tipo + tamanho_max + PTs
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  tipo        TEXT NOT NULL,
+  tamanho_max INT,                                     -- trava total da guerra (NULL = sem trava)
+  criado      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS participacao_template_pt ( -- quais PTs compõem o template (+ ordem)
+  template_id BIGINT NOT NULL REFERENCES participacao_template(id) ON DELETE CASCADE,
+  pt_id       BIGINT NOT NULL REFERENCES participacao_pt(id) ON DELETE CASCADE,
+  ordem       INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (template_id, pt_id)
+);
 
 -- ============ FATO CRU (a extração dos prints) ============
 

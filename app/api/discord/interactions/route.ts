@@ -1,8 +1,7 @@
 import { after } from "next/server";
 import { verificarInteracao } from "@/lib/discordVerify";
-import { upsertResposta, postarMensagem, getRespostas, getParticipacaoConfig } from "@/lib/participacao";
-import { listGrupos, listMembros } from "@/lib/participacaoGrupos";
-import { montarEmbedGrupos } from "@/lib/participacaoEmbed";
+import { postarMensagem, registrarClique } from "@/lib/participacao";
+import { listTemplates } from "@/lib/participacaoPt";
 import { type Tipo } from "@/lib/participacaoConfig";
 import { listNomesFamilia } from "@/lib/players";
 import { casarNome } from "@/lib/casarNome";
@@ -36,13 +35,11 @@ function familiaDoNick(nick?: string | null): string | null {
   const s = nick.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
   return s || null;
 }
-
 function tipoDoComando(nome: string): Tipo | null {
   if (nome.endsWith("siege")) return "siege";
   if (nome.endsWith("nodewar")) return "nodewar";
   return null;
 }
-
 /** Só staff dispara o slash. Sem cargos configurados → todo mundo (paridade com auth.ts). */
 function ehStaff(roles?: string[]): boolean {
   if (!STAFF_ROLES.length) return true;
@@ -58,18 +55,11 @@ async function editarMensagem(token: string, payload: Record<string, unknown>): 
     try {
       const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body });
       if (res.ok) return;
-      if (res.status !== 429 && res.status < 500) { console.error(`editarMensagem falhou: ${res.status}`); return; } // erro do cliente: não retenta
+      if (res.status !== 429 && res.status < 500) { console.error(`editarMensagem falhou: ${res.status}`); return; }
     } catch (e) { console.error("editarMensagem erro de rede", e); }
-    await new Promise((r) => setTimeout(r, 400 * (t + 1))); // backoff antes de retentar
+    await new Promise((r) => setTimeout(r, 400 * (t + 1)));
   }
   console.error("editarMensagem: esgotou as tentativas");
-}
-
-/** Reconstrói o embed agrupado do tipo e edita a mensagem (live-update). */
-async function atualizarMensagemGrupos(token: string, tipo: Tipo, warKey: string): Promise<void> {
-  const cfg = (await getParticipacaoConfig())[tipo];
-  const [grupos, membros, respostas] = await Promise.all([listGrupos(tipo), listMembros(tipo), getRespostas(warKey)]);
-  await editarMensagem(token, montarEmbedGrupos(cfg, tipo, grupos, membros, respostas) as unknown as Record<string, unknown>);
 }
 
 export async function POST(req: Request) {
@@ -81,32 +71,31 @@ export async function POST(req: Request) {
   let body: Interaction;
   try { body = JSON.parse(raw) as Interaction; } catch { return json({ error: "bad json" }, 400); }
 
-  // 1 = PING (handshake de verificação do endpoint)
-  if (body.type === 1) return json({ type: 1 });
+  if (body.type === 1) return json({ type: 1 }); // PING → PONG
 
-  // 2 = APPLICATION_COMMAND (/participacao-nodewar | -siege). Só staff; responde DEFERRED e
-  // posta em background (evita estourar o limite de 3s do Discord num cold start).
+  // 2 = slash /participacao-nodewar|siege → posta o 1º template do tipo (teste rápido). Só staff.
   if (body.type === 2) {
     const tipo = tipoDoComando(String(body.data?.name ?? ""));
     if (!tipo) return efemero("Comando desconhecido.");
-    if (!ehStaff(body.member?.roles)) return efemero("⛔ Sem permissão — apenas staff pode disparar a participação.");
+    if (!ehStaff(body.member?.roles)) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
     const token = String(body.token ?? "");
     after(async () => {
       try {
-        const r = await postarMensagem(tipo);
-        await editarMensagem(token, { content: r.ok ? `✅ Participação **${tipo}** postada no canal.` : `⚠ Não deu: ${r.erro}` });
+        const tpl = (await listTemplates()).find((x) => x.tipo === tipo);
+        if (!tpl) { await editarMensagem(token, { content: `⚠ Nenhum template de **${tipo}**. Crie um em /participacao.` }); return; }
+        const r = await postarMensagem(tpl.id);
+        await editarMensagem(token, { content: r.ok ? `✅ Participação **${tpl.nome}** postada.` : `⚠ Não deu: ${r.erro}` });
       } catch (e) { console.error("slash participacao erro", e); }
     });
-    return json({ type: 5, data: { flags: 64 } }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE (efêmero)
+    return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero
   }
 
-  // 3 = MESSAGE_COMPONENT (clique Can/Cant). ACK deferido (type 6) e faz o trabalho pesado
-  // em after(): resolve nome, grava e reconstrói o embed agrupado, editando a mensagem.
+  // 3 = clique Can/Cant. ACK deferido (type 6) + rebuild em after() (custom_id = part:can|cant:<templateId>)
   if (body.type === 3) {
-    const m = String(body.data?.custom_id ?? "").match(/^part:(can|cant):(nodewar|siege)$/);
+    const m = String(body.data?.custom_id ?? "").match(/^part:(can|cant):(\d+)$/);
     if (!m) return efemero("Botão inválido.");
     const resposta = m[1] as "can" | "cant";
-    const tipo = m[2] as Tipo;
+    const templateId = Number(m[2]);
     const warKey = String(body.message?.id ?? "");
     const user = body.member?.user ?? body.user;
     const userId = String(user?.id ?? "");
@@ -116,14 +105,13 @@ export async function POST(req: Request) {
 
     after(async () => {
       try {
-        // resolve o nome canônico (fuzzy) contra os players (query leve), p/ casar com a atribuição
         const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));
         const familia = casarNome(familiaDoNick(nick) ?? String(nick), [], players).slice(0, 100);
-        await upsertResposta({ warKey, userId, username: String(nick).slice(0, 100), familia, chave: chaveNome(familia), tipo, resposta });
-        await atualizarMensagemGrupos(token, tipo, warKey);
+        const payload = await registrarClique({ warKey, userId, username: String(nick).slice(0, 100), familia, chave: chaveNome(familia), templateId, resposta });
+        if (payload) await editarMensagem(token, payload);
       } catch (e) { console.error("clique participacao erro", e); }
     });
-    return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE — ack instantâneo; a mensagem atualiza logo após
+    return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
   }
 
   return efemero("Interação não suportada.");
