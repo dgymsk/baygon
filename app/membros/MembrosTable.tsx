@@ -185,6 +185,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
             <Link className="navlink" href="/painel">← Painel</Link>
             <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/evolucao">Evolução</Link>
+            <Link className="navlink" href="/gear">Gear</Link>
             <Link className="navlink" href="/config">⚙ Config</Link>
           </div>
         </div>
