@@ -1,7 +1,7 @@
 "use client";
 
 import { C } from "@/lib/theme";
-import type { SituacaoNN, StatusResp } from "@/lib/participacaoSituacao";
+import type { SituacaoNN, StatusResp, MembroSit } from "@/lib/participacaoSituacao";
 import type { EmojiGuild } from "@/lib/discordApi";
 
 /**
@@ -28,21 +28,37 @@ function NomePerfil({ nome, userId, bold }: { nome: string; userId: string | nul
   return <a href={`https://discord.com/users/${userId}`} target="_blank" rel="noreferrer" style={{ ...st, color: C.texto, textDecoration: "none" }}>{nome}</a>;
 }
 const statusIcon = (s: StatusResp) => (s === "can" ? "✅" : s === "espera" ? "⏳" : s === "cant" ? "❌" : "⬜");
+const TAG = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : null); // tag da guilda (null = desconhecida → não rotula)
+const ROXO = "#b39cff";
+// linha do roster: [TAG] nick  GS  [Classe] (monospace p/ alinhar os números)
+function Linha({ icon, m }: { icon: string; m: MembroSit }) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontFamily: "'Share Tech Mono', monospace" }}>
+      <span>{icon}</span>
+      {TAG(m.guilda) && <span style={{ color: C.mute }}>[{TAG(m.guilda)}]</span>}
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><NomePerfil nome={m.familia} userId={m.userId} bold /></span>
+      <b style={{ color: m.gs != null ? C.verde : C.borderSoft }}>{m.gs ?? "—"}</b>
+      {m.classe && <span style={{ color: ROXO }}>[{m.classe}]</span>}
+    </span>
+  );
+}
 
 export default function RosterView({ sit, emojis = [] }: { sit: SituacaoNN; emojis?: EmojiGuild[] }) {
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
         {sit.pts.map((g) => (
           <div key={g.id} style={{ border: `1px solid ${C.border2}`, borderLeft: `3px solid ${g.cor || C.border2}`, borderRadius: 10, background: C.surfaceSolid, padding: "8px 10px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, paddingBottom: 5, borderBottom: `1px solid ${C.borderSoft}` }}>
-              <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b><span style={{ color: g.limite != null && g.confirmados.length >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados.length}{g.limite != null ? `/${g.limite}` : ""}</span>
+              <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b>
+              <span style={{ color: g.limite != null && g.confirmados.length >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados.length}{g.limite != null ? `/${g.limite}` : ""}</span>
+              {g.gsMedia != null && <span style={{ color: C.mute, fontSize: 11.5, whiteSpace: "nowrap" }}>· GS <b style={{ color: C.texto }}>{g.gsMedia}</b></span>}
             </div>
             {g.confirmados.length === 0 && g.espera.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém confirmou</span> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {g.confirmados.map((m, i) => <span key={"c" + i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}>✅ <NomePerfil nome={m.familia} userId={m.userId} bold /></span>)}
+                {g.confirmados.map((m, i) => <Linha key={"c" + i} icon="✅" m={m} />)}
                 {g.espera.length > 0 && <span style={{ color: C.amarelo, fontSize: 11, fontWeight: 700, marginTop: 3 }}>⏳ Espera</span>}
-                {g.espera.map((m, i) => <span key={"e" + i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}>⏳ <NomePerfil nome={m.familia} userId={m.userId} /></span>)}
+                {g.espera.map((m, i) => <Linha key={"e" + i} icon="⏳" m={m} />)}
               </div>
             )}
           </div>

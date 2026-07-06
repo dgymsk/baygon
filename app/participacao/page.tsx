@@ -32,7 +32,7 @@ export default async function ParticipacaoPage({ searchParams }: { searchParams:
 
   // roster AO VIVO de cada evento ativo. Reaproveita os catálogos já buscados (pts/membros/players) →
   // evita re-fetch por evento. (listEventos vem por data/criado DESC → 1º de cada tipo é o mais recente.)
-  const cat: CatalogosRoster = { ptById: new Map(pts.map((p) => [p.id, p])), membros, playersCands: players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia })) };
+  const cat: CatalogosRoster = { ptById: new Map(pts.map((p) => [p.id, p])), membros, playersCands: players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia })), perfil: new Map(players.map((p) => [chaveNome(p.nome_familia), { guilda: p.guilda, classe: p.classe_bdo, gs: p.garmoth?.gs ?? null }])) };
   const ativosComSit: EventoAtivoVM[] = await Promise.all(ativos.map(async (e) => ({ id: e.id, uuid: e.uuid, tipo: e.tipo, status: e.status, titulo: e.titulo, data: e.data, sit: await situacaoAoVivoPorEvento(e.id, cat) })));
   const eventosPorTipo = {} as Record<Tipo, EventoAtivoVM[]>;
   for (const tipo of TIPOS) eventosPorTipo[tipo] = ativosComSit.filter((e) => e.tipo === tipo);

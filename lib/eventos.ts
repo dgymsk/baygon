@@ -2,7 +2,7 @@ import { sql } from "@/lib/db";
 import { getTemplate, listPts, listMembros } from "@/lib/participacaoPt";
 import { listPlayers } from "@/lib/players";
 import { chaveNome } from "@/lib/nomes";
-import { montarSituacao, type SituacaoNN } from "@/lib/participacaoSituacao";
+import { montarSituacao, type SituacaoNN, type PerfilGear } from "@/lib/participacaoSituacao";
 
 /**
  * HUB de EVENTOS. Cada disparo cria 1 evento; a rodada de participação (participacao_post) é a 1ª
@@ -50,10 +50,14 @@ export async function travarEvento(id: number): Promise<{ ok: boolean; erro?: st
 }
 
 /** Catálogos globais (iguais entre todos os eventos) — buscados 1x e reaproveitados p/ evitar N+1. */
-export type CatalogosRoster = { ptById: Map<number, { id: number; nome: string; emoji: string; cor: string }>; membros: { tipo: string; chave: string; familia: string; pt_id: number }[]; playersCands: { chave: string; nome: string }[] };
+export type CatalogosRoster = { ptById: Map<number, { id: number; nome: string; emoji: string; cor: string }>; membros: { tipo: string; chave: string; familia: string; pt_id: number }[]; playersCands: { chave: string; nome: string }[]; perfil: Map<string, PerfilGear> };
 async function carregarCatalogos(): Promise<CatalogosRoster> {
   const [pts, membros, players] = await Promise.all([listPts(), listMembros(), listPlayers()]);
-  return { ptById: new Map(pts.map((p) => [p.id, p])), membros, playersCands: players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia })) };
+  return {
+    ptById: new Map(pts.map((p) => [p.id, p])), membros,
+    playersCands: players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia })),
+    perfil: new Map(players.map((p) => [chaveNome(p.nome_familia), { guilda: p.guilda, classe: p.classe_bdo, gs: p.garmoth?.gs ?? null }])),
+  };
 }
 
 /** Recalcula o roster (SituacaoNN) do post ligado ao evento, do estado ATUAL das respostas.
@@ -67,7 +71,7 @@ async function computeSituacao(post: { message_id: string; tipo: string; templat
     SELECT user_id, username, familia, chave, tipo, resposta, can_em::text AS can_em, atualizado::text AS atualizado
     FROM participacao_resp WHERE war_key = ${post.message_id} ORDER BY atualizado`) as { user_id: string; username: string; familia: string | null; chave: string | null; tipo: string; resposta: "can" | "cant"; can_em: string | null; atualizado: string }[];
   const membrosTipo = c.membros.filter((m) => m.tipo === post.tipo);
-  return montarSituacao(tpl, membrosTipo, respostas, c.ptById, c.playersCands);
+  return montarSituacao(tpl, membrosTipo, respostas, c.ptById, c.playersCands, c.perfil);
 }
 
 /** Snapshot do roster (o "bot final") — congela o computeSituacao + metadados. */
