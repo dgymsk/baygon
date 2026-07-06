@@ -130,10 +130,12 @@ async function resolverAudiencia(a: Audiencia): Promise<{ ok: true; alvos: Alvo[
   }
   if (a?.tipo === "nao_registrados") {
     const rid = dig(a.roleId);
-    if (rid) sel = sel.filter((m) => m.roles.includes(rid)); // opcional: só quem tem a "tag de membro"
+    if (rid) sel = sel.filter((m) => m.roles.includes(rid)); // opcional: só quem tem a "tag de membro" (cargo X)
+    const cfg = await getDiscordConfig();
     const reg = (await sql`SELECT discord_id FROM players WHERE registro = TRUE AND discord_id IS NOT NULL`) as { discord_id: string }[];
-    const registrados = new Set(reg.map((r) => r.discord_id));
-    sel = sel.filter((m) => !registrados.has(m.userId));
+    const jaFezJornada = new Set(reg.map((r) => r.discord_id));
+    // "não registrado" = NÃO tem o cargo de registrado (config /discord) E não concluiu a jornada (banco, por segurança)
+    sel = sel.filter((m) => !(cfg.registroRoleId && m.roles.includes(cfg.registroRoleId)) && !jaFezJornada.has(m.userId));
   }
   if (!sel.length) return { ok: false, erro: "nenhum destinatário encontrado nessa audiência" };
   return { ok: true, alvos: sel.map((m) => ({ userId: m.userId, nome: m.nome })) };
