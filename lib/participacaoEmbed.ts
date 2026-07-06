@@ -58,15 +58,20 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const ptsTpl = new Set(tpl.pts.map((tp) => tp.pt_id));
   const chavesAtrib = new Set(membros.filter((m) => ptsTpl.has(m.pt_id)).map((m) => m.chave));
 
-  // A LINHA TODA vira o texto de UM link (fica clicável e numa cor só). Dentro do link não pode ter
-  // colchete (fecharia o link cedo) → classe entre parênteses, tag sem colchete.
-  const linhaMembro = (m: MembroE): string => {
+  // Linha ALINHADA (monospace) num code block ANSI: [TAG] nick(azul) GS [Classe]. Nome em azul p/ lembrar a
+  // cor de menção. Não é clicável (code block não renderiza menção/link — limitação do Discord). Largura do
+  // nick é global p/ as colunas baterem entre as PTs. Os códigos de cor são invisíveis (não contam na largura).
+  const nickW = Math.min(16, Math.max(6, ...membros.map((m) => (m.familia || "?").length), 6));
+  const ESC = String.fromCharCode(27); // ESC dos códigos ANSI do Discord
+  const AZUL = `${ESC}[0;34m`, RESET = `${ESC}[0m`;
+  const semAnsi = (s: string) => s.replace(/`/g, "'"); // crase quebraria o code block
+  const linhaGear = (m: MembroE): string => {
     const p = perfil?.get(m.chave);
-    const r = respByChave.get(m.chave);
-    const t = tag3(p?.guilda);
-    const texto = [t, safeLink(m.familia), p?.gs != null ? String(p.gs) : null, p?.classe ? `(${safeLink(p.classe)})` : null].filter(Boolean).join(" ");
-    return r?.user_id ? `[${texto}](https://discord.com/users/${r.user_id})` : texto;
+    const nick = semAnsi(m.familia || "?").slice(0, nickW).padEnd(nickW);
+    const gs = (p?.gs != null ? String(p.gs) : "—").padStart(4);
+    return `[${tag3(p?.guilda) ?? "---"}] ${AZUL}${nick}${RESET} ${gs}${p?.classe ? ` [${semAnsi(p.classe)}]` : ""}`;
   };
+  const blocoAnsi = (ms: MembroE[]) => "```ansi\n" + ms.map(linhaGear).join("\n") + "\n```";
 
   // UMA mensagem só: cada PT é uma SEÇÃO no mesmo embed (sem cards separados). Espera/undecided/can't idem.
   const naoDecididos: MembroE[] = [];
@@ -86,12 +91,12 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
     const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
     const cap = tp.limite != null ? `/${tp.limite}` : "";
     const cab = `${pt.emoji ? pt.emoji + " " : ""}**${pt.nome}** — ${conf.length}${cap}${media != null ? ` · GS ${media}` : ""}`;
-    secoes.push(`${cab}\n${conf.length ? conf.map(linhaMembro).join("\n") : "_(ninguém)_"}`);
+    secoes.push(`${cab}\n${conf.length ? blocoAnsi(conf) : "_(ninguém)_"}`);
   });
 
   const semPtCan = respostas.filter((r) => r.resposta === "can" && (!r.chave || !chavesAtrib.has(r.chave)));
   const cant = respostas.filter((r) => r.resposta === "cant");
-  if (esperaGlobal.length) secoes.push(`**⏳ Espera — ${esperaGlobal.length}**\n${esperaGlobal.map(linhaMembro).join("\n")}`);
+  if (esperaGlobal.length) secoes.push(`**⏳ Espera — ${esperaGlobal.length}**\n${blocoAnsi(esperaGlobal)}`);
   if (semPtCan.length) secoes.push(`**🆕 Sem PT — ${semPtCan.length}**\n${semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳ " : ""}<@${r.user_id}>`).join(" ")}`);
   if (naoDecididos.length) secoes.push(`**⬜ Não decididos — ${naoDecididos.length}**\n${naoDecididos.map((m) => m.familia).join(", ")}`);
   if (cant.length) secoes.push(`**❌ Não vão — ${cant.length}**\n${cant.map((r) => `<@${r.user_id}>`).join(", ")}`);
