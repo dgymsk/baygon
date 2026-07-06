@@ -12,10 +12,10 @@ export type MembroE = { chave: string; familia: string; pt_id: number };
 export type RespE = { user_id: string; chave: string | null; resposta: "can" | "cant"; can_em: string | null };
 export type TemplateE = { nome: string; tamanho_max: number | null; pts: { pt_id: number; limite: number | null }[] };
 
-const COR = 0x34e06a; // cor "brand" do cabeçalho/rodapé
-// paleta de fallback: PTs sem cor definida recebem uma cor distinta por posição
-const PALETA = [0xe0344e, 0x34e06a, 0x3aa0ff, 0xe0b634, 0xa06bff, 0xff7a3a, 0x34d1e0, 0xe0349e];
-const corHexInt = (hex: string | undefined) => { const m = /^#([0-9a-fA-F]{6})$/.exec((hex ?? "").trim()); return m ? parseInt(m[1], 16) : null; };
+// tema Manicômio: couro/grafite, sangue/carmesim, aço/cinza, giz. Barras dos cards no carmesim/aço.
+const COR = 0xcc0000; // carmesim — brand do cabeçalho
+const ACO = 0x737373; // aço — rodapé
+const PALETA = [0xcc0000, 0x737373, 0x990000, 0xa6a6a6]; // carmesim / aço / sangue / prata (rotativo por PT)
 // custo em caracteres de um embed (title+description+fields+footer) — pro teto AGREGADO de 6000/mensagem
 const custoEmbed = (e: { title?: string; description?: string; fields?: { name: string; value: string }[]; footer?: { text: string } }) =>
   (e.title?.length ?? 0) + (e.description?.length ?? 0) + (e.fields?.reduce((s, f) => s + f.name.length + f.value.length, 0) ?? 0) + (e.footer?.text?.length ?? 0);
@@ -50,7 +50,8 @@ export function classificarPorPt(
 }
 
 export type PerfilE = { guilda: string; classe: string | null; gs: number | null };
-const TAGE = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : "---"); // 3 chars p/ alinhar
+const tag3 = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : null); // null = guilda desconhecida → sem tag
+const safeLink = (s: string) => (s || "?").replace(/[`[\]()\n]/g, "").trim() || "?"; // texto seguro p/ [texto](url)
 
 export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[], perfil?: Map<string, PerfilE>) {
   const { confirmados, espera } = classificarPorPt(tpl.pts, membros, respostas);
@@ -64,42 +65,38 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const chavesAtrib = new Set(membros.filter((m) => ptsTpl.has(m.pt_id)).map((m) => m.chave));
 
   const nomeCh = (chave: string, familia: string) => { const r = respByChave.get(chave); return r?.user_id ? `<@${r.user_id}>` : familia; };
+  // nick de família CLICÁVEL (link pro perfil, como antes) + chips monospace de [TAG] GS [Classe].
+  const linhaMembro = (m: MembroE): string => {
+    const p = perfil?.get(m.chave);
+    const r = respByChave.get(m.chave);
+    const nick = r?.user_id ? `[${safeLink(m.familia)}](https://discord.com/users/${r.user_id})` : safeLink(m.familia);
+    const t = tag3(p?.guilda);
+    return `${t ? `\`[${t}]\` ` : ""}${nick}${p?.gs != null ? ` \`${p.gs}\`` : ""}${p?.classe ? ` \`[${p.classe.replace(/`/g, "'")}]\`` : ""}`;
+  };
 
   type Embed = { title?: string; description?: string; color: number; fields?: { name: string; value: string; inline?: boolean }[]; image?: { url: string } };
 
-  // 1 card (embed) por PT — a barra colorida do card usa a cor do PT (ou a paleta por posição).
+  // 1 card (embed) por PT com SÓ os confirmados; barra no tema (carmesim/aço, rotativo). Espera vai separada no rodapé.
   const naoDecididos: MembroE[] = [];
+  const esperaGlobal: MembroE[] = [];
   const ptEmbeds: Embed[] = [];
   tpl.pts.forEach((tp, i) => {
     const pt = ptById.get(tp.pt_id);
     if (!pt) return;
     const conf: MembroE[] = [];
-    const esp: MembroE[] = [];
     for (const m of membrosPorPt.get(tp.pt_id) ?? []) {
       const r = respByChave.get(m.chave);
       if (!r) { naoDecididos.push(m); continue; } // ⬜ sem resposta → lista no rodapé
       if (r.resposta === "cant") continue;          // ❌ → lista "Não vão"
-      (confirmados.has(r.user_id) ? conf : esp).push(m);
+      if (confirmados.has(r.user_id)) conf.push(m); else esperaGlobal.push(m); // ⏳ espera → seção separada
     }
-    // linha estilo roster: [TAG] nick(pad) GS [Classe] — code block p/ alinhar em monospace (igual ao print).
-    const nickW = Math.min(16, Math.max(6, ...[...conf, ...esp].map((m) => (m.familia || "?").length), 6));
-    const semCrase = (s: string) => s.replace(/`/g, "'"); // crase quebraria o code block
-    const linhaGear = (m: MembroE) => {
-      const p = perfil?.get(m.chave);
-      const nick = semCrase(m.familia || "?").slice(0, nickW).padEnd(nickW);
-      const gsS = (p?.gs != null ? String(p.gs) : "—").padStart(4);
-      return `[${TAGE(p?.guilda)}] ${nick} ${gsS}${p?.classe ? ` [${semCrase(p.classe)}]` : ""}`;
-    };
-    const rows = conf.map(linhaGear);
-    if (esp.length) { rows.push("--- espera ---", ...esp.map(linhaGear)); }
-    const bloco = rows.length ? "```\n" + rows.join("\n").slice(0, 4080) + "\n```" : "_(ninguém)_";
     const gss = conf.map((m) => perfil?.get(m.chave)?.gs).filter((x): x is number => x != null);
     const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
     const cap = tp.limite != null ? `/${tp.limite}` : "";
     ptEmbeds.push({
       title: `${pt.emoji ? pt.emoji + " " : ""}${pt.nome} — ${conf.length}${cap}${media != null ? ` · GS ${media}` : ""}`.slice(0, 256),
-      description: bloco,
-      color: corHexInt(pt.cor) ?? PALETA[i % PALETA.length],
+      description: (conf.length ? conf.map(linhaMembro).join("\n") : "_(ninguém)_").slice(0, 4096),
+      color: PALETA[i % PALETA.length],
     });
   });
 
@@ -109,15 +106,16 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const header: Embed = { title: `📢 ${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256), color: COR };
   if (cfg.mensagem) header.description = cfg.mensagem.slice(0, 2000);
 
-  // rodapé: listas globais (Sem PT / Não decididos / Não vão) + imagem no final
+  // rodapé: seções SEPARADAS (Espera / Sem PT / Não decididos / Não vão) + imagem no final
   const semPtCan = respostas.filter((r) => r.resposta === "can" && (!r.chave || !chavesAtrib.has(r.chave)));
   const cant = respostas.filter((r) => r.resposta === "cant");
   const footFields: { name: string; value: string; inline?: boolean }[] = [];
+  if (esperaGlobal.length) footFields.push({ name: `⏳ Espera — ${esperaGlobal.length}`, value: esperaGlobal.map(linhaMembro).join("\n").slice(0, 1024) });
   if (semPtCan.length) footFields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳" : "✅"} <@${r.user_id}>`).join("  ").slice(0, 1024) });
   if (naoDecididos.length) footFields.push({ name: `⬜ Não decididos — ${naoDecididos.length}`, value: naoDecididos.map((m) => nomeCh(m.chave, m.familia)).join(", ").slice(0, 1024) });
   if (cant.length) footFields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(", ").slice(0, 1024) });
   const footer: Embed | null = footFields.length || cfg.imagem
-    ? { color: COR, ...(footFields.length ? { fields: footFields } : {}), ...(cfg.imagem ? { image: { url: cfg.imagem } } : {}) }
+    ? { color: ACO, ...(footFields.length ? { fields: footFields } : {}), ...(cfg.imagem ? { image: { url: cfg.imagem } } : {}) }
     : null;
 
   // Limites do Discord por MENSAGEM: no máx 10 embeds E a soma de todos os textos <= 6000 chars.
