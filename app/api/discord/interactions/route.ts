@@ -10,6 +10,7 @@ import { chaveNome } from "@/lib/nomes";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
 import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
+import { salvarEtapa1, finalizarGarmoth, finalizarManual, playerPorDiscord } from "@/lib/registro";
 
 // Endpoint público de Interações do Discord (liberado no middleware). A segurança é a
 // verificação de assinatura Ed25519 — sem ela, 401. Precisa do runtime Node (crypto).
@@ -24,11 +25,38 @@ type ModalComp = { type?: number; custom_id?: string; value?: string; components
 type Interaction = {
   type?: number;
   token?: string;
+  guild_id?: string;
+  channel_id?: string;
   data?: { name?: string; custom_id?: string; components?: ModalComp[]; options?: { name?: string; value?: unknown }[] };
   message?: { id?: string };
   member?: { user?: DUser; nick?: string | null; roles?: string[] };
   user?: DUser;
 };
+
+// ---- Modais/botões da JORNADA DE REGISTRO ----
+const linha = (comp: object) => ({ type: 1, components: [comp] });
+const inputTxt = (custom_id: string, label: string, o: { max?: number; ph?: string; style?: number } = {}) =>
+  ({ type: 4, custom_id, style: o.style ?? 1, label, min_length: 1, max_length: o.max ?? 100, required: true, placeholder: o.ph });
+const MODAL_ETAPA1 = { type: 9, data: { custom_id: "regm1", title: "Registro — Manicômio", components: [
+  linha(inputTxt("familia", "Nick de família (BDO)", { max: 60, ph: "Ex.: Fafnir" })),
+  linha(inputTxt("apelido", "Seu nome/apelido", { max: 32, ph: "Como te chamam" })),
+] } };
+const ESCOLHA = { type: 4, data: { flags: 64, content: "Boa! Agora informe seu **gear** — escolha o método:", components: [
+  { type: 1, components: [
+    { type: 2, style: 1, label: "📊 Via Garmoth", custom_id: "reg:garmoth" },
+    { type: 2, style: 2, label: "🖊️ Manual", custom_id: "reg:manual" },
+  ] },
+] } };
+const MODAL_GARMOTH = { type: 9, data: { custom_id: "regm_garmoth", title: "Registro — via Garmoth", components: [
+  linha(inputTxt("link", "Link (1ª opção = seu boneco de guerra)", { max: 200, ph: "https://garmoth.com/character/..." })),
+] } };
+const MODAL_MANUAL = { type: 9, data: { custom_id: "regm_manual", title: "Registro — manual", components: [
+  linha(inputTxt("ap", "AP", { max: 6, ph: "395" })),
+  linha(inputTxt("aap", "AAP", { max: 6, ph: "391" })),
+  linha(inputTxt("dp", "DP", { max: 6, ph: "483" })),
+  linha(inputTxt("classe", "Classe", { max: 30, ph: "Domadora" })),
+  linha(inputTxt("prof", "Proficiência (succ ou awk)", { max: 8, ph: "succ" })),
+] } };
 
 const json = (obj: unknown, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
 const efemero = (content: string) => json({ type: 4, data: { flags: 64, content } }); // só quem clicou vê
@@ -82,6 +110,15 @@ export async function POST(req: Request) {
   if (body.type === 2) {
     const nome = String(body.data?.name ?? "");
 
+    // /register — QUALQUER membro. Só no canal configurado (se houver). Abre o modal do passo 1.
+    if (nome === "register") {
+      const cfg = await getDiscordConfig();
+      if (cfg.registerChannel && String(body.channel_id ?? "") !== cfg.registerChannel) {
+        return efemero(`Use o /register no canal <#${cfg.registerChannel}>.`);
+      }
+      return json(MODAL_ETAPA1);
+    }
+
     // /responder <texto> — resposta livre de QUALQUER membro; grava e posta no canal de log.
     if (nome === "responder") {
       const u = body.member?.user ?? body.user;
@@ -118,6 +155,12 @@ export async function POST(req: Request) {
 
   // 3 = clique de botão. ACK deferido (type 6) + trabalho em after().
   if (body.type === 3) {
+    // JORNADA DE REGISTRO: botões abrem modais (síncrono, type 9).
+    const cidReg = String(body.data?.custom_id ?? "");
+    if (cidReg === "reg:start") return json(MODAL_ETAPA1);   // botão do Buzinador (DM)
+    if (cidReg === "reg:garmoth") return json(MODAL_GARMOTH);
+    if (cidReg === "reg:manual") return json(MODAL_MANUAL);
+
     // Botão "Responder" (texto livre) → abre um MODAL (type 9, síncrono, sem DB). custom_id = enqtxt:<enqueteId>.
     const mTxt = String(body.data?.custom_id ?? "").match(/^enqtxt:(\d+)$/);
     if (mTxt) {
@@ -168,7 +211,8 @@ export async function POST(req: Request) {
     after(async () => {
       try {
         const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));
-        const familia = casarNome(familiaDoNick(nick) ?? String(nick), [], players).slice(0, 100);
+        // registrado → identidade pelo discord_id (robusta, independe do nick renomeado); senão casa pelo nick.
+        const familia = (await playerPorDiscord(userId)) ?? casarNome(familiaDoNick(nick) ?? String(nick), [], players).slice(0, 100);
         const payload = await registrarClique({ warKey, userId, username: String(nick).slice(0, 100), familia, chave: chaveNome(familia), templateId, resposta });
         if (payload) await editarMensagem(token, payload);
       } catch (e) { console.error("clique participacao erro", e); }
@@ -176,8 +220,37 @@ export async function POST(req: Request) {
     return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
   }
 
-  // 5 = MODAL_SUBMIT (texto livre do botão Responder). custom_id = enqtxtm:<enqueteId>.
+  // 5 = MODAL_SUBMIT.
   if (body.type === 5) {
+    const cid5 = String(body.data?.custom_id ?? "");
+    const comps: Record<string, string> = {};
+    for (const row of body.data?.components ?? []) for (const c of row.components ?? []) if (c.custom_id) comps[c.custom_id] = String(c.value ?? "");
+    const uReg = body.member?.user ?? body.user;
+    const uid = String(uReg?.id ?? "");
+
+    // REGISTRO passo 1 (nick de família + apelido) → salva e oferece manual/garmoth (síncrono).
+    if (cid5 === "regm1") {
+      if (!uid || !comps.familia?.trim() || !comps.apelido?.trim()) return efemero("Preencha o nick de família e o apelido.");
+      try { await salvarEtapa1(uid, comps.familia, comps.apelido); }
+      catch (e) { console.error("salvarEtapa1 erro", e); return efemero("Não consegui salvar agora. Tente /register de novo."); }
+      return json(ESCOLHA);
+    }
+    // REGISTRO passo 2 (garmoth ou manual) → finaliza em after() (fetch/discord podem passar de 3s).
+    if (cid5 === "regm_garmoth" || cid5 === "regm_manual") {
+      if (!uid) return efemero("Não consegui te identificar.");
+      const guildId = String(body.guild_id ?? "");
+      const tk = String(body.token ?? "");
+      after(async () => {
+        try {
+          const r = cid5 === "regm_garmoth"
+            ? await finalizarGarmoth(uid, guildId, comps.link ?? "")
+            : await finalizarManual(uid, guildId, { ap: comps.ap ?? "", aap: comps.aap ?? "", dp: comps.dp ?? "", classe: comps.classe ?? "", prof: comps.prof ?? "" });
+          await editarMensagem(tk, { content: r.msg, components: [] });
+        } catch (e) { console.error("registro finalizar erro", e); await editarMensagem(tk, { content: "⚠ Deu erro no registro. Tente de novo com /register." }); }
+      });
+      return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero
+    }
+
     const mm = String(body.data?.custom_id ?? "").match(/^enqtxtm:(\d+)$/);
     if (!mm) return efemero("Formulário não reconhecido.");
     const enqueteId = Number(mm[1]);

@@ -47,8 +47,8 @@ export async function fetchBuilds(ids: string[]): Promise<GarmothChar[]> {
 
 /** Lê os garmoth_id dos players, busca na API e faz upsert em garmoth_build. Limpa cache de quem não tem mais id. */
 export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: number; erros: string[] }> {
-  // remove cache de players que não têm mais garmoth_id (staff limpou)
-  await sql`DELETE FROM garmoth_build gb WHERE NOT EXISTS (
+  // remove cache GARMOTH de players que não têm mais garmoth_id (staff limpou). Gear MANUAL (fonte='manual', do registro) fica.
+  await sql`DELETE FROM garmoth_build gb WHERE gb.fonte = 'garmoth' AND NOT EXISTS (
     SELECT 1 FROM players p WHERE p.nome_familia = gb.nome_familia AND p.garmoth_id IS NOT NULL AND p.garmoth_id <> '')`;
 
   const rows = (await sql`SELECT nome_familia, garmoth_id FROM players WHERE garmoth_id IS NOT NULL AND garmoth_id <> ''`) as { nome_familia: string; garmoth_id: string }[];
@@ -79,7 +79,7 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
     for (const nome of nomes) {
       upserts.push(sql`INSERT INTO garmoth_build (nome_familia, garmoth_id, char_name, char_class, spec, level, ap, aap, dp, acc, dados, atualizado)
         VALUES (${nome}, ${r.garmoth_id}, ${r.char_name}, ${r.char_class}, ${r.spec}, ${r.level}, ${r.ap}, ${r.aap}, ${r.dp}, ${r.acc}, ${JSON.stringify(r.dados)}::jsonb, now())
-        ON CONFLICT (nome_familia) DO UPDATE SET garmoth_id=EXCLUDED.garmoth_id, char_name=EXCLUDED.char_name, char_class=EXCLUDED.char_class,
+        ON CONFLICT (nome_familia) DO UPDATE SET garmoth_id=EXCLUDED.garmoth_id, fonte='garmoth', char_name=EXCLUDED.char_name, char_class=EXCLUDED.char_class,
           spec=EXCLUDED.spec, level=EXCLUDED.level, ap=EXCLUDED.ap, aap=EXCLUDED.aap, dp=EXCLUDED.dp, acc=EXCLUDED.acc, dados=EXCLUDED.dados, atualizado=now()`);
       // classe/tipo do player a partir do Garmoth (fonte da verdade p/ quem tem id único; tipo desconhecido preserva o manual)
       if (classe && idUnico) upserts.push(sql`UPDATE players SET classe_bdo = ${classe}, classe_tipo = COALESCE(${tipo}, classe_tipo) WHERE nome_familia = ${nome}`);

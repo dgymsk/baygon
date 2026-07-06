@@ -14,7 +14,9 @@ import { criarEnquete, getEnquete, montarComponents, tally, votos, type OpcaoInp
  * processarLote() repetidamente (cada lote abre DM + envia p/ N alvos) até pendentes=0, quando
  * o relatório é postado. Fatiar em lotes evita o timeout do serverless em audiências grandes.
  */
-export type Audiencia = { tipo: "role" | "todos" | "lista"; roleId?: string; userIds?: string };
+export type Audiencia = { tipo: "role" | "todos" | "lista" | "nao_registrados"; roleId?: string; userIds?: string };
+// botão "Registrar" na DM (abre a jornada de registro no Discord). custom_id tratado em /api/discord/interactions.
+const ROW_REGISTRO: ActionRow = { type: 1, components: [{ type: 2, style: 1, label: "📝 Registrar", custom_id: "reg:start" }] } as unknown as ActionRow;
 export type Alvo = { userId: string; nome: string | null };
 export type Progresso = { enviados: number; falhas: number; pendentes: number; total: number; concluido: boolean; reportOk?: boolean };
 
@@ -126,6 +128,13 @@ async function resolverAudiencia(a: Audiencia): Promise<{ ok: true; alvos: Alvo[
     if (!rid) return { ok: false, erro: "cargo inválido" };
     sel = sel.filter((m) => m.roles.includes(rid));
   }
+  if (a?.tipo === "nao_registrados") {
+    const rid = dig(a.roleId);
+    if (rid) sel = sel.filter((m) => m.roles.includes(rid)); // opcional: só quem tem a "tag de membro"
+    const reg = (await sql`SELECT discord_id FROM players WHERE registro = TRUE AND discord_id IS NOT NULL`) as { discord_id: string }[];
+    const registrados = new Set(reg.map((r) => r.discord_id));
+    sel = sel.filter((m) => !registrados.has(m.userId));
+  }
   if (!sel.length) return { ok: false, erro: "nenhum destinatário encontrado nessa audiência" };
   return { ok: true, alvos: sel.map((m) => ({ userId: m.userId, nome: m.nome })) };
 }
@@ -144,7 +153,7 @@ async function enviarDM(userId: string, mensagem: string, imagemUrl: string | nu
 }
 
 /** Cria um envio: resolve a audiência, cria a enquete (se houver opções) e grava envio + alvos. */
-export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown; canalReportId: unknown; audiencia: Audiencia; criadoPor?: unknown; opcoes?: OpcaoInput[]; textoLivre?: boolean; contexto?: string; refId?: string | null }): Promise<{ ok: boolean; envioId?: number; total?: number; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string }> {
+export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown; canalReportId: unknown; audiencia: Audiencia; criadoPor?: unknown; opcoes?: OpcaoInput[]; textoLivre?: boolean; contexto?: string; refId?: string | null; botaoRegistro?: boolean }): Promise<{ ok: boolean; envioId?: number; total?: number; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const mensagem = String(input.mensagem ?? "").trim().slice(0, 1900);
   if (!mensagem) return { ok: false, erro: "mensagem vazia" };
@@ -172,8 +181,8 @@ export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown
 
   try {
     const rows = (await sql`
-      INSERT INTO buzinador_envio (mensagem, imagem_url, canal_report_id, criado_por, status, total, enquete_id)
-      VALUES (${mensagem}, ${imagemUrl}, ${canal}, ${criadoPor}, 'pendente', ${alvos.length}, ${enqueteId})
+      INSERT INTO buzinador_envio (mensagem, imagem_url, canal_report_id, criado_por, status, total, enquete_id, botao_registro)
+      VALUES (${mensagem}, ${imagemUrl}, ${canal}, ${criadoPor}, 'pendente', ${alvos.length}, ${enqueteId}, ${input.botaoRegistro === true})
       RETURNING id::int AS id`) as { id: number }[];
     const envioId = rows[0].id;
     if (alvos.length) {
@@ -205,7 +214,7 @@ export async function getProgresso(envioId: number): Promise<Progresso | null> {
 
 /** Processa UM lote de pendentes (abre DM + envia). Ao zerar pendentes, posta o relatório. */
 export async function processarLote(envioId: number, tamanho = 20): Promise<Progresso | { erro: string }> {
-  const env = (await sql`SELECT id::int AS id, mensagem, imagem_url, canal_report_id, criado_por, status, enquete_id::int AS enquete_id FROM buzinador_envio WHERE id = ${envioId}`) as { id: number; mensagem: string; imagem_url: string | null; canal_report_id: string; criado_por: string | null; status: string; enquete_id: number | null }[];
+  const env = (await sql`SELECT id::int AS id, mensagem, imagem_url, canal_report_id, criado_por, status, enquete_id::int AS enquete_id, botao_registro FROM buzinador_envio WHERE id = ${envioId}`) as { id: number; mensagem: string; imagem_url: string | null; canal_report_id: string; criado_por: string | null; status: string; enquete_id: number | null; botao_registro: boolean }[];
   const e = env[0];
   if (!e) return { erro: "envio não encontrado" };
   if (e.status === "concluido") { const c = await contar(envioId); return { enviados: c.ok, falhas: c.falha, pendentes: c.pend, total: c.total, concluido: true }; }
@@ -214,6 +223,7 @@ export async function processarLote(envioId: number, tamanho = 20): Promise<Prog
   // carrega os botões da enquete UMA vez pro lote inteiro (se o envio tiver enquete)
   let components: ActionRow[] | undefined;
   if (e.enquete_id != null) { const enq = await getEnquete(e.enquete_id); if (enq) components = montarComponents(enq); }
+  else if (e.botao_registro) components = [ROW_REGISTRO]; // chamada de registro: botão "Registrar" na DM
 
   // Recupera alvos presos em 'enviando' de um lote que morreu no meio (>2min é órfão; um lote dura <=60s).
   await sql`UPDATE buzinador_alvo SET status = 'pendente' WHERE envio_id = ${envioId} AND status = 'enviando' AND (tentado IS NULL OR tentado < now() - interval '2 minutes')`;

@@ -53,7 +53,7 @@ export default function ParticipacaoBoard({
   useEffect(() => { setTplDrafts(templates); }, [templates]); // ressincroniza após refresh
 
   // Buzinador (disparo de DM em massa)
-  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[]; textoLivre: boolean }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: reportChannel, opcoes: [], textoLivre: false });
+  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista" | "nao_registrados"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[]; textoLivre: boolean }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: reportChannel, opcoes: [], textoLivre: false });
   const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string } | null>(null);
   const setBuzF = <K extends keyof typeof buz>(k: K, v: (typeof buz)[K]) => setBuz((b) => ({ ...b, [k]: v }));
   const addOpcao = () => setBuz((b) => (b.opcoes.length >= 25 ? b : { ...b, opcoes: [...b.opcoes, { label: "", estilo: 2, emoji: "" }] }));
@@ -128,15 +128,17 @@ export default function ParticipacaoBoard({
     if (!buz.canal.trim()) { setStatus({ kind: "err", msg: "informe o canal do relatório" }); return; }
     if (buz.tipo === "role" && !buz.roleId.trim()) { setStatus({ kind: "err", msg: "informe o cargo" }); return; }
     if (buz.tipo === "lista" && !buz.userIds.trim()) { setStatus({ kind: "err", msg: "cole os IDs na lista" }); return; }
-    const alvo = buz.tipo === "role" ? "todos do cargo" : buz.tipo === "todos" ? "TODOS os membros do servidor" : "a lista informada";
-    if (!confirm(`Buzinar ${alvo}? Cada um recebe uma DM privada do bot.`)) return;
+    const registro = buz.tipo === "nao_registrados";
+    const alvo = buz.tipo === "role" ? "todos do cargo" : buz.tipo === "todos" ? "TODOS os membros do servidor" : registro ? "os membros SEM registro" : "a lista informada";
+    if (!confirm(`Buzinar ${alvo}? Cada um recebe uma DM privada do bot${registro ? " com o botão Registrar" : ""}.`)) return;
     setBuzProg({ ativo: true, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false });
     try {
       const res = await fetch("/api/buzinador/criar", jsonInit("POST", {
         mensagem: buz.mensagem, imagemUrl: buz.imagem || undefined, canalReportId: buz.canal,
         audiencia: { tipo: buz.tipo, roleId: buz.roleId, userIds: buz.userIds },
-        opcoes: buz.opcoes.filter((o) => o.label.trim()).map((o) => ({ label: o.label, estilo: o.estilo, emoji: o.emoji || undefined })),
-        textoLivre: buz.textoLivre,
+        opcoes: registro ? [] : buz.opcoes.filter((o) => o.label.trim()).map((o) => ({ label: o.label, estilo: o.estilo, emoji: o.emoji || undefined })),
+        textoLivre: registro ? false : buz.textoLivre,
+        botaoRegistro: registro,
       }));
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setBuzProg({ ativo: false, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false, erro: d.error || "falha ao criar" }); return; }
@@ -447,18 +449,19 @@ export default function ParticipacaoBoard({
             <div style={{ marginTop: 12 }}>
               <label style={label}>Audiência</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {([["role", "Por cargo"], ["todos", "Todos os membros"], ["lista", "Lista de IDs"]] as const).map(([v, txt]) => (
+                {([["role", "Por cargo"], ["todos", "Todos os membros"], ["lista", "Lista de IDs"], ["nao_registrados", "🔒 Não registrados"]] as const).map(([v, txt]) => (
                   <button key={v} onClick={() => !ro && setBuzF("tipo", v)} disabled={ro} style={{ ...btn(buz.tipo === v ? C.verde : C.mute), background: buz.tipo === v ? C.verdeTint : "transparent" }}>{txt}</button>
                 ))}
               </div>
-              {buz.tipo === "role" && (
+              {(buz.tipo === "role" || buz.tipo === "nao_registrados") && (
                 <select value={buz.roleId} disabled={ro} onChange={(e) => setBuzF("roleId", e.target.value)} style={{ ...input, width: "100%", marginTop: 8 }}>
-                  <option value="">{roles.length ? "— escolha o cargo —" : "— nenhum cargo carregado (bot/guild?) —"}</option>
+                  <option value="">{buz.tipo === "nao_registrados" ? "— (opcional) só quem tem esta tag —" : roles.length ? "— escolha o cargo —" : "— nenhum cargo carregado (bot/guild?) —"}</option>
                   {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               )}
               {buz.tipo === "lista" && <textarea value={buz.userIds} readOnly={ro} onChange={(e) => setBuzF("userIds", e.target.value)} rows={3} placeholder="Cole IDs ou menções separados por espaço, vírgula ou linha" style={{ ...input, width: "100%", marginTop: 8, resize: "vertical" }} />}
               {buz.tipo === "todos" && <div style={{ color: C.amarelo, fontSize: 11.5, marginTop: 6 }}>⚠ Envia pra TODOS os membros (menos bots). Requer o &quot;Server Members Intent&quot; ativo no bot.</div>}
+              {buz.tipo === "nao_registrados" && <div style={{ color: C.verde, fontSize: 11.5, marginTop: 6 }}>📝 Manda a DM com um botão <b>Registrar</b> pra quem <b>ainda não fez o registro</b> (opcionalmente só quem tem a tag acima). Requer o &quot;Server Members Intent&quot;. Ignora os botões de votação abaixo.</div>}
               {buz.tipo === "role" && <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 4 }}>Requer o &quot;Server Members Intent&quot; ativo no bot (Developer Portal → Bot).</div>}
             </div>
 

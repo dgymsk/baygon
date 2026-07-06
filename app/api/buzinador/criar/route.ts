@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const unauth = await requireEditor();
   if (unauth) return unauth;
   const session = await auth();
-  let body: { mensagem?: unknown; imagemUrl?: unknown; canalReportId?: unknown; audiencia?: Audiencia; opcoes?: OpcaoInput[]; textoLivre?: boolean };
+  let body: { mensagem?: unknown; imagemUrl?: unknown; canalReportId?: unknown; audiencia?: Audiencia; opcoes?: OpcaoInput[]; textoLivre?: boolean; botaoRegistro?: boolean };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
   const r = await criarEnvio({
     mensagem: body.mensagem,
@@ -22,6 +22,7 @@ export async function POST(req: Request) {
     audiencia: (body.audiencia ?? {}) as Audiencia,
     opcoes: Array.isArray(body.opcoes) ? body.opcoes : undefined,
     textoLivre: body.textoLivre === true,
+    botaoRegistro: body.botaoRegistro === true,
     criadoPor: session?.user?.name ?? null,
   });
   if (!r.ok) return NextResponse.json({ error: r.erro }, { status: 400 });

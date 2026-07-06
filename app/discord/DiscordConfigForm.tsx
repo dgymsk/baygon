@@ -17,17 +17,19 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
   const [csg, setCsg] = useState(initial.confirmSiege);
   const [log, setLog] = useState(initial.logChannel);
   const [rep, setRep] = useState(initial.reportChannel);
+  const [regRole, setRegRole] = useState(initial.registroRoleId);
+  const [regChan, setRegChan] = useState(initial.registerChannel);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   async function salvar() {
     setStatus({ kind: "saving" });
     try {
-      const body = { guildId, staffRoleIds: staff.split(",").map((s) => s.trim()).filter(Boolean), confirmNodewar: cnw, confirmSiege: csg, logChannel: log, reportChannel: rep };
+      const body = { guildId, staffRoleIds: staff.split(",").map((s) => s.trim()).filter(Boolean), confirmNodewar: cnw, confirmSiege: csg, logChannel: log, reportChannel: rep, registroRoleId: regRole, registerChannel: regChan };
       const res = await fetch("/api/discord-config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "falha ao salvar");
       const dc = d as DiscordConfig;
-      setGuildId(dc.guildId); setStaff(dc.staffRoleIds.join(", ")); setCnw(dc.confirmNodewar); setCsg(dc.confirmSiege); setLog(dc.logChannel); setRep(dc.reportChannel);
+      setGuildId(dc.guildId); setStaff(dc.staffRoleIds.join(", ")); setCnw(dc.confirmNodewar); setCsg(dc.confirmSiege); setLog(dc.logChannel); setRep(dc.reportChannel); setRegRole(dc.registroRoleId); setRegChan(dc.registerChannel);
       setStatus({ kind: "ok", msg: "Config salva. Faça logout/login pra revalidar o acesso." });
     } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
   }
@@ -74,6 +76,11 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
           <div style={dica}>Canais de onde a tela de Confirmados lê o embed do Apollo (por modo).</div>
           <div><label style={label}>Canal de log (respostas livres)</label><input value={log} readOnly={ro} onChange={(e) => setLog(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /><div style={dica}>Onde o bot posta as respostas de texto livre (modal “Responder” e /responder), cada uma com um código.</div></div>
           <div><label style={label}>Canal do relatório do Buzinador (padrão)</label><input value={rep} readOnly={ro} onChange={(e) => setRep(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /><div style={dica}>Canal padrão onde o Buzinador posta o relatório de entrega/votação. No painel dá pra sobrescrever por disparo.</div></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 12 }}>
+            <div><label style={label}>Cargo de registrado (ID)</label><input value={regRole} readOnly={ro} onChange={(e) => setRegRole(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do cargo" style={input} /></div>
+            <div><label style={label}>Canal do /register</label><input value={regChan} readOnly={ro} onChange={(e) => setRegChan(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal (vazio = qualquer)" style={input} /></div>
+          </div>
+          <div style={dica}>Jornada de registro: cargo dado ao concluir + canal onde o /register funciona. ⚠ O bot precisa de <b>Gerenciar Cargos</b> e <b>Gerenciar Apelidos</b>, e o cargo de registrado deve ficar <b>abaixo</b> do cargo do bot.</div>
         </div>
 
         {status.kind === "ok" && <div style={{ color: C.verde, fontSize: 12.5, marginTop: 10 }}>✓ {status.msg}</div>}

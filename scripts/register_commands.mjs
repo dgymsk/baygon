@@ -33,6 +33,7 @@ const comandos = [
   { name: "responder", type: 1, description: "Envia uma resposta/observação livre (fica registrada no log).", options: [
     { name: "texto", description: "O que você quer registrar", type: 3, required: true },
   ] },
+  { name: "register", type: 1, description: "Faça seu registro na guilda (família, apelido e gear)." },
 ];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`, {
