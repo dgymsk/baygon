@@ -39,7 +39,7 @@ export function montarEmbedGrupos(cfg: TipoCfg, tipo: string, grupos: GrupoE[], 
     const cap = g.limite_max != null ? `/${g.limite_max}` : "";
     const linhas = mem.map((m) => `${statusDe(m)} ${nomeExib(m)}`);
     const pref = g.emoji ? `${g.emoji} ` : "";
-    fields.push({ name: `${pref}${g.nome} — ${confirmados}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(ninguém atribuído)_").slice(0, 1024) });
+    fields.push({ name: `${pref}${g.nome} — ${confirmados}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(ninguém atribuído)_").slice(0, 1024), inline: true });
   }
 
   // quem confirmou/recusou sem estar em nenhum grupo

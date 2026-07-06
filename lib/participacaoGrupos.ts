@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 import { ehTipo } from "@/lib/participacaoConfig";
+import { listarEmojisGuild, resolverEmoji } from "@/lib/discordApi";
 
 /** Grupos do bot de participação (staff pré-atribui). Catálogo por tipo + atribuição fixa. */
 export type Grupo = { id: number; tipo: string; nome: string; emoji: string; limite_max: number | null; ordem: number };
@@ -28,9 +29,10 @@ export async function criarGrupo(tipo: unknown, nome: unknown, emoji: unknown, l
   if (!ehTipo(tipo)) return null;
   const n = nomeOk(nome);
   if (!n) return null;
+  const emj = resolverEmoji(emojiOk(emoji), await listarEmojisGuild()) || null;
   const rows = (await sql`
     INSERT INTO participacao_grupo (tipo, nome, emoji, limite_max, ordem)
-    VALUES (${tipo}, ${n}, ${emojiOk(emoji) || null}, ${limiteOk(limite)},
+    VALUES (${tipo}, ${n}, ${emj}, ${limiteOk(limite)},
             (SELECT COALESCE(MAX(ordem), -1) + 1 FROM participacao_grupo WHERE tipo = ${tipo}))
     RETURNING id, tipo, nome, COALESCE(emoji,'') AS emoji, limite_max, ordem`) as Grupo[];
   return rows[0] ?? null;
@@ -41,8 +43,9 @@ export async function atualizarGrupo(id: unknown, patch: { nome?: unknown; emoji
   if (!Number.isFinite(gid)) return;
   const n = nomeOk(patch.nome);
   if (!n) return;
+  const emj = resolverEmoji(emojiOk(patch.emoji), await listarEmojisGuild()) || null;
   // NÃO mexe em `ordem` (definida na criação) — editar nome/emoji/limite não reordena.
-  await sql`UPDATE participacao_grupo SET nome = ${n}, emoji = ${emojiOk(patch.emoji) || null}, limite_max = ${limiteOk(patch.limite)} WHERE id = ${gid}`;
+  await sql`UPDATE participacao_grupo SET nome = ${n}, emoji = ${emj}, limite_max = ${limiteOk(patch.limite)} WHERE id = ${gid}`;
 }
 
 export async function excluirGrupo(id: unknown): Promise<void> {

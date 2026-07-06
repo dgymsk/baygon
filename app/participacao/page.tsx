@@ -1,11 +1,14 @@
 import { getParticipacaoConfig, postsAtivos, getRespostas } from "@/lib/participacao";
 import { listGrupos, listMembros } from "@/lib/participacaoGrupos";
+import { listarEmojisGuild, type EmojiGuild } from "@/lib/discordApi";
 import { TIPOS, type Tipo } from "@/lib/participacaoConfig";
 import { listPlayers } from "@/lib/players";
 import { chaveNome } from "@/lib/nomes";
 import { casarNome } from "@/lib/casarNome";
 import { canEditNow } from "@/lib/requireAuth";
 import ParticipacaoBoard from "./ParticipacaoBoard";
+
+export type { EmojiGuild };
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Participação · BAYGON" };
@@ -16,8 +19,8 @@ export type AtribVM = { familia: string; grupo_id: number };
 export type DadosTipo = { post: { message_id: string; criado: string } | null; grupos: GrupoVM[]; atrib: AtribVM[]; respostas: RespVM[] };
 
 export default async function ParticipacaoPage() {
-  const [cfg, posts, players, gruposAll, membrosAll, canEdit] = await Promise.all([
-    getParticipacaoConfig(), postsAtivos(), listPlayers(), listGrupos(), listMembros(), canEditNow(),
+  const [cfg, posts, players, gruposAll, membrosAll, emojis, canEdit] = await Promise.all([
+    getParticipacaoConfig(), postsAtivos(), listPlayers(), listGrupos(), listMembros(), listarEmojisGuild(), canEditNow(),
   ]);
   const playersCands = players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia }));
   const playersAtivos = players.filter((p) => p.ativo).map((p) => p.nome_familia).sort((a, b) => a.localeCompare(b));
@@ -34,5 +37,5 @@ export default async function ParticipacaoPage() {
     };
   }
 
-  return <ParticipacaoBoard cfgInit={cfg} dados={dados} playersAtivos={playersAtivos} canEdit={canEdit} />;
+  return <ParticipacaoBoard cfgInit={cfg} dados={dados} playersAtivos={playersAtivos} emojis={emojis} canEdit={canEdit} />;
 }
