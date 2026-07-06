@@ -65,13 +65,13 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const chavesAtrib = new Set(membros.filter((m) => ptsTpl.has(m.pt_id)).map((m) => m.chave));
 
   const nomeCh = (chave: string, familia: string) => { const r = respByChave.get(chave); return r?.user_id ? `<@${r.user_id}>` : familia; };
-  // nick de família CLICÁVEL (link pro perfil, como antes) + chips monospace de [TAG] GS [Classe].
+  // nick de família CLICÁVEL (link pro perfil, como antes) + [TAG] GS [Classe] em texto puro (sem caixas monospace).
   const linhaMembro = (m: MembroE): string => {
     const p = perfil?.get(m.chave);
     const r = respByChave.get(m.chave);
     const nick = r?.user_id ? `[${safeLink(m.familia)}](https://discord.com/users/${r.user_id})` : safeLink(m.familia);
     const t = tag3(p?.guilda);
-    return `${t ? `\`[${t}]\` ` : ""}${nick}${p?.gs != null ? ` \`${p.gs}\`` : ""}${p?.classe ? ` \`[${p.classe.replace(/`/g, "'")}]\`` : ""}`;
+    return `${t ? `[${t}] ` : ""}${nick}${p?.gs != null ? ` ${p.gs}` : ""}${p?.classe ? ` [${p.classe}]` : ""}`;
   };
 
   type Embed = { title?: string; description?: string; color: number; fields?: { name: string; value: string; inline?: boolean }[]; image?: { url: string } };
