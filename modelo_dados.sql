@@ -121,6 +121,26 @@ CREATE TABLE IF NOT EXISTS participacao_resp (         -- 1 resposta por Discord
   PRIMARY KEY (war_key, user_id)
 );
 CREATE INDEX IF NOT EXISTS ix_participacao_resp_warkey ON participacao_resp (war_key);
+-- Grupos do bot de participação (staff pré-atribui). Ver scripts/migrate_participacao_grupos.mjs.
+CREATE TABLE IF NOT EXISTS participacao_grupo (       -- catálogo de grupos por tipo (reusável)
+  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tipo       TEXT NOT NULL,                            -- 'nodewar' | 'siege'
+  nome       TEXT NOT NULL,
+  emoji      TEXT,                                     -- unicode ou '<:nome:id>'
+  limite_max INT,                                      -- NULL = sem limite (capacidade planejada)
+  ordem      INT NOT NULL DEFAULT 0,
+  ativo      BOOLEAN NOT NULL DEFAULT TRUE,
+  criado     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_participacao_grupo_tipo ON participacao_grupo (tipo, ordem);
+CREATE TABLE IF NOT EXISTS participacao_membro (      -- atribuição fixa jogador→grupo (1 por tipo)
+  tipo     TEXT NOT NULL,
+  chave    TEXT NOT NULL,                              -- chaveNome(familia)
+  familia  TEXT NOT NULL,
+  grupo_id BIGINT NOT NULL REFERENCES participacao_grupo(id) ON DELETE CASCADE,
+  PRIMARY KEY (tipo, chave)
+);
+CREATE INDEX IF NOT EXISTS ix_participacao_membro_grupo ON participacao_membro (grupo_id);
 
 -- ============ FATO CRU (a extração dos prints) ============
 

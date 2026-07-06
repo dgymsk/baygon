@@ -31,6 +31,11 @@ export async function listPlayers(): Promise<PlayerRow[]> {
   `) as PlayerRow[];
 }
 
+/** Só os nomes de família (leve, sem o JOIN de desempenho) — p/ casar nome no caminho quente. */
+export async function listNomesFamilia(): Promise<string[]> {
+  return (await sql`SELECT nome_familia FROM players` as { nome_familia: string }[]).map((r) => r.nome_familia);
+}
+
 const grupoOr = (g: string) => (g && g.trim() ? g.trim() : "Indefinido");
 const guildaOr = (g: string): Guilda => ((g ?? "").trim().toUpperCase() === "RESO" ? "RESO" : "MANI");
 

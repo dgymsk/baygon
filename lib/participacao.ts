@@ -1,6 +1,8 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { parseParticipacaoConfig, rotuloTipo, type ParticipacaoConfig, type Tipo } from "@/lib/participacaoConfig";
+import { listGrupos, listMembros } from "@/lib/participacaoGrupos";
+import { montarEmbedGrupos } from "@/lib/participacaoEmbed";
 
 /**
  * Dados do bot de participação próprio (área isolada). Espelha o padrão pt_meta/ptStatus:
@@ -50,17 +52,12 @@ export async function postarMensagem(tipo: Tipo): Promise<{ ok: boolean; erro?: 
   const cfg = (await getParticipacaoConfig())[tipo];
   if (!cfg.channelId) return { ok: false, erro: `canal do ${rotuloTipo(tipo)} não configurado` };
 
+  const [grupos, membros] = await Promise.all([listGrupos(tipo), listMembros(tipo)]);
+  const payload = montarEmbedGrupos(cfg, tipo, grupos, membros, []); // rodada nova: sem respostas ainda
   const body = {
     content: cfg.pingRoleId ? `<@&${cfg.pingRoleId}>` : undefined,
     allowed_mentions: cfg.pingRoleId ? { roles: [cfg.pingRoleId] } : { parse: [] },
-    embeds: [{ title: cfg.titulo, description: cfg.mensagem || undefined, color: 0x34e06a }],
-    components: [{
-      type: 1,
-      components: [
-        { type: 2, style: 3, label: "Can", custom_id: `part:can:${tipo}` },   // verde
-        { type: 2, style: 4, label: "Cant", custom_id: `part:cant:${tipo}` }, // vermelho
-      ],
-    }],
+    ...payload,
   };
   const res = await botFetch(`/channels/${cfg.channelId}/messages`, { method: "POST", body: JSON.stringify(body) });
   if (!res.ok) {
