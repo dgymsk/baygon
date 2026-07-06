@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { requireEditor } from "@/lib/requireAuth";
 import { sql } from "@/lib/db";
 import { METRICAS_RESULTADO } from "@/lib/metricasResultado";
+import { chaveNome } from "@/lib/nomes";
 
 const METRICAS_OK = new Set(METRICAS_RESULTADO.map((m) => m.metrica));
+// nome de player novo: tira controles, colapsa espaço e limita tamanho (vira PK — input confiado do client).
+const CTRL = new RegExp("[\\u0000-\\u001f\\u007f]", "g");
+const limparNome = (s: string) => s.replace(CTRL, "").replace(/\s+/g, " ").trim().slice(0, 60);
 
 // POST /api/eventos/[id]/resultado/gravar
 //   { linhas:[{nome_familia, valores:{metrica:number}}], data?, territorio?, tier? }
@@ -14,7 +18,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const eid = Math.trunc(Number((await params).id));
   if (!Number.isFinite(eid) || eid <= 0) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
 
-  let body: { linhas?: { nome_familia?: unknown; valores?: Record<string, unknown> }[]; data?: unknown; territorio?: unknown; tier?: unknown };
+  let body: { linhas?: { nome_familia?: unknown; valores?: Record<string, unknown>; novo?: unknown }[]; data?: unknown; territorio?: unknown; tier?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
   if (!Array.isArray(body.linhas) || body.linhas.length === 0) return NextResponse.json({ error: "sem linhas" }, { status: 400 });
 
@@ -24,23 +28,46 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const resultadoWar = erRow[0]?.resultado ? erRow[0].resultado.toLowerCase() : null; // canônico minúsculo (= evento_resultado/RESULTADOS)
 
   const players = (await sql`SELECT nome_familia FROM players`) as { nome_familia: string }[];
-  const validos = new Set(players.map((p) => p.nome_familia));
+  // identidade = chaveNome (igual ao resto do app): resolve todo nome ao player canônico por essa chave,
+  // pra "Alaska"/"Aláska" não virarem 2 players. porChave: chaveNome -> nome_familia canônico.
+  const porChave = new Map<string, string>();
+  for (const p of players) porChave.set(chaveNome(p.nome_familia), p.nome_familia);
 
-  // monta as tuplas (dedupe por nome|metrica) + coleta nomes ignorados (não são players → FK barraria)
+  // resolve cada linha a um nome_familia canônico; decide quem cadastrar (novo cujo chaveNome não existe)
   const tuplas = new Map<string, { nome: string; metrica: string; valor: number }>();
+  const aCadastrar = new Map<string, string>(); // chaveNome -> nome_familia (limpo) a criar
   const ignorados = new Set<string>();
   for (const l of body.linhas) {
-    const nome = typeof l?.nome_familia === "string" ? l.nome_familia.trim() : "";
-    if (!nome) continue;
-    if (!validos.has(nome)) { ignorados.add(nome); continue; }
+    const ehNovo = l?.novo === true;
+    const bruto = typeof l?.nome_familia === "string" ? l.nome_familia : "";
+    const nome0 = ehNovo ? limparNome(bruto) : bruto.trim();
+    if (!nome0) continue;
+    const k = chaveNome(nome0);
+    if (!k) continue;
+    let canonical = porChave.get(k);
+    if (!canonical) {
+      if (!ehNovo) { ignorados.add(nome0); continue; } // "casado" mas não existe (stale) → não cria à revelia
+      canonical = aCadastrar.get(k) ?? nome0;
+      aCadastrar.set(k, canonical);
+      porChave.set(k, canonical); // próximas linhas da mesma pessoa resolvem ao mesmo nome
+    }
     for (const [metrica, v] of Object.entries(l.valores ?? {})) {
       if (!METRICAS_OK.has(metrica)) continue;
       const valor = typeof v === "number" ? v : Number(v);
       if (!Number.isFinite(valor) || valor === 0) continue; // 0 = ausência (a visão omite; mantemos coerente p/ os benchmarks não mentirem)
-      tuplas.set(`${nome}|${metrica}`, { nome, metrica, valor });
+      tuplas.set(`${canonical}|${metrica}`, { nome: canonical, metrica, valor });
     }
   }
-  if (tuplas.size === 0) return NextResponse.json({ error: "nenhum dado válido (nomes não batem com players cadastrados, ou valores vazios)", ignorados: [...ignorados] }, { status: 400 });
+  if (tuplas.size === 0) return NextResponse.json({ error: "nenhum dado válido (nomes vazios ou só zeros)", ignorados: [...ignorados] }, { status: 400 });
+
+  // CADASTRA os players novos (após o guard, pra um early-return não deixar player órfão): guilda MANI
+  // (Manicômio) + grupo 'Indefinido'. A staff completa grupo/classe/guilda depois em /membros.
+  const cadastrados = [...aCadastrar.values()];
+  if (cadastrados.length) {
+    await sql`INSERT INTO players (nome_familia, grupo, guilda)
+      SELECT u.nome, 'Indefinido', 'MANI' FROM UNNEST(${cadastrados}::text[]) AS u(nome)
+      ON CONFLICT (nome_familia) DO NOTHING`;
+  }
 
   const dataWar = typeof body.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.data) ? body.data : ev[0].data;
   const territorio = typeof body.territorio === "string" && body.territorio.trim() ? body.territorio.trim().slice(0, 120) : null;
@@ -86,5 +113,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const nPlayers = new Set(nomes).size;
-  return NextResponse.json({ ok: true, warId, gravadas: arr.length, players: nPlayers, ignorados: [...ignorados] });
+  return NextResponse.json({ ok: true, warId, gravadas: arr.length, players: nPlayers, cadastrados, ignorados: [...ignorados] });
 }
