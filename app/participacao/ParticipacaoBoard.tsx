@@ -57,7 +57,7 @@ export default function ParticipacaoBoard({
   useEffect(() => { setTplDrafts(templates); }, [templates]); // ressincroniza após refresh
 
   // Buzinador (disparo de DM em massa)
-  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[] }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "", opcoes: [] });
+  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[]; textoLivre: boolean }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "", opcoes: [], textoLivre: false });
   const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string } | null>(null);
   const setBuzF = <K extends keyof typeof buz>(k: K, v: (typeof buz)[K]) => setBuz((b) => ({ ...b, [k]: v }));
   const addOpcao = () => setBuz((b) => (b.opcoes.length >= 25 ? b : { ...b, opcoes: [...b.opcoes, { label: "", estilo: 2, emoji: "" }] }));
@@ -134,6 +134,7 @@ export default function ParticipacaoBoard({
         mensagem: buz.mensagem, imagemUrl: buz.imagem || undefined, canalReportId: buz.canal,
         audiencia: { tipo: buz.tipo, roleId: buz.roleId, userIds: buz.userIds },
         opcoes: buz.opcoes.filter((o) => o.label.trim()).map((o) => ({ label: o.label, estilo: o.estilo, emoji: o.emoji || undefined })),
+        textoLivre: buz.textoLivre,
       }));
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setBuzProg({ ativo: false, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false, erro: d.error || "falha ao criar" }); return; }
@@ -501,6 +502,10 @@ export default function ParticipacaoBoard({
                   </div>
                 ))}
                 {buz.opcoes.length < 25 && <button onClick={addOpcao} style={{ ...btn(C.verde), fontSize: 12 }}>+ adicionar botão</button>}
+                <label style={{ display: "flex", alignItems: "center", gap: 7, color: C.texto, fontSize: 12.5, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.borderSoft}` }}>
+                  <input type="checkbox" checked={buz.textoLivre} onChange={(e) => setBuzF("textoLivre", e.target.checked)} style={{ accentColor: C.verde }} />
+                  <span>Permitir <b style={{ color: C.verde }}>resposta escrita</b> (botão “✍ Responder” → texto livre; cada resposta vai pro canal de log com um código)</span>
+                </label>
               </div>
             )}
 

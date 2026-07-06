@@ -30,6 +30,9 @@ if (!TOKEN || !APP_ID || !GUILD_ID) {
 const comandos = [
   { name: "participacao-nodewar", type: 1, description: "Posta a mensagem de participação da Nodewar (botões Can/Cant)." },
   { name: "participacao-siege", type: 1, description: "Posta a mensagem de participação da Siege (botões Can/Cant)." },
+  { name: "responder", type: 1, description: "Envia uma resposta/observação livre (fica registrada no log).", options: [
+    { name: "texto", description: "O que você quer registrar", type: 3, required: true },
+  ] },
 ];
 
 const res = await fetch(`https://discord.com/api/v10/applications/${APP_ID}/guilds/${GUILD_ID}/commands`, {

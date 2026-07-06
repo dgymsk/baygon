@@ -11,7 +11,7 @@ import { resolverEmoji, listarEmojisGuild } from "@/lib/discordApi";
 export type EstiloBotao = 1 | 2 | 3 | 4; // 1 azul(primary) | 2 cinza(secondary) | 3 verde(success) | 4 vermelho(danger)
 export type OpcaoInput = { label: string; estilo?: EstiloBotao; emoji?: string };
 export type EnqueteOpcao = { id: number; idx: number; label: string; estilo: EstiloBotao; emoji: string | null };
-export type Enquete = { id: number; titulo: string; contexto: string; ref_id: string | null; status: string; opcoes: EnqueteOpcao[] };
+export type Enquete = { id: number; titulo: string; contexto: string; ref_id: string | null; status: string; texto_livre: boolean; opcoes: EnqueteOpcao[] };
 export type OpcaoTally = { opcao_id: number; idx: number; label: string; estilo: EstiloBotao; emoji: string | null; votos: number };
 export type VotoDetalhe = { user_id: string; username: string | null; idx: number; label: string; votado: string };
 
@@ -35,8 +35,10 @@ export function emojiParaComponent(raw: string | null | undefined): EmojiComp | 
 
 /** Cria a enquete: valida 1..25 opções (label<=80, estilo∈{1,2,3,4}), resolve emoji e grava. */
 export async function criarEnquete(input: {
-  titulo?: string; contexto?: string; ref_id?: string | null; criadoPor?: string | null; opcoes: OpcaoInput[];
+  titulo?: string; contexto?: string; ref_id?: string | null; criadoPor?: string | null; opcoes: OpcaoInput[]; textoLivre?: boolean;
 }): Promise<{ ok: boolean; enqueteId?: number; erro?: string }> {
+  const textoLivre = input.textoLivre === true;
+  const maxOpc = textoLivre ? 24 : 25; // com resposta livre, reserva 1 slot dos 25 componentes pro botão Responder
   const emojis = await listarEmojisGuild();
   const opcoes: { label: string; estilo: EstiloBotao; emoji: string | null }[] = [];
   for (const o of Array.isArray(input.opcoes) ? input.opcoes : []) {
@@ -44,31 +46,33 @@ export async function criarEnquete(input: {
     if (!label) continue;
     const emoji = o?.emoji ? (resolverEmoji(String(o.emoji), emojis) || null) : null;
     opcoes.push({ label, estilo: estiloOk(o?.estilo), emoji });
-    if (opcoes.length >= 25) break;
+    if (opcoes.length >= maxOpc) break;
   }
-  if (!opcoes.length) return { ok: false, erro: "precisa de ao menos 1 opção com texto" };
+  if (!opcoes.length && !textoLivre) return { ok: false, erro: "precisa de ao menos 1 opção (ou ativar resposta livre)" };
 
   const titulo = String(input.titulo ?? "").slice(0, 200);
   const contexto = (String(input.contexto ?? "").slice(0, 40)) || "buzinador";
   const refId = input.ref_id != null ? String(input.ref_id).slice(0, 100) : null;
   const criadoPor = input.criadoPor != null ? String(input.criadoPor).slice(0, 80) : null;
 
-  const rows = (await sql`INSERT INTO enquete (titulo, contexto, ref_id, criado_por) VALUES (${titulo}, ${contexto}, ${refId}, ${criadoPor}) RETURNING id::int AS id`) as { id: number }[];
+  const rows = (await sql`INSERT INTO enquete (titulo, contexto, ref_id, criado_por, texto_livre) VALUES (${titulo}, ${contexto}, ${refId}, ${criadoPor}, ${textoLivre}) RETURNING id::int AS id`) as { id: number }[];
   const enqueteId = rows[0].id;
-  try {
-    await sql.transaction(opcoes.map((o, i) => sql`INSERT INTO enquete_opcao (enquete_id, idx, label, estilo, emoji) VALUES (${enqueteId}, ${i}, ${o.label}, ${o.estilo}, ${o.emoji})`));
-  } catch {
-    await sql`DELETE FROM enquete WHERE id = ${enqueteId}`; // não deixa enquete órfã sem opções
-    return { ok: false, erro: "falha ao gravar as opções" };
+  if (opcoes.length) {
+    try {
+      await sql.transaction(opcoes.map((o, i) => sql`INSERT INTO enquete_opcao (enquete_id, idx, label, estilo, emoji) VALUES (${enqueteId}, ${i}, ${o.label}, ${o.estilo}, ${o.emoji})`));
+    } catch {
+      await sql`DELETE FROM enquete WHERE id = ${enqueteId}`; // não deixa enquete órfã sem opções
+      return { ok: false, erro: "falha ao gravar as opções" };
+    }
   }
   return { ok: true, enqueteId };
 }
 
 export async function getEnquete(id: number): Promise<Enquete | null> {
-  const e = (await sql`SELECT id::int AS id, titulo, contexto, ref_id, status FROM enquete WHERE id = ${id}`) as { id: number; titulo: string; contexto: string; ref_id: string | null; status: string }[];
+  const e = (await sql`SELECT id::int AS id, titulo, contexto, ref_id, status, texto_livre FROM enquete WHERE id = ${id}`) as { id: number; titulo: string; contexto: string; ref_id: string | null; status: string; texto_livre: boolean }[];
   if (!e[0]) return null;
   const ops = (await sql`SELECT id::int AS id, idx, label, estilo, emoji FROM enquete_opcao WHERE enquete_id = ${id} ORDER BY idx`) as { id: number; idx: number; label: string; estilo: number; emoji: string | null }[];
-  return { ...e[0], opcoes: ops.map((o) => ({ id: o.id, idx: Number(o.idx), label: o.label, estilo: estiloOk(o.estilo), emoji: o.emoji })) };
+  return { ...e[0], texto_livre: e[0].texto_livre === true, opcoes: ops.map((o) => ({ id: o.id, idx: Number(o.idx), label: o.label, estilo: estiloOk(o.estilo), emoji: o.emoji })) };
 }
 
 /** Registra/troca o voto. Resolve opcao_id por (enquete_id, idx); rejeita se opção sumiu ou enquete fechada. */
@@ -113,6 +117,13 @@ export function montarComponents(e: Enquete, marcadoIdx?: number | null): Action
         return btn;
       }),
     });
+  }
+  // botão de resposta livre (abre modal). Encaixa na última linha se couber, senão numa nova (respeitando 5 linhas).
+  if (e.texto_livre) {
+    const btn: BotaoComp = { type: 2, style: 2, label: "✍ Responder", custom_id: `enqtxt:${e.id}` };
+    const ultima = rows[rows.length - 1];
+    if (ultima && ultima.components.length < 5) ultima.components.push(btn);
+    else if (rows.length < 5) rows.push({ type: 1, components: [btn] });
   }
   return rows;
 }

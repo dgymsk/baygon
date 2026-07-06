@@ -9,6 +9,7 @@ import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
+import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
 
 // Endpoint público de Interações do Discord (liberado no middleware). A segurança é a
 // verificação de assinatura Ed25519 — sem ela, 401. Precisa do runtime Node (crypto).
@@ -19,10 +20,11 @@ const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 const APP_ID = process.env.DISCORD_APP_ID;
 
 type DUser = { id?: string; username?: string; global_name?: string | null };
+type ModalComp = { type?: number; custom_id?: string; value?: string; components?: ModalComp[] };
 type Interaction = {
   type?: number;
   token?: string;
-  data?: { name?: string; custom_id?: string };
+  data?: { name?: string; custom_id?: string; components?: ModalComp[]; options?: { name?: string; value?: unknown }[] };
   message?: { id?: string };
   member?: { user?: DUser; nick?: string | null; roles?: string[] };
   user?: DUser;
@@ -76,9 +78,30 @@ export async function POST(req: Request) {
 
   if (body.type === 1) return json({ type: 1 }); // PING → PONG
 
-  // 2 = slash /participacao-nodewar|siege → posta o 1º template do tipo (teste rápido). Só staff.
+  // 2 = slash command.
   if (body.type === 2) {
-    const tipo = tipoDoComando(String(body.data?.name ?? ""));
+    const nome = String(body.data?.name ?? "");
+
+    // /responder <texto> — resposta livre de QUALQUER membro; grava e posta no canal de log.
+    if (nome === "responder") {
+      const u = body.member?.user ?? body.user;
+      const userId = String(u?.id ?? "");
+      const username = String(body.member?.nick ?? u?.global_name ?? u?.username ?? "").slice(0, 100);
+      const opt = Array.isArray(body.data?.options) ? body.data.options.find((o) => o?.name === "texto") : undefined;
+      const texto = String(opt?.value ?? "").trim();
+      const token = String(body.token ?? "");
+      if (!userId || !texto) return efemero("Não consegui registrar (texto vazio?).");
+      after(async () => {
+        try {
+          const reg = await registrarTexto({ userId, username, conteudo: texto, contexto: "/responder" });
+          if (reg) { await postarNoLog(reg.id); await editarMensagem(token, { content: `✅ Registrado #${reg.codigo}. Obrigado!` }); }
+          else await editarMensagem(token, { content: "Não consegui registrar." });
+        } catch (e) { console.error("/responder erro", e); }
+      });
+      return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero (followup via editarMensagem)
+    }
+
+    const tipo = tipoDoComando(nome);
     if (!tipo) return efemero("Comando desconhecido.");
     if (!(await ehStaff(body.member?.roles))) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
     const token = String(body.token ?? "");
@@ -95,6 +118,19 @@ export async function POST(req: Request) {
 
   // 3 = clique de botão. ACK deferido (type 6) + trabalho em after().
   if (body.type === 3) {
+    // Botão "Responder" (texto livre) → abre um MODAL (type 9, síncrono, sem DB). custom_id = enqtxt:<enqueteId>.
+    const mTxt = String(body.data?.custom_id ?? "").match(/^enqtxt:(\d+)$/);
+    if (mTxt) {
+      return json({
+        type: 9, // MODAL
+        data: {
+          custom_id: `enqtxtm:${mTxt[1]}`,
+          title: "Sua resposta",
+          components: [{ type: 1, components: [{ type: 4, custom_id: "resposta", style: 2, label: "Escreva sua resposta", min_length: 1, max_length: 1000, required: true, placeholder: "Digite aqui…" }] }],
+        },
+      });
+    }
+
     // ENQUETE genérica (buzinador / confirm-por-DM). custom_id = enq:<enqueteId>:<idx>. Testar ANTES do part:.
     const mEnq = String(body.data?.custom_id ?? "").match(/^enq:(\d+):(\d+)$/);
     if (mEnq) {
@@ -138,6 +174,33 @@ export async function POST(req: Request) {
       } catch (e) { console.error("clique participacao erro", e); }
     });
     return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
+  }
+
+  // 5 = MODAL_SUBMIT (texto livre do botão Responder). custom_id = enqtxtm:<enqueteId>.
+  if (body.type === 5) {
+    const mm = String(body.data?.custom_id ?? "").match(/^enqtxtm:(\d+)$/);
+    if (!mm) return efemero("Formulário não reconhecido.");
+    const enqueteId = Number(mm[1]);
+    const u = body.member?.user ?? body.user;
+    const userId = String(u?.id ?? "");
+    const username = String(body.member?.nick ?? u?.global_name ?? u?.username ?? "").slice(0, 100);
+    const token = String(body.token ?? "");
+    let texto = "";
+    for (const row of body.data?.components ?? []) for (const comp of row.components ?? []) if (comp.custom_id === "resposta") texto = String(comp.value ?? "");
+    texto = texto.trim();
+    if (!userId || !texto) return efemero("Resposta vazia.");
+    after(async () => {
+      try {
+        const enq = await getEnquete(enqueteId);
+        // gate coerente com o voto: enquete tem que existir, estar aberta e ainda aceitar texto livre
+        if (!enq || enq.status !== "aberta" || !enq.texto_livre) { await editarMensagem(token, { content: "🔒 Respostas encerradas." }); return; }
+        const contexto = `Buzinador · ${enq.titulo}`.slice(0, 100);
+        const reg = await registrarTexto({ userId, username, conteudo: texto, contexto, refId: String(enqueteId) });
+        if (reg) { await postarNoLog(reg.id); await editarMensagem(token, { content: `✅ Resposta registrada (#${reg.codigo}). Obrigado!` }); }
+        else await editarMensagem(token, { content: "Não consegui registrar." });
+      } catch (e) { console.error("modal submit erro", e); }
+    });
+    return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero (followup via editarMensagem)
   }
 
   return efemero("Interação não suportada.");

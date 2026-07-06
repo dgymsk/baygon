@@ -144,7 +144,7 @@ async function enviarDM(userId: string, mensagem: string, imagemUrl: string | nu
 }
 
 /** Cria um envio: resolve a audiência, cria a enquete (se houver opções) e grava envio + alvos. */
-export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown; canalReportId: unknown; audiencia: Audiencia; criadoPor?: unknown; opcoes?: OpcaoInput[]; contexto?: string; refId?: string | null }): Promise<{ ok: boolean; envioId?: number; total?: number; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string }> {
+export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown; canalReportId: unknown; audiencia: Audiencia; criadoPor?: unknown; opcoes?: OpcaoInput[]; textoLivre?: boolean; contexto?: string; refId?: string | null }): Promise<{ ok: boolean; envioId?: number; total?: number; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const mensagem = String(input.mensagem ?? "").trim().slice(0, 1900);
   if (!mensagem) return { ok: false, erro: "mensagem vazia" };
@@ -159,11 +159,12 @@ export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown
   const seen = new Set<string>();
   const alvos = res.alvos.filter((a) => (seen.has(a.userId) ? false : (seen.add(a.userId), true)));
 
-  // enquete opcional (botões). Só cria após a audiência ser válida, pra não deixar enquete órfã.
+  // enquete opcional (botões de voto e/ou botão de resposta livre). Só cria após a audiência ser válida.
   let enqueteId: number | null = null;
   const opcoes = Array.isArray(input.opcoes) ? input.opcoes.filter((o) => String(o?.label ?? "").trim()) : [];
-  if (opcoes.length) {
-    const enq = await criarEnquete({ titulo: mensagem.slice(0, 100), contexto: input.contexto || "buzinador", ref_id: input.refId ?? null, criadoPor, opcoes });
+  const textoLivre = input.textoLivre === true;
+  if (opcoes.length || textoLivre) {
+    const enq = await criarEnquete({ titulo: mensagem.slice(0, 100), contexto: input.contexto || "buzinador", ref_id: input.refId ?? null, criadoPor, opcoes, textoLivre });
     if (!enq.ok) return { ok: false, erro: enq.erro };
     enqueteId = enq.enqueteId ?? null;
   }
