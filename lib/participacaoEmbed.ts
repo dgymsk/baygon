@@ -13,6 +13,7 @@ export type RespE = { user_id: string; chave: string | null; resposta: "can" | "
 export type TemplateE = { nome: string; tamanho_max: number | null; pts: { pt_id: number; limite: number | null }[] };
 
 const COR = 0x34e06a;
+const corInt = (hex: string | undefined) => { const m = /^#([0-9a-fA-F]{6})$/.exec((hex ?? "").trim()); return m ? parseInt(m[1], 16) : COR; };
 
 /**
  * Espera POR PT: em cada PT, os primeiros `limite` a confirmar (ordem can_em) entram (✅);
@@ -87,7 +88,7 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} espera` : "";
   const embed: { title: string; description?: string; color: number; fields: typeof fields; image?: { url: string } } = {
     title: `📢 ${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256),
-    description: (cfg.mensagem || undefined)?.slice(0, 2000), color: COR, fields: fields.slice(0, 25),
+    description: (cfg.mensagem || undefined)?.slice(0, 2000), color: corInt(cfg.cor), fields: fields.slice(0, 25),
   };
   if (cfg.imagem) embed.image = { url: cfg.imagem };
   const embedsFinal = [embed];

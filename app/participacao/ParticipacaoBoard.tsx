@@ -10,7 +10,7 @@ import type { PtVM, MembroVM, TemplateVM, SituacaoVM, MembroSit, EmojiGuild } fr
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = "none"; };
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-type Aba = "disparo" | "pts" | "templates" | "atribuicao";
+type Aba = "disparo" | "pts" | "templates" | "atribuicao" | "buzinador";
 
 function idEmoji(raw: string, emojis: EmojiGuild[]): string | null {
   const m = raw.match(/^<a?:\w+:(\d+)>$/); if (m) return m[1];
@@ -55,6 +55,11 @@ export default function ParticipacaoBoard({
   });
   const [tplDrafts, setTplDrafts] = useState<TemplateVM[]>(templates);
   useEffect(() => { setTplDrafts(templates); }, [templates]); // ressincroniza após refresh
+
+  // Buzinador (disparo de DM em massa)
+  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "" });
+  const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; erro?: string } | null>(null);
+  const setBuzF = <K extends keyof typeof buz>(k: K, v: (typeof buz)[K]) => setBuz((b) => ({ ...b, [k]: v }));
 
   const temPost = TIPOS.some((t) => situacao[t]);
   useEffect(() => {
@@ -110,6 +115,38 @@ export default function ParticipacaoBoard({
     const file = item?.getAsFile();
     if (file) { e.preventDefault(); enviarImagem(t, file); }
   };
+
+  // ---- Buzinador ----
+  async function buzinar() {
+    if (!canEdit || (buzProg?.ativo)) return;
+    if (!buz.mensagem.trim()) { setStatus({ kind: "err", msg: "escreva a mensagem" }); return; }
+    if (!buz.canal.trim()) { setStatus({ kind: "err", msg: "informe o canal do relatório" }); return; }
+    if (buz.tipo === "role" && !buz.roleId.trim()) { setStatus({ kind: "err", msg: "informe o cargo" }); return; }
+    if (buz.tipo === "lista" && !buz.userIds.trim()) { setStatus({ kind: "err", msg: "cole os IDs na lista" }); return; }
+    const alvo = buz.tipo === "role" ? "todos do cargo" : buz.tipo === "todos" ? "TODOS os membros do servidor" : "a lista informada";
+    if (!confirm(`Buzinar ${alvo}? Cada um recebe uma DM privada do bot.`)) return;
+    setBuzProg({ ativo: true, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false });
+    try {
+      const res = await fetch("/api/buzinador/criar", jsonInit("POST", {
+        mensagem: buz.mensagem, imagemUrl: buz.imagem || undefined, canalReportId: buz.canal,
+        audiencia: { tipo: buz.tipo, roleId: buz.roleId, userIds: buz.userIds },
+      }));
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setBuzProg({ ativo: false, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false, erro: d.error || "falha ao criar" }); return; }
+      const { envioId, total } = d as { envioId: number; total: number };
+      setBuzProg({ ativo: true, total, enviados: 0, falhas: 0, pendentes: total, concluido: false });
+      for (let i = 0; i < 1000; i++) {
+        const pr = await fetch("/api/buzinador/processar", jsonInit("POST", { envioId }));
+        const p = await pr.json().catch(() => ({}));
+        if (!pr.ok) { setBuzProg((b) => ({ ...(b ?? { total, enviados: 0, falhas: 0, pendentes: total, concluido: false }), ativo: false, erro: p.error || "falha no lote" })); return; }
+        setBuzProg({ ativo: !p.concluido, total: p.total, enviados: p.enviados, falhas: p.falhas, pendentes: p.pendentes, concluido: p.concluido, reportOk: p.reportOk });
+        if (p.concluido) break;
+      }
+      setStatus({ kind: "ok", msg: "buzinada concluída" });
+    } catch (e) {
+      setBuzProg((b) => ({ ...(b ?? { total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false }), ativo: false, erro: (e as Error).message }));
+    }
+  }
 
   // ---- PTs ----
   const criarPt = () => { if (!novoPt.nome.trim()) return; api("/api/participacao/pts", jsonInit("POST", novoPt), `PT "${novoPt.nome}" criado.`); setNovoPt({ nome: "", emoji: "" }); };
@@ -179,6 +216,7 @@ export default function ParticipacaoBoard({
           {abaBtn("pts", "PTs")}
           {abaBtn("templates", "Templates")}
           {abaBtn("atribuicao", "Atribuição")}
+          {abaBtn("buzinador", "📢 Buzinador")}
         </div>
 
         {/* ===================== DISPARO / SITUAÇÃO ===================== */}
@@ -199,6 +237,12 @@ export default function ParticipacaoBoard({
                     <div><label style={label}>Cargo a mencionar</label><input value={c.pingRoleId} readOnly={ro} onChange={(e) => setField(t, "pingRoleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="opcional" style={{ ...input, width: "100%" }} /></div>
                   </div>
                   <div style={{ marginTop: 8 }}><label style={label}>Mensagem (descrição)</label><textarea value={c.mensagem} readOnly={ro} onChange={(e) => setField(t, "mensagem", e.target.value)} rows={2} style={{ ...input, width: "100%", resize: "vertical" }} /></div>
+                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ ...label, marginBottom: 0 }}>Cor da faixa</span>
+                    <input type="color" value={c.cor} disabled={ro} onChange={(e) => setField(t, "cor", e.target.value)} style={{ width: 44, height: 28, padding: 0, border: `1px solid ${C.border2}`, borderRadius: 6, background: C.inputBg, cursor: ro ? "default" : "pointer" }} />
+                    <span style={{ color: C.mute, fontSize: 11.5, fontFamily: "'Share Tech Mono', monospace" }}>{c.cor}</span>
+                    <span style={{ color: C.borderSoft, fontSize: 11 }}>(barra à esquerda do embed — salve a config)</span>
+                  </div>
                 <div style={{ marginTop: 8 }} onPaste={(e) => canEdit && colarImagem(t, e)}>
                   <label style={label}>Imagem no final (opcional)</label>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -391,6 +435,76 @@ export default function ParticipacaoBoard({
                     </select>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================== BUZINADOR ===================== */}
+        {aba === "buzinador" && (
+          <div style={{ ...card, maxWidth: 720 }}>
+            <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 12 }}>
+              Envia uma <b style={{ color: C.verde }}>DM privada</b> pra cada jogador da audiência e registra quem recebeu / quem falhou (DM fechada) num relatório postado no canal escolhido. Sem botões — só entrega.
+            </div>
+
+            <label style={label}>Mensagem</label>
+            <textarea value={buz.mensagem} readOnly={ro} onChange={(e) => setBuzF("mensagem", e.target.value)} rows={4} placeholder="Texto que cada um vai receber na DM…" style={{ ...input, width: "100%", resize: "vertical" }} />
+
+            <div style={{ marginTop: 10 }}>
+              <label style={label}>Imagem (opcional)</label>
+              <select value={buz.imagem} disabled={ro} onChange={(e) => setBuzF("imagem", e.target.value)} style={{ ...input, width: "100%" }}>
+                <option value="">— sem imagem —</option>
+                {imagens.map((img) => <option key={img.url} value={img.url}>{img.nome}</option>)}
+                {buz.imagem && !imagens.some((i) => i.url === buz.imagem) && <option value={buz.imagem}>(atual)</option>}
+              </select>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label style={label}>Audiência</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {([["role", "Por cargo"], ["todos", "Todos os membros"], ["lista", "Lista de IDs"]] as const).map(([v, txt]) => (
+                  <button key={v} onClick={() => !ro && setBuzF("tipo", v)} disabled={ro} style={{ ...btn(buz.tipo === v ? C.verde : C.mute), background: buz.tipo === v ? C.verdeTint : "transparent" }}>{txt}</button>
+                ))}
+              </div>
+              {buz.tipo === "role" && <input value={buz.roleId} readOnly={ro} onChange={(e) => setBuzF("roleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do cargo" style={{ ...input, width: "100%", marginTop: 8 }} />}
+              {buz.tipo === "lista" && <textarea value={buz.userIds} readOnly={ro} onChange={(e) => setBuzF("userIds", e.target.value)} rows={3} placeholder="Cole IDs ou menções separados por espaço, vírgula ou linha" style={{ ...input, width: "100%", marginTop: 8, resize: "vertical" }} />}
+              {buz.tipo === "todos" && <div style={{ color: C.amarelo, fontSize: 11.5, marginTop: 6 }}>⚠ Envia pra TODOS os membros (menos bots). Requer o &quot;Server Members Intent&quot; ativo no bot.</div>}
+              {buz.tipo === "role" && <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 4 }}>Requer o &quot;Server Members Intent&quot; ativo no bot (Developer Portal → Bot).</div>}
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label style={label}>Canal do relatório (ID)</label>
+              <input value={buz.canal} readOnly={ro} onChange={(e) => setBuzF("canal", e.target.value.replace(/[^0-9]/g, ""))} placeholder="onde o bot posta quem recebeu / falhou" style={{ ...input, width: "100%" }} />
+            </div>
+
+            {canEdit && (
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={buzinar} disabled={!!buzProg?.ativo} style={{ ...btn(C.verde), fontWeight: 700, fontSize: 13, padding: "7px 16px" }}>{buzProg?.ativo ? "Buzinando…" : "📢 Buzinar"}</button>
+                {buzProg?.ativo && <span style={{ color: C.mute, fontSize: 12 }}>{buzProg.enviados + buzProg.falhas}/{buzProg.total} processados</span>}
+              </div>
+            )}
+
+            {buzProg && (
+              <div style={{ marginTop: 14, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 12 }}>
+                {buzProg.erro ? (
+                  <div style={{ color: C.vermelho, fontSize: 12.5 }}>⚠ {buzProg.erro}</div>
+                ) : (
+                  <>
+                    <div style={{ height: 8, borderRadius: 999, background: C.inputBg, overflow: "hidden", border: `1px solid ${C.border2}` }}>
+                      <div style={{ height: "100%", width: `${buzProg.total ? Math.round(((buzProg.enviados + buzProg.falhas) / buzProg.total) * 100) : 0}%`, background: C.verde, transition: "width .3s" }} />
+                    </div>
+                    <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12.5, flexWrap: "wrap" }}>
+                      <span style={{ color: C.verde }}>✅ {buzProg.enviados} receberam</span>
+                      <span style={{ color: C.vermelho }}>❌ {buzProg.falhas} falharam</span>
+                      <span style={{ color: C.mute }}>⏳ {buzProg.pendentes} restantes · {buzProg.total} total</span>
+                    </div>
+                    {buzProg.concluido && (
+                      <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 8 }}>
+                        🏁 Concluído. {buzProg.reportOk === false ? "⚠ Não consegui postar o relatório no canal (confira permissão/ID)." : "Relatório postado no canal."}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
