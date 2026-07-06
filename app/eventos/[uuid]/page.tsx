@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { C } from "@/lib/theme";
-import { getEventoByUuid } from "@/lib/eventos";
+import { getEventoByUuid, desempenhoDaWar } from "@/lib/eventos";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { canEditNow } from "@/lib/requireAuth";
+import { listNomesFamilia } from "@/lib/players";
 import RosterView from "@/app/participacao/RosterView";
+import EventoAcoes from "./EventoAcoes";
+import ResultadoExtrair from "./ResultadoExtrair";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Evento · BAYGON" };
@@ -14,8 +18,12 @@ const badgeCor = (s: string) => (s === "aberto" ? C.verde : s === "travado" ? C.
 // Página HUB visual do evento: snapshot da participação + facetas futuras (confirmados / resultado).
 export default async function EventoDetalhe({ params }: { params: Promise<{ uuid: string }> }) {
   const { uuid } = await params;
-  const [ev, dc] = await Promise.all([getEventoByUuid(uuid), getDiscordConfig()]);
+  const [ev, dc, canEdit, nomes] = await Promise.all([getEventoByUuid(uuid), getDiscordConfig(), canEditNow(), listNomesFamilia()]);
   if (!ev) notFound();
+  nomes.sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const statsIniciais = ev.warId != null ? await desempenhoDaWar(ev.warId) : []; // pré-carrega a tabela se já há war ligada
+
+  const RES_LABEL: Record<string, string> = { derrota: "Derrota", participacao: "Participação", vitoria: "Vitória" };
 
   const msgUrl = ev.messageId && ev.channelId && dc.guildId ? `https://discord.com/channels/${dc.guildId}/${ev.channelId}/${ev.messageId}` : null;
   const card = { border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 16 } as const;
@@ -73,7 +81,19 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
         {/* FACETA 2 e 3: futuras (linkam no mesmo evento) */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div style={card}><div style={secTitulo}>Confirmados (Apollo)</div><div style={{ color: C.borderSoft, fontSize: 12.5 }}>Não integrado ainda — vai pendurar neste evento.</div></div>
-          <div style={card}><div style={secTitulo}>Resultado da guerra</div><div style={{ color: C.borderSoft, fontSize: 12.5 }}>Não integrado ainda — vai pendurar neste evento.</div></div>
+          <div style={card}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <div style={{ ...secTitulo, marginBottom: 0 }}>Resultado da guerra</div>
+              {ev.resultado && <span style={{ color: ev.resultado === "vitoria" ? C.verde : ev.resultado === "derrota" ? C.vermelho : C.amarelo, fontSize: 12, fontWeight: 700 }}>{RES_LABEL[ev.resultado]}</span>}
+            </div>
+            <EventoAcoes id={ev.id} resultadoInicial={ev.resultado} canEdit={canEdit} />
+          </div>
+        </div>
+
+        {/* FACETA 3 (parte 2): stats por membro extraídos do print (Opus) → wars/desempenho */}
+        <div style={{ ...card, marginTop: 14 }}>
+          <div style={secTitulo}>Stats da guerra (por membro)</div>
+          <ResultadoExtrair id={ev.id} canEdit={canEdit} players={nomes} warIdInicial={ev.warId} statsIniciais={statsIniciais} />
         </div>
       </div>
     </div>

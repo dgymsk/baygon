@@ -14,7 +14,8 @@ import { montarSituacao, type SituacaoNN } from "@/lib/participacaoSituacao";
 export type EventoStatus = "aberto" | "travado" | "finalizado";
 export type Evento = { id: number; uuid: string; data: string; tipo: string; titulo: string | null; status: EventoStatus; templateId: number | null; criado: string; travadoEm: string | null; finalizadoEm: string | null };
 export type EventoSnapshot = SituacaoNN & { versao: 1; capturadoEm: string; warKey: string };
-export type EventoDetalhe = Evento & { snapshot: EventoSnapshot | null; messageId: string | null; channelId: string | null };
+export type EventoDetalhe = Evento & { snapshot: EventoSnapshot | null; messageId: string | null; channelId: string | null; resultado: string | null; warId: number | null };
+export const RESULTADOS = ["derrota", "participacao", "vitoria"] as const;
 
 type Row = { id: number; uuid: string; data: string; tipo: string; titulo: string | null; status: EventoStatus; template_id: number | null; criado: string; travado_em: string | null; finalizado_em: string | null };
 const map = (r: Row): Evento => ({ id: r.id, uuid: r.uuid, data: r.data, tipo: r.tipo, titulo: r.titulo, status: r.status, templateId: r.template_id, criado: r.criado, travadoEm: r.travado_em, finalizadoEm: r.finalizado_em });
@@ -29,10 +30,13 @@ export async function criarEvento(o: { tipo: string; titulo: string | null; temp
 }
 
 /** Status do evento a partir do war_key (=message_id do post). GATE do registrarClique.
- *  null = post sem evento (legado) → o caller trata como 'aberto' (não trava cliques antigos). */
+ *  null = mensagem sem post (desconhecida) → o caller trata como 'aberto'. Se o POST existe mas o
+ *  evento sumiu (evento apagado → FK deixou evento_id NULL), devolve 'finalizado' p/ TRAVAR cliques:
+ *  senão a mensagem viva do evento deletado seguiria registrando voto como "legado". */
 export async function statusPorWarKey(warKey: string): Promise<EventoStatus | null> {
-  const rows = (await sql`SELECT e.status FROM participacao_post p JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${warKey}`) as { status: EventoStatus }[];
-  return rows[0]?.status ?? null;
+  const rows = (await sql`SELECT e.status FROM participacao_post p LEFT JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${warKey}`) as { status: EventoStatus | null }[];
+  if (!rows[0]) return null;               // mensagem sem post registrado → segue (comportamento antigo)
+  return rows[0].status ?? "finalizado";   // post órfão (evento apagado) → bloqueia
 }
 
 /** Trava (nenhuma participação extra registrada). Idempotente: já travado/finalizado → ok.
@@ -90,7 +94,7 @@ export async function finalizarEvento(id: number): Promise<EventoDetalhe | null>
   const post = posts[0] ?? null;
 
   if (ev.status === "finalizado") { // idempotente: devolve o já congelado
-    return { ...map(ev), snapshot: ev.snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null };
+    return { ...map(ev), snapshot: ev.snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null, resultado: null, warId: null };
   }
 
   const snapshot = post ? await montarSnapshot(post) : null;
@@ -99,11 +103,11 @@ export async function finalizarEvento(id: number): Promise<EventoDetalhe | null>
       snapshot = ${snapshot ? JSON.stringify(snapshot) : null}::jsonb
     WHERE id = ${id} AND status <> 'finalizado'
     RETURNING id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
-  if (upd[0]) return { ...map(upd[0]), snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null };
+  if (upd[0]) return { ...map(upd[0]), snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null, resultado: null, warId: null };
   // corrida: outra chamada finalizou 1º → relê o estado PERSISTIDO (não devolve snapshot local não gravado)
   const done = (await sql`SELECT id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em FROM evento WHERE id = ${id}`) as (Row & { snapshot: EventoSnapshot | null })[];
   const d = done[0] ?? ev;
-  return { ...map(d), snapshot: d.snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null };
+  return { ...map(d), snapshot: d.snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null, resultado: null, warId: null };
 }
 
 /** Lista com filtros opcionais. status: 'ativos' (aberto+travado) | 'historico' (finalizado). */
@@ -137,8 +141,58 @@ export async function getEventoByUuid(uuid: string): Promise<EventoDetalhe | nul
     FROM evento WHERE uuid = ${uuid}::uuid`) as (Row & { snapshot: EventoSnapshot | null })[];
   const ev = evs[0];
   if (!ev) return null;
-  const posts = (await sql`SELECT message_id, channel_id FROM participacao_post WHERE evento_id = ${ev.id} ORDER BY criado DESC LIMIT 1`) as { message_id: string; channel_id: string }[];
-  return { ...map(ev), snapshot: ev.snapshot, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null };
+  const [posts, res] = await Promise.all([
+    sql`SELECT message_id, channel_id FROM participacao_post WHERE evento_id = ${ev.id} ORDER BY criado DESC LIMIT 1`,
+    sql`SELECT resultado, war_id::int AS war_id FROM evento_resultado WHERE evento_id = ${ev.id}`,
+  ]) as [{ message_id: string; channel_id: string }[], { resultado: string | null; war_id: number | null }[]];
+  return { ...map(ev), snapshot: ev.snapshot, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null, resultado: res[0]?.resultado ?? null, warId: res[0]?.war_id ?? null };
+}
+
+/** Grava o resultado MANUAL (derrota/participacao/vitoria) na faceta do evento. */
+export async function setResultado(eventoId: number, resultado: string): Promise<{ ok: boolean; erro?: string }> {
+  const r = (resultado || "").toLowerCase();
+  if (!(RESULTADOS as readonly string[]).includes(r)) return { ok: false, erro: "resultado inválido" };
+  await sql`INSERT INTO evento_resultado (evento_id, resultado) VALUES (${eventoId}, ${r})
+    ON CONFLICT (evento_id) DO UPDATE SET resultado = EXCLUDED.resultado, gravado = now()`;
+  // propaga p/ a war ligada (se houver) — senão trocar o resultado manual não refletia em wars.resultado até regravar.
+  // no-op quando não há war ligada (o subselect vira NULL e WHERE war_id = NULL não casa nada).
+  await sql`UPDATE wars SET resultado = ${r} WHERE war_id = (SELECT war_id FROM evento_resultado WHERE evento_id = ${eventoId})`;
+  return { ok: true };
+}
+
+/** Deleta o evento (facetas caem por CASCADE/SET NULL; os stats em wars/desempenho permanecem).
+ *  Devolve o post ligado (msg/canal) p/ o caller tirar os botões da mensagem (evita botão morto que
+ *  continuaria registrando clique como post "legado" após o evento sumir). */
+export async function deletarEvento(id: number): Promise<{ ok: boolean; messageId?: string | null; channelId?: string | null }> {
+  const posts = (await sql`SELECT message_id, channel_id FROM participacao_post WHERE evento_id = ${id} ORDER BY criado DESC LIMIT 1`) as { message_id: string; channel_id: string }[];
+  const rows = (await sql`DELETE FROM evento WHERE id = ${id} RETURNING id`) as { id: number }[];
+  if (rows.length === 0) return { ok: false };
+  return { ok: true, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null };
+}
+
+/** Cria um evento RETROATIVO (à mão, sem disparo) — pra registrar wars passadas. Nasce 'finalizado'. */
+export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null }): Promise<Evento> {
+  const tipo = o.tipo === "siege" ? "siege" : "nodewar";
+  const data = o.data && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
+  const titulo = o.titulo ? String(o.titulo).slice(0, 200) : null;
+  const rows = (await sql`
+    INSERT INTO evento (tipo, titulo, data, status, finalizado_em)
+    VALUES (${tipo}, ${titulo}, COALESCE(${data}::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date), 'finalizado', now())
+    RETURNING id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
+  return map(rows[0]);
+}
+
+/** Stats já gravados de uma war (formato longo → agrupado por jogador) — pré-carrega a tabela de revisão
+ *  do RESULTADO p/ que "regravar" edite sobre o estado real (senão o replace-all apagaria os ausentes). */
+export async function desempenhoDaWar(warId: number): Promise<{ nome_familia: string; valores: Record<string, number> }[]> {
+  const rows = (await sql`SELECT nome_familia, metrica, valor FROM desempenho WHERE war_id = ${warId} ORDER BY nome_familia`) as { nome_familia: string; metrica: string; valor: number }[];
+  const porJogador = new Map<string, Record<string, number>>();
+  for (const r of rows) {
+    const v = porJogador.get(r.nome_familia) ?? {};
+    v[r.metrica] = Number(r.valor);
+    porJogador.set(r.nome_familia, v);
+  }
+  return [...porJogador.entries()].map(([nome_familia, valores]) => ({ nome_familia, valores }));
 }
 
 export async function getEventoById(id: number): Promise<Evento | null> {

@@ -18,11 +18,24 @@ function statusBadge(s: string) {
 }
 
 // Registro (read-only): navega e abre o detalhe. Operar (disparar/travar/finalizar) é em /participacao.
-export default function EventosBoard({ ativos, historico, filtros, aba }: {
-  ativos: Evento[]; historico: Evento[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico";
+export default function EventosBoard({ ativos, historico, filtros, aba, canEdit }: {
+  ativos: Evento[]; historico: Evento[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico"; canEdit: boolean;
 }) {
   const router = useRouter();
   const [f, setF] = useState(filtros);
+  const [novo, setNovo] = useState<{ tipo: string; data: string; titulo: string } | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  async function criarRetroativo() {
+    if (!novo || salvando) return;
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/eventos/criar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(novo) });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.uuid) router.push(`/eventos/${d.uuid}`);
+      else { alert(d.error || "falha ao criar"); setSalvando(false); }
+    } catch { setSalvando(false); }
+  }
 
   function buscar() {
     const p = new URLSearchParams({ aba: "historico" });
@@ -75,10 +88,24 @@ export default function EventosBoard({ ativos, historico, filtros, aba }: {
           Registro dos eventos. Para <b style={{ color: C.verde }}>disparar</b>, <b style={{ color: C.verde }}>acompanhar ao vivo</b> e <b style={{ color: C.verde }}>travar/finalizar</b>, use a aba <Link href="/participacao" style={{ color: C.verde }}>Disparo/Situação</Link> da Participação.
         </p>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center" }}>
           {abaBtn("ativos", `Ativos (${ativos.length})`)}
           {abaBtn("historico", "Histórico")}
+          {canEdit && <button onClick={() => setNovo(novo ? null : { tipo: "nodewar", data: "", titulo: "" })} style={{ ...btn(novo ? C.amarelo : C.verde), fontWeight: 700, marginLeft: "auto" }}>{novo ? "× cancelar" : "＋ Novo evento (retroativo)"}</button>}
         </div>
+
+        {canEdit && novo && (
+          <div style={{ ...card, marginBottom: 16, borderColor: C.verde }}>
+            <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 10 }}>Novo evento retroativo — sem disparo (para pendurar o resultado de uma war passada)</div>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div><div style={{ color: C.mute, fontSize: 11, marginBottom: 3 }}>Tipo</div><select value={novo.tipo} onChange={(e) => setNovo({ ...novo, tipo: e.target.value })} style={input}><option value="nodewar">Nodewar</option><option value="siege">Siege</option></select></div>
+              <div><div style={{ color: C.mute, fontSize: 11, marginBottom: 3 }}>Data</div><input type="date" value={novo.data} onChange={(e) => setNovo({ ...novo, data: e.target.value })} style={input} /></div>
+              <div style={{ flex: 1, minWidth: 180 }}><div style={{ color: C.mute, fontSize: 11, marginBottom: 3 }}>Título</div><input value={novo.titulo} onChange={(e) => setNovo({ ...novo, titulo: e.target.value })} placeholder="ex: NW Sáb — Nó 40" style={{ ...input, width: "100%" }} /></div>
+              <button onClick={criarRetroativo} disabled={salvando} style={{ ...btn(C.verde), fontWeight: 700, opacity: salvando ? 0.6 : 1 }}>{salvando ? "criando…" : "Criar"}</button>
+            </div>
+            <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 8 }}>Cria já finalizado (sem snapshot). Data em branco = hoje.</div>
+          </div>
+        )}
 
         {aba === "ativos" ? (
           ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo. Dispare na <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.</div> : (
