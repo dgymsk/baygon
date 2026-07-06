@@ -10,7 +10,7 @@ import RosterView from "./RosterView";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 // texto padrão da chamada de registro (o botão "Registrar" entra automático abaixo). Emoji unicode (a API não expande :brazil:).
-const MSG_REGISTRO = "🇧🇷 Vamos utilizar um bot customizado para registrar a presença das guerras, você vai precisar fazer o registro através do botão abaixo.\n\n🇪🇸 Vamos a utilizar un bot personalizado para registrar la asistencia a las guerras, necesitarás hacer el registro a través del botón de abajo.";
+const MSG_REGISTRO = "🇧🇷 Vamos utilizar um bot customizado para registrar a presença das guerras, você vai precisar fazer o registro através do botão abaixo.\nPara poder marcar participação nas guerras, somente pessoas registradas conseguirão ver.\n\n🇪🇸 Vamos a utilizar un bot personalizado para registrar la asistencia a las guerras, necesitarás hacer el registro a través del botón de abajo.\nPara poder marcar la participación en las guerras, solo las personas registradas podrán verlo.";
 const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = "none"; };
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
 type Aba = "disparo" | "pts" | "templates" | "atribuicao" | "buzinador";
