@@ -54,32 +54,44 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const ptsTpl = new Set(tpl.pts.map((tp) => tp.pt_id));
   const chavesAtrib = new Set(membros.filter((m) => ptsTpl.has(m.pt_id)).map((m) => m.chave));
 
-  const statusU = (userId: string, resp: "can" | "cant") => (resp === "cant" ? "❌" : confirmados.has(userId) ? "✅" : "⏳");
-  const statusCh = (chave: string) => { const r = respByChave.get(chave); return r ? statusU(r.user_id, r.resposta) : "⬜"; };
   const nomeCh = (chave: string, familia: string) => { const r = respByChave.get(chave); return r?.user_id ? `<@${r.user_id}>` : familia; };
-  const ordem = { "✅": 0, "⏳": 1, "⬜": 2, "❌": 3 } as Record<string, number>;
 
+  // um BOX (field inline) por PT: confirmados (✅) e, separada, a espera (⏳). ⬜/❌ vão pras listas abaixo.
   const fields: { name: string; value: string; inline?: boolean }[] = [];
+  const naoDecididos: MembroE[] = [];
   for (const tp of tpl.pts) {
     const pt = ptById.get(tp.pt_id);
     if (!pt) continue;
-    const mem = (membrosPorPt.get(tp.pt_id) ?? []).slice().sort((a, b) => ordem[statusCh(a.chave)] - ordem[statusCh(b.chave)]);
-    const conf = mem.filter((m) => { const r = respByChave.get(m.chave); return r && r.resposta === "can" && confirmados.has(r.user_id); }).length;
-    const linhas = mem.map((m) => `${statusCh(m.chave)} ${nomeCh(m.chave, m.familia)}`);
+    const mem = membrosPorPt.get(tp.pt_id) ?? [];
+    const conf: MembroE[] = [];
+    const esp: MembroE[] = [];
+    for (const m of mem) {
+      const r = respByChave.get(m.chave);
+      if (!r) { naoDecididos.push(m); continue; } // ⬜ sem resposta
+      if (r.resposta === "cant") continue;          // ❌ vai pra "Não vão"
+      (confirmados.has(r.user_id) ? conf : esp).push(m);
+    }
+    const linhas = conf.map((m) => `✅ ${nomeCh(m.chave, m.familia)}`);
+    if (esp.length) { linhas.push("**⏳ Espera**"); for (const m of esp) linhas.push(`⏳ ${nomeCh(m.chave, m.familia)}`); }
     const pref = pt.emoji ? `${pt.emoji} ` : "";
     const cap = tp.limite != null ? `/${tp.limite}` : "";
-    fields.push({ name: `${pref}${pt.nome} — ${conf}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(vazio)_").slice(0, 1024), inline: true });
+    fields.push({ name: `${pref}${pt.nome} — ${conf.length}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(ninguém)_").slice(0, 1024), inline: true });
   }
 
-  const semPt = (r: RespE) => !r.chave || !chavesAtrib.has(r.chave);
-  const semPtCan = respostas.filter((r) => r.resposta === "can" && semPt(r));
-  if (semPtCan.length) fields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${statusU(r.user_id, "can")} <@${r.user_id}>`).join("\n").slice(0, 1024) });
-  const cant = respostas.filter((r) => r.resposta === "cant" && semPt(r));
-  if (cant.length) fields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(" ").slice(0, 1024) });
+  // listas separadas, full-width, logo abaixo dos boxes
+  const semPtCan = respostas.filter((r) => r.resposta === "can" && (!r.chave || !chavesAtrib.has(r.chave)));
+  if (semPtCan.length) fields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳" : "✅"} <@${r.user_id}>`).join("  ").slice(0, 1024), inline: false });
+  if (naoDecididos.length) fields.push({ name: `⬜ Não decididos — ${naoDecididos.length}`, value: naoDecididos.map((m) => nomeCh(m.chave, m.familia)).join(", ").slice(0, 1024), inline: false });
+  const cant = respostas.filter((r) => r.resposta === "cant");
+  if (cant.length) fields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(", ").slice(0, 1024), inline: false });
 
   const capStr = tpl.tamanho_max != null ? `${confirmados.size}/${tpl.tamanho_max}` : `${confirmados.size}`;
-  const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} na espera` : "";
-  const embed = { title: `${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256), description: (cfg.mensagem || undefined)?.slice(0, 4000), color: COR, fields: fields.slice(0, 25) };
+  const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} espera` : "";
+  const embed: { title: string; description?: string; color: number; fields: typeof fields; image?: { url: string } } = {
+    title: `${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256),
+    description: (cfg.mensagem || undefined)?.slice(0, 4000), color: COR, fields: fields.slice(0, 25),
+  };
+  if (cfg.imagem) embed.image = { url: cfg.imagem }; // imagem no final, "só por graça"
   const components = [{
     type: 1,
     components: [

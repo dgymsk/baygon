@@ -181,6 +181,7 @@ export default function ParticipacaoBoard({
                     <div><label style={label}>Cargo a mencionar</label><input value={c.pingRoleId} readOnly={ro} onChange={(e) => setField(t, "pingRoleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="opcional" style={{ ...input, width: "100%" }} /></div>
                   </div>
                   <div style={{ marginTop: 8 }}><label style={label}>Mensagem (descrição)</label><textarea value={c.mensagem} readOnly={ro} onChange={(e) => setField(t, "mensagem", e.target.value)} rows={2} style={{ ...input, width: "100%", resize: "vertical" }} /></div>
+                <div style={{ marginTop: 8 }}><label style={label}>Imagem no final (URL, opcional)</label><input value={c.imagem} readOnly={ro} onChange={(e) => setField(t, "imagem", e.target.value)} placeholder="https://…" style={{ ...input, width: "100%" }} /></div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12.5 }}>
                       <input type="checkbox" checked={c.agenda.ativo} disabled={ro} onChange={(e) => setAgenda(t, { ativo: e.target.checked })} style={{ accentColor: C.verde }} /> Agendar
@@ -212,11 +213,13 @@ export default function ParticipacaoBoard({
                         {sit.pts.map((g) => (
                           <div key={g.id} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.surfaceSolid, padding: "8px 10px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, paddingBottom: 5, borderBottom: `1px solid ${C.borderSoft}` }}>
-                              <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b><span style={{ color: g.limite != null && g.confirmados >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados}{g.limite != null ? `/${g.limite}` : ""}</span>
+                              <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b><span style={{ color: g.limite != null && g.confirmados.length >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados.length}{g.limite != null ? `/${g.limite}` : ""}</span>
                             </div>
-                            {g.membros.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém atribuído</span> : (
+                            {g.confirmados.length === 0 && g.espera.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém confirmou</span> : (
                               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                {g.membros.map((m, i) => <span key={m.familia + i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}><span>{statusIcon(m.status)}</span><NomePerfil nome={m.familia} userId={m.userId} bold={m.status === "can"} /></span>)}
+                                {g.confirmados.map((m, i) => <span key={"c" + i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}>✅ <NomePerfil nome={m.familia} userId={m.userId} bold /></span>)}
+                                {g.espera.length > 0 && <span style={{ color: C.amarelo, fontSize: 11, fontWeight: 700, marginTop: 3 }}>⏳ Espera</span>}
+                                {g.espera.map((m, i) => <span key={"e" + i} style={{ fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 5 }}>⏳ <NomePerfil nome={m.familia} userId={m.userId} /></span>)}
                               </div>
                             )}
                           </div>
@@ -228,8 +231,14 @@ export default function ParticipacaoBoard({
                           <div style={{ marginTop: 3 }}>{sit.semPt.map((r, i) => <span key={r.userId ?? i}>{statusIcon(r.status)} <NomePerfil nome={r.familia || "?"} userId={r.userId} bold />{i < sit.semPt.length - 1 ? "  " : ""}</span>)}</div>
                         </div>
                       )}
+                      {sit.naoDecididos.length > 0 && (
+                        <div style={{ marginTop: 8, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 8 }}>
+                          <div style={{ color: C.mute, fontSize: 12, fontWeight: 700, marginBottom: 3 }}>⬜ Não decididos ({sit.naoDecididos.length})</div>
+                          <div style={{ fontSize: 12.5, color: C.mute }}>{sit.naoDecididos.map((r, i) => <span key={r.familia + i}>{r.familia}{i < sit.naoDecididos.length - 1 ? ", " : ""}</span>)}</div>
+                        </div>
+                      )}
                       {sit.cant.length > 0 && (
-                        <div style={{ marginTop: 10, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 8 }}>
+                        <div style={{ marginTop: 8, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 8 }}>
                           <div style={{ color: C.vermelho, fontSize: 12, fontWeight: 700, marginBottom: 3 }}>❌ Não vão ({sit.cant.length})</div>
                           <div style={{ fontSize: 12.5, color: C.mute }}>{sit.cant.map((r, i) => <span key={r.userId ?? i}><NomePerfil nome={r.familia || "?"} userId={r.userId} />{i < sit.cant.length - 1 ? ", " : ""}</span>)}</div>
                         </div>
