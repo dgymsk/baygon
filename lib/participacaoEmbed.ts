@@ -56,42 +56,49 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
 
   const nomeCh = (chave: string, familia: string) => { const r = respByChave.get(chave); return r?.user_id ? `<@${r.user_id}>` : familia; };
 
-  // um BOX (field inline) por PT: confirmados (✅) e, separada, a espera (⏳). ⬜/❌ vão pras listas abaixo.
-  const fields: { name: string; value: string; inline?: boolean }[] = [];
+  type Emb = { title?: string; description?: string; color: number; fields?: { name: string; value: string; inline?: boolean }[]; image?: { url: string } };
+  const embeds: Emb[] = [];
+
+  // 1) cabeçalho (total + descrição)
+  const capStr = tpl.tamanho_max != null ? `${confirmados.size}/${tpl.tamanho_max}` : `${confirmados.size}`;
+  const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} espera` : "";
+  embeds.push({ title: `📢 ${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256), description: (cfg.mensagem || undefined)?.slice(0, 2000), color: COR });
+
+  // 2) UM BOX (embed) por PT: confirmados (✅) e, separada, a espera (⏳)
   const naoDecididos: MembroE[] = [];
   for (const tp of tpl.pts) {
     const pt = ptById.get(tp.pt_id);
     if (!pt) continue;
-    const mem = membrosPorPt.get(tp.pt_id) ?? [];
     const conf: MembroE[] = [];
     const esp: MembroE[] = [];
-    for (const m of mem) {
+    for (const m of membrosPorPt.get(tp.pt_id) ?? []) {
       const r = respByChave.get(m.chave);
-      if (!r) { naoDecididos.push(m); continue; } // ⬜ sem resposta
-      if (r.resposta === "cant") continue;          // ❌ vai pra "Não vão"
+      if (!r) { naoDecididos.push(m); continue; } // ⬜ sem resposta → lista abaixo
+      if (r.resposta === "cant") continue;          // ❌ → lista "Não vão"
       (confirmados.has(r.user_id) ? conf : esp).push(m);
     }
     const linhas = conf.map((m) => `✅ ${nomeCh(m.chave, m.familia)}`);
-    if (esp.length) { linhas.push("**⏳ Espera**"); for (const m of esp) linhas.push(`⏳ ${nomeCh(m.chave, m.familia)}`); }
-    const pref = pt.emoji ? `${pt.emoji} ` : "";
+    if (esp.length) { linhas.push("", "**⏳ Espera**"); for (const m of esp) linhas.push(`⏳ ${nomeCh(m.chave, m.familia)}`); }
     const cap = tp.limite != null ? `/${tp.limite}` : "";
-    fields.push({ name: `${pref}${pt.nome} — ${conf.length}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(ninguém)_").slice(0, 1024), inline: true });
+    embeds.push({ title: `${pt.emoji ? pt.emoji + " " : ""}${pt.nome} — ${conf.length}${cap}`.slice(0, 256), description: (linhas.length ? linhas.join("\n") : "_(ninguém)_").slice(0, 1500), color: COR });
+    if (embeds.length >= 9) break; // reserva espaço p/ o embed de listas/imagem (máx 10)
   }
 
-  // listas separadas, full-width, logo abaixo dos boxes
+  // 3) listas separadas (Sem PT / Não decididos / Não vão) + imagem no final
+  const fields: { name: string; value: string; inline?: boolean }[] = [];
   const semPtCan = respostas.filter((r) => r.resposta === "can" && (!r.chave || !chavesAtrib.has(r.chave)));
-  if (semPtCan.length) fields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳" : "✅"} <@${r.user_id}>`).join("  ").slice(0, 1024), inline: false });
-  if (naoDecididos.length) fields.push({ name: `⬜ Não decididos — ${naoDecididos.length}`, value: naoDecididos.map((m) => nomeCh(m.chave, m.familia)).join(", ").slice(0, 1024), inline: false });
+  if (semPtCan.length) fields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳" : "✅"} <@${r.user_id}>`).join("  ").slice(0, 1024) });
+  if (naoDecididos.length) fields.push({ name: `⬜ Não decididos — ${naoDecididos.length}`, value: naoDecididos.map((m) => nomeCh(m.chave, m.familia)).join(", ").slice(0, 1024) });
   const cant = respostas.filter((r) => r.resposta === "cant");
-  if (cant.length) fields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(", ").slice(0, 1024), inline: false });
+  if (cant.length) fields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(", ").slice(0, 1024) });
+  if (fields.length || cfg.imagem) {
+    const fim: Emb = { color: COR };
+    if (fields.length) fim.fields = fields;
+    if (cfg.imagem) fim.image = { url: cfg.imagem };
+    embeds.push(fim);
+  }
 
-  const capStr = tpl.tamanho_max != null ? `${confirmados.size}/${tpl.tamanho_max}` : `${confirmados.size}`;
-  const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} espera` : "";
-  const embed: { title: string; description?: string; color: number; fields: typeof fields; image?: { url: string } } = {
-    title: `${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256),
-    description: (cfg.mensagem || undefined)?.slice(0, 4000), color: COR, fields: fields.slice(0, 25),
-  };
-  if (cfg.imagem) embed.image = { url: cfg.imagem }; // imagem no final, "só por graça"
+  const embedsFinal = embeds.slice(0, 10);
   const components = [{
     type: 1,
     components: [
@@ -99,5 +106,5 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
       { type: 2, style: 4, label: "Cant", custom_id: `part:cant:${templateId}` },
     ],
   }];
-  return { embeds: [embed], components };
+  return { embeds: embedsFinal, components };
 }
