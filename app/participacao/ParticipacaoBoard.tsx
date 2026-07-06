@@ -9,6 +9,8 @@ import type { PtVM, MembroVM, TemplateVM, EmojiGuild, EventoAtivoVM } from "./pa
 import RosterView from "./RosterView";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+// texto padrão da chamada de registro (o botão "Registrar" entra automático abaixo). Emoji unicode (a API não expande :brazil:).
+const MSG_REGISTRO = "🇧🇷 Vamos utilizar um bot customizado para registrar a presença das guerras, você vai precisar fazer o registro através do botão abaixo.\n\n🇪🇸 Vamos a utilizar un bot personalizado para registrar la asistencia a las guerras, necesitarás hacer el registro a través del botón de abajo.";
 const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = "none"; };
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
 type Aba = "disparo" | "pts" | "templates" | "atribuicao" | "buzinador";
@@ -450,7 +452,7 @@ export default function ParticipacaoBoard({
               <label style={label}>Audiência</label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {([["role", "Por cargo"], ["todos", "Todos os membros"], ["lista", "Lista de IDs"], ["nao_registrados", "🔒 Não registrados"]] as const).map(([v, txt]) => (
-                  <button key={v} onClick={() => !ro && setBuzF("tipo", v)} disabled={ro} style={{ ...btn(buz.tipo === v ? C.verde : C.mute), background: buz.tipo === v ? C.verdeTint : "transparent" }}>{txt}</button>
+                  <button key={v} onClick={() => { if (ro) return; setBuz((b) => ({ ...b, tipo: v, mensagem: v === "nao_registrados" && !b.mensagem.trim() ? MSG_REGISTRO : b.mensagem })); }} disabled={ro} style={{ ...btn(buz.tipo === v ? C.verde : C.mute), background: buz.tipo === v ? C.verdeTint : "transparent" }}>{txt}</button>
                 ))}
               </div>
               {(buz.tipo === "role" || buz.tipo === "nao_registrados") && (
