@@ -14,17 +14,37 @@ export type TemplateE = { nome: string; tamanho_max: number | null; pts: { pt_id
 
 const COR = 0x34e06a;
 
-/** Classifica os Can em confirmados (primeiros tamanho_max por can_em) vs espera. Chaveado por user_id. */
-export function classificar(respostas: { user_id: string; resposta: "can" | "cant"; can_em: string | null }[], max: number | null): { confirmados: Set<string>; espera: Set<string> } {
-  const cans = respostas.filter((r) => r.resposta === "can").sort((a, b) => { const c = (a.can_em ?? "").localeCompare(b.can_em ?? ""); return c !== 0 ? c : a.user_id.localeCompare(b.user_id); });
+/**
+ * Espera POR PT: em cada PT, os primeiros `limite` a confirmar (ordem can_em) entram (✅);
+ * o resto fica na espera daquele PT (⏳). PTs sem limite → todos entram. Quem deu Can e não
+ * está em nenhum PT do template → confirmado (sem limite). Chaveado por user_id.
+ */
+export function classificarPorPt(
+  tplPts: { pt_id: number; limite: number | null }[],
+  membros: { chave: string; pt_id: number }[],
+  respostas: { user_id: string; chave: string | null; resposta: "can" | "cant"; can_em: string | null }[],
+): { confirmados: Set<string>; espera: Set<string> } {
+  const respByChave = new Map<string, { user_id: string; can_em: string | null }>();
+  for (const r of respostas) if (r.chave && r.resposta === "can") respByChave.set(r.chave, r);
+  const chavesPorPt = new Map<number, string[]>();
+  for (const m of membros) { const a = chavesPorPt.get(m.pt_id) ?? []; a.push(m.chave); chavesPorPt.set(m.pt_id, a); }
   const confirmados = new Set<string>();
   const espera = new Set<string>();
-  cans.forEach((r, i) => (max == null || i < max ? confirmados : espera).add(r.user_id));
+  const chavesNoTpl = new Set<string>();
+  for (const tp of tplPts) {
+    const chaves = chavesPorPt.get(tp.pt_id) ?? [];
+    for (const ch of chaves) chavesNoTpl.add(ch);
+    const cans = chaves.map((ch) => respByChave.get(ch)).filter((r): r is { user_id: string; can_em: string | null } => !!r)
+      .sort((a, b) => { const c = (a.can_em ?? "").localeCompare(b.can_em ?? ""); return c !== 0 ? c : a.user_id.localeCompare(b.user_id); });
+    cans.forEach((r, i) => (tp.limite == null || i < tp.limite ? confirmados : espera).add(r.user_id));
+  }
+  // deu Can mas não está em PT do template → confirmado (sem limite de PT)
+  for (const r of respostas) if (r.resposta === "can" && (!r.chave || !chavesNoTpl.has(r.chave))) confirmados.add(r.user_id);
   return { confirmados, espera };
 }
 
 export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[]) {
-  const { confirmados, espera } = classificar(respostas, tpl.tamanho_max);
+  const { confirmados, espera } = classificarPorPt(tpl.pts, membros, respostas);
   const respByChave = new Map<string, RespE>();
   for (const r of respostas) if (r.chave) respByChave.set(r.chave, r);
   const ptById = new Map(ptsCat.map((p) => [p.id, p]));

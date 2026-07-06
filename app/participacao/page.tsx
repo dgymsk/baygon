@@ -1,6 +1,6 @@
 import { getParticipacaoConfig, postsAtivos, getRespostas } from "@/lib/participacao";
 import { listPts, listMembros, listTemplates, getTemplate } from "@/lib/participacaoPt";
-import { classificar } from "@/lib/participacaoEmbed";
+import { classificarPorPt } from "@/lib/participacaoEmbed";
 import { listarEmojisGuild, type EmojiGuild } from "@/lib/discordApi";
 import { TIPOS, type Tipo } from "@/lib/participacaoConfig";
 import { listPlayers } from "@/lib/players";
@@ -37,10 +37,10 @@ export default async function ParticipacaoPage() {
     const tpl = templates.find((t) => t.id === post.template_id) ?? (await getTemplate(post.template_id));
     if (!tpl) { situacao[tipo] = null; continue; }
     const respostas = await getRespostas(post.message_id);
-    const { confirmados, espera } = classificar(respostas, tpl.tamanho_max);
+    const membrosTipo = membros.filter((m) => m.tipo === tipo);
+    const { confirmados, espera } = classificarPorPt(tpl.pts, membrosTipo, respostas); // espera POR PT
     const statusDe = (r: { user_id: string; resposta: "can" | "cant" }): StatusResp => (r.resposta === "cant" ? "cant" : confirmados.has(r.user_id) ? "can" : "espera");
     const respByChave = new Map(respostas.map((r) => [chaveNome(casarNome(r.familia || r.username, [], playersCands)), r]));
-    const membrosTipo = membros.filter((m) => m.tipo === tipo);
     const membrosPorPt = new Map<number, typeof membrosTipo>();
     for (const m of membrosTipo) { const a = membrosPorPt.get(m.pt_id) ?? []; a.push(m); membrosPorPt.set(m.pt_id, a); }
     const ptsTpl = new Set(tpl.pts.map((tp) => tp.pt_id));
