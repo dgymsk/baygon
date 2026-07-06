@@ -17,5 +17,5 @@ export default auth((req) => {
 // Ed25519) e api/participacao/cron (Vercel Cron, protegido por CRON_SECRET). Todo o
 // resto — incluindo as demais /api de escrita/leitura — passa pelo gate.
 export const config = {
-  matcher: ["/((?!api/auth|api/discord/interactions|api/participacao/cron|_next|login|guilds/|mascot\\.png|favicon\\.ico).*)"],
+  matcher: ["/((?!api/auth|api/discord/interactions|api/participacao/cron|api/img|_next|login|guilds/|mascot\\.png|favicon\\.ico).*)"],
 };
