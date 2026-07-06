@@ -21,7 +21,8 @@ export type TemplatePtVM = { pt_id: number; limite: number | null };
 export type TemplateVM = { id: number; nome: string; tipo: string; tamanho_max: number | null; pts: TemplatePtVM[] };
 export type EventoRef = { uuid: string | null; status: string | null } | null;
 
-export default async function ParticipacaoPage() {
+export default async function ParticipacaoPage({ searchParams }: { searchParams: Promise<{ aba?: string }> }) {
+  const { aba: abaInicial } = await searchParams;
   const [cfg, posts, players, pts, membros, templates, emojis, roles, imagens, dcfg, canEdit] = await Promise.all([
     getParticipacaoConfig(), postsAtivos(), listPlayers(), listPts(), listMembros(), listTemplates(), listarEmojisGuild(), listarRolesGuild(), listImagens(), getDiscordConfig(), canEditNow(),
   ]);
@@ -43,5 +44,5 @@ export default async function ParticipacaoPage() {
     situacao[tipo] = montarSituacao(tpl, membrosTipo, respostas, ptById, playersCands);
   }
 
-  return <ParticipacaoBoard cfgInit={cfg} pts={pts as PtVM[]} membros={membros.map((m) => ({ tipo: m.tipo, familia: m.familia, pt_id: m.pt_id }))} templates={templates as TemplateVM[]} situacao={situacao} eventos={eventos} playersAtivos={playersAtivos} emojis={emojis} roles={roles} imagens={imagens} reportChannel={dcfg.reportChannel} canEdit={canEdit} />;
+  return <ParticipacaoBoard cfgInit={cfg} pts={pts as PtVM[]} membros={membros.map((m) => ({ tipo: m.tipo, familia: m.familia, pt_id: m.pt_id }))} templates={templates as TemplateVM[]} situacao={situacao} eventos={eventos} playersAtivos={playersAtivos} emojis={emojis} roles={roles} imagens={imagens} reportChannel={dcfg.reportChannel} abaInicial={abaInicial} canEdit={canEdit} />;
 }

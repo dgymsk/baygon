@@ -113,9 +113,19 @@ export default function EventosBoard({ ativos, historico, templates, filtros, ab
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           {abaBtn("ativos", `Ativos (${ativos.length})`)}
           {abaBtn("historico", "Histórico")}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 16, fontSize: 12.5 }}>
+          <span style={{ color: C.mute, textTransform: "uppercase", fontSize: 11, letterSpacing: 1 }}>Configurar →</span>
+          <Link href="/participacao?aba=templates" style={{ color: C.verde, textDecoration: "none" }}>Templates</Link>
+          <span style={{ color: C.borderSoft }}>·</span>
+          <Link href="/participacao?aba=pts" style={{ color: C.verde, textDecoration: "none" }}>PTs</Link>
+          <span style={{ color: C.borderSoft }}>·</span>
+          <Link href="/participacao?aba=atribuicao" style={{ color: C.verde, textDecoration: "none" }}>Atribuição</Link>
+          <span style={{ color: C.borderSoft }}>·</span>
+          <Link href="/participacao?aba=disparo" style={{ color: C.verde, textDecoration: "none" }}>Mensagem / canal / agenda</Link>
         </div>
 
         {aba === "ativos" ? (

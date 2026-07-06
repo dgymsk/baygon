@@ -27,14 +27,15 @@ function GEmoji({ emoji, emojis, size = 15 }: { emoji: string; emojis: EmojiGuil
 }
 
 export default function ParticipacaoBoard({
-  cfgInit, pts, membros, templates, situacao, eventos, playersAtivos, emojis, roles, imagens, reportChannel, canEdit,
+  cfgInit, pts, membros, templates, situacao, eventos, playersAtivos, emojis, roles, imagens, reportChannel, abaInicial, canEdit,
 }: {
   cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; situacao: Record<Tipo, SituacaoVM>; eventos: Record<Tipo, EventoRef>;
-  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; reportChannel: string; canEdit: boolean;
+  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; reportChannel: string; abaInicial?: string; canEdit: boolean;
 }) {
   const router = useRouter();
   const ro = !canEdit;
-  const [aba, setAba] = useState<Aba>("disparo");
+  const ABAS: Aba[] = ["disparo", "pts", "templates", "atribuicao", "buzinador"];
+  const [aba, setAba] = useState<Aba>(ABAS.includes(abaInicial as Aba) ? (abaInicial as Aba) : "disparo");
   const [cfg, setCfg] = useState<ParticipacaoConfig>(cfgInit);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [disparando, setDisparando] = useState(false);
