@@ -45,8 +45,8 @@ export async function travarEvento(id: number): Promise<{ ok: boolean; erro?: st
   return { ok: true, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null };
 }
 
-/** Constrói o snapshot do roster (o "bot final") a partir do post ligado ao evento. */
-async function montarSnapshot(post: { message_id: string; tipo: string; template_id: number | null }): Promise<EventoSnapshot | null> {
+/** Recalcula o roster (SituacaoNN) do post ligado ao evento, do estado ATUAL das respostas. */
+async function computeSituacao(post: { message_id: string; tipo: string; template_id: number | null }): Promise<SituacaoNN | null> {
   if (!post.template_id) return null;
   const tpl = await getTemplate(post.template_id);
   if (!tpl) return null;
@@ -56,8 +56,19 @@ async function montarSnapshot(post: { message_id: string; tipo: string; template
     FROM participacao_resp WHERE war_key = ${post.message_id} ORDER BY atualizado`) as { user_id: string; username: string; familia: string | null; chave: string | null; tipo: string; resposta: "can" | "cant"; can_em: string | null; atualizado: string }[];
   const ptById = new Map(pts.map((p) => [p.id, p]));
   const playersCands = players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia }));
-  const sit = montarSituacao(tpl, membros, respostas, ptById, playersCands);
-  return { ...sit, versao: 1, capturadoEm: new Date().toISOString(), warKey: post.message_id };
+  return montarSituacao(tpl, membros, respostas, ptById, playersCands);
+}
+
+/** Snapshot do roster (o "bot final") — congela o computeSituacao + metadados. */
+async function montarSnapshot(post: { message_id: string; tipo: string; template_id: number | null }): Promise<EventoSnapshot | null> {
+  const sit = await computeSituacao(post);
+  return sit ? { ...sit, versao: 1, capturadoEm: new Date().toISOString(), warKey: post.message_id } : null;
+}
+
+/** Situação AO VIVO de um evento (pro acompanhamento na aba Ativos). Recalcula do estado atual. */
+export async function situacaoAoVivoPorEvento(eventoId: number): Promise<SituacaoNN | null> {
+  const posts = (await sql`SELECT message_id, tipo, template_id::int AS template_id FROM participacao_post WHERE evento_id = ${eventoId} ORDER BY criado DESC LIMIT 1`) as { message_id: string; tipo: string; template_id: number | null }[];
+  return posts[0] ? computeSituacao(posts[0]) : null;
 }
 
 /** Finaliza: congela o snapshot + status='finalizado'. IDEMPOTENTE (2ª chamada não reescreve o snapshot).

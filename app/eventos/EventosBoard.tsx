@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { TIPOS } from "@/lib/participacaoConfig";
 import type { Evento } from "@/lib/eventos";
-import type { TemplateOpt } from "./page";
+import type { TemplateOpt, EventoAtivo } from "./page";
+import RosterView from "@/app/participacao/RosterView";
 
 const rotulo = (t: string) => (t === "siege" ? "Siege" : t === "nodewar" ? "Nodewar" : t);
 function statusBadge(s: string) {
@@ -20,13 +21,22 @@ function statusBadge(s: string) {
 }
 
 export default function EventosBoard({ ativos, historico, templates, filtros, aba, canEdit }: {
-  ativos: Evento[]; historico: Evento[]; templates: TemplateOpt[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico"; canEdit: boolean;
+  ativos: EventoAtivo[]; historico: Evento[]; templates: TemplateOpt[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico"; canEdit: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<number | null>(null);
   const [f, setF] = useState(filtros);
   const [disp, setDisp] = useState<Record<string, string>>({});
   const [disparando, setDisparando] = useState(false);
+  const [selId, setSelId] = useState<number | null>(null);
+  const sel = ativos.find((e) => e.id === selId) ?? ativos[0] ?? null; // fallback: 1º ativo se nada selecionado/estale
+
+  // acompanhamento ao vivo: refresca o roster dos ativos a cada 15s
+  useEffect(() => {
+    if (aba !== "ativos" || ativos.length === 0) return;
+    const id = setInterval(() => router.refresh(), 15000);
+    return () => clearInterval(id);
+  }, [aba, ativos.length, router]);
 
   async function disparar(t: string) {
     const templateId = Number(disp[t]);
@@ -131,9 +141,38 @@ export default function EventosBoard({ ativos, historico, templates, filtros, ab
               </div>
             )}
             {ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo — dispare um acima.</div> : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-                {ativos.map((e) => <Cartao key={e.id} e={e} acoes />)}
-              </div>
+              <>
+                {/* dropdown pra ESCOLHER qual evento acompanhar */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                  <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>Acompanhar</span>
+                  <select value={sel?.id ?? ""} onChange={(e) => setSelId(Number(e.target.value))} style={{ ...input, minWidth: 280, flex: 1, maxWidth: 500 }}>
+                    {ativos.map((e) => <option key={e.id} value={e.id}>{rotulo(e.tipo)} · {e.titulo || "(sem título)"} · {e.data} · {e.status}</option>)}
+                  </select>
+                </div>
+                {/* evento selecionado: roster AO VIVO + ações (fechar/finalizar ali) */}
+                {sel && (
+                  <div style={card}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 17, fontWeight: 800, color: C.amarelo }}>{sel.titulo || "(sem título)"}</span>
+                        {statusBadge(sel.status)}
+                        <span style={{ color: C.mute, fontSize: 12 }}>{rotulo(sel.tipo)} · {sel.data}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <Link href={`/eventos/${sel.uuid}`} style={{ ...btn(C.amarelo), textDecoration: "none" }}>Abrir →</Link>
+                        {canEdit && sel.status === "aberto" && <button onClick={() => acao(sel.id, "travar")} disabled={busy === sel.id} style={btn(C.amarelo)}>🔒 Travar</button>}
+                        {canEdit && sel.status !== "finalizado" && <button onClick={() => acao(sel.id, "finalizar")} disabled={busy === sel.id} style={{ ...btn(C.verde), fontWeight: 700 }}>🏁 Finalizar</button>}
+                      </div>
+                    </div>
+                    {sel.sit ? (
+                      <>
+                        <div style={{ color: C.verde, fontSize: 12.5, marginBottom: 10 }}>● {sel.sit.templateNome} — {sel.sit.totalConfirmados}{sel.sit.tamanhoMax != null ? `/${sel.sit.tamanhoMax}` : ""} confirmados{sel.sit.totalEspera > 0 ? ` · ⏳ ${sel.sit.totalEspera} espera` : ""} <span style={{ color: C.borderSoft }}>· atualiza a cada 15s</span></div>
+                        <RosterView sit={sel.sit} />
+                      </>
+                    ) : <div style={{ color: C.borderSoft, fontSize: 12.5 }}>Sem roster (template removido?).</div>}
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (
