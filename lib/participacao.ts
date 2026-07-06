@@ -3,6 +3,7 @@ import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { parseParticipacaoConfig, rotuloTipo, type ParticipacaoConfig, type Tipo } from "@/lib/participacaoConfig";
 import { listPts, listMembros, getTemplate } from "@/lib/participacaoPt";
 import { montarEmbed } from "@/lib/participacaoEmbed";
+import { perfilGear } from "@/lib/players";
 import { statusPorWarKey } from "@/lib/eventos";
 
 /**
@@ -60,8 +61,8 @@ export async function postarMensagem(templateId: number): Promise<{ ok: boolean;
   const cfg = (await getParticipacaoConfig())[tpl.tipo as Tipo];
   if (!cfg.channelId) return { ok: false, erro: `canal do ${rotuloTipo(tpl.tipo as Tipo)} não configurado` };
 
-  const [pts, membros] = await Promise.all([listPts(), listMembros(tpl.tipo)]);
-  const payload = montarEmbed(cfg, templateId, tpl, pts, membros, []); // rodada nova
+  const [pts, membros, perfil] = await Promise.all([listPts(), listMembros(tpl.tipo), perfilGear()]);
+  const payload = montarEmbed(cfg, templateId, tpl, pts, membros, [], perfil); // rodada nova
   const body = {
     content: cfg.pingRoleId ? `<@&${cfg.pingRoleId}>` : undefined,
     allowed_mentions: cfg.pingRoleId ? { roles: [cfg.pingRoleId] } : { parse: [] },
@@ -101,6 +102,6 @@ export async function registrarClique(o: { warKey: string; userId: string; usern
   }
   await upsertResposta({ warKey: o.warKey, userId: o.userId, username: o.username, familia: o.familia, chave: o.chave, tipo: tpl.tipo, resposta: o.resposta });
   const cfg = (await getParticipacaoConfig())[tpl.tipo as Tipo];
-  const [pts, membros, respostas] = await Promise.all([listPts(), listMembros(tpl.tipo), getRespostas(o.warKey)]);
-  return montarEmbed(cfg, o.templateId, tpl, pts, membros, respostas) as unknown as Record<string, unknown>;
+  const [pts, membros, respostas, perfil] = await Promise.all([listPts(), listMembros(tpl.tipo), getRespostas(o.warKey), perfilGear()]);
+  return montarEmbed(cfg, o.templateId, tpl, pts, membros, respostas, perfil) as unknown as Record<string, unknown>;
 }

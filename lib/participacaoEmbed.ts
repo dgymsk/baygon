@@ -49,7 +49,10 @@ export function classificarPorPt(
   return { confirmados, espera };
 }
 
-export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[]) {
+export type PerfilE = { guilda: string; classe: string | null; gs: number | null };
+const TAGE = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : "---"); // 3 chars p/ alinhar
+
+export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[], perfil?: Map<string, PerfilE>) {
   const { confirmados, espera } = classificarPorPt(tpl.pts, membros, respostas);
   const respByChave = new Map<string, RespE>();
   for (const r of respostas) if (r.chave) respByChave.set(r.chave, r);
@@ -78,12 +81,24 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
       if (r.resposta === "cant") continue;          // ❌ → lista "Não vão"
       (confirmados.has(r.user_id) ? conf : esp).push(m);
     }
-    const linhas = conf.map((m) => `✅ ${nomeCh(m.chave, m.familia)}`);
-    if (esp.length) { linhas.push("**⏳ Espera**"); for (const m of esp) linhas.push(`⏳ ${nomeCh(m.chave, m.familia)}`); }
+    // linha estilo roster: [TAG] nick(pad) GS [Classe] — code block p/ alinhar em monospace (igual ao print).
+    const nickW = Math.min(16, Math.max(6, ...[...conf, ...esp].map((m) => (m.familia || "?").length), 6));
+    const semCrase = (s: string) => s.replace(/`/g, "'"); // crase quebraria o code block
+    const linhaGear = (m: MembroE) => {
+      const p = perfil?.get(m.chave);
+      const nick = semCrase(m.familia || "?").slice(0, nickW).padEnd(nickW);
+      const gsS = (p?.gs != null ? String(p.gs) : "—").padStart(4);
+      return `[${TAGE(p?.guilda)}] ${nick} ${gsS}${p?.classe ? ` [${semCrase(p.classe)}]` : ""}`;
+    };
+    const rows = conf.map(linhaGear);
+    if (esp.length) { rows.push("--- espera ---", ...esp.map(linhaGear)); }
+    const bloco = rows.length ? "```\n" + rows.join("\n").slice(0, 4080) + "\n```" : "_(ninguém)_";
+    const gss = conf.map((m) => perfil?.get(m.chave)?.gs).filter((x): x is number => x != null);
+    const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
     const cap = tp.limite != null ? `/${tp.limite}` : "";
     ptEmbeds.push({
-      title: `${pt.emoji ? pt.emoji + " " : ""}${pt.nome} — ${conf.length}${cap}`.slice(0, 256),
-      description: (linhas.length ? linhas.join("\n") : "_(ninguém)_").slice(0, 4096),
+      title: `${pt.emoji ? pt.emoji + " " : ""}${pt.nome} — ${conf.length}${cap}${media != null ? ` · GS ${media}` : ""}`.slice(0, 256),
+      description: bloco,
       color: corHexInt(pt.cor) ?? PALETA[i % PALETA.length],
     });
   });

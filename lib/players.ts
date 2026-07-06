@@ -1,5 +1,15 @@
 import { sql } from "@/lib/db";
 import { parseGarmothId } from "@/lib/garmothId";
+import { chaveNome } from "@/lib/nomes";
+
+export type PerfilGearRow = { guilda: string; classe: string | null; gs: number | null };
+/** Mapa chaveNome(família) → {guilda, classe, GS} p/ enriquecer o embed/roster do bot. GS = (ap+aap)/2+dp. */
+export async function perfilGear(): Promise<Map<string, PerfilGearRow>> {
+  const rows = (await sql`SELECT p.nome_familia, p.guilda, p.classe_bdo, gb.ap, gb.aap, gb.dp
+    FROM players p LEFT JOIN garmoth_build gb ON gb.nome_familia = p.nome_familia`) as { nome_familia: string; guilda: string; classe_bdo: string | null; ap: number | null; aap: number | null; dp: number | null }[];
+  const gs = (ap: number | null, aap: number | null, dp: number | null) => (ap != null && aap != null && dp != null ? Math.round((ap + aap) / 2 + dp) : null);
+  return new Map(rows.map((r) => [chaveNome(r.nome_familia), { guilda: r.guilda, classe: r.classe_bdo, gs: gs(r.ap, r.aap, r.dp) }]));
+}
 
 /** Controle de membros (página /membros). */
 
