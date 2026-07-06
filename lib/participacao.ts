@@ -3,13 +3,14 @@ import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { parseParticipacaoConfig, rotuloTipo, type ParticipacaoConfig, type Tipo } from "@/lib/participacaoConfig";
 import { listPts, listMembros, getTemplate } from "@/lib/participacaoPt";
 import { montarEmbed } from "@/lib/participacaoEmbed";
+import { statusPorWarKey } from "@/lib/eventos";
 
 /**
  * Bot de participação: config (singleton) + rodadas. Cada rodada nasce de um TEMPLATE
  * (PTs + tamanho_max). war_key = id da mensagem postada. Espera calculada por can_em.
  */
 export type Resposta = { user_id: string; username: string; familia: string | null; chave: string | null; tipo: string; resposta: "can" | "cant"; can_em: string | null; atualizado: string };
-export type PostAtivo = { tipo: string; message_id: string; channel_id: string; titulo: string | null; template_id: number | null; criado: string };
+export type PostAtivo = { tipo: string; message_id: string; channel_id: string; titulo: string | null; template_id: number | null; criado: string; evento_uuid: string | null; evento_status: string | null };
 
 export async function getParticipacaoConfig(): Promise<ParticipacaoConfig> {
   const rows = (await sql`SELECT config FROM participacao_config WHERE id = 1`) as { config: string | null }[];
@@ -22,11 +23,13 @@ export async function setParticipacaoConfig(raw: unknown): Promise<ParticipacaoC
   return cfg;
 }
 
-/** Post mais recente de cada tipo (a rodada ativa). */
+/** Post mais recente de cada tipo (a rodada ativa) + o evento ligado (uuid/status). */
 export async function postsAtivos(): Promise<PostAtivo[]> {
   return (await sql`
-    SELECT DISTINCT ON (tipo) tipo, message_id, channel_id, titulo, template_id, criado::text AS criado
-    FROM participacao_post ORDER BY tipo, criado DESC
+    SELECT DISTINCT ON (p.tipo) p.tipo, p.message_id, p.channel_id, p.titulo, p.template_id, p.criado::text AS criado,
+           e.uuid AS evento_uuid, e.status AS evento_status
+    FROM participacao_post p LEFT JOIN evento e ON e.id = p.evento_id
+    ORDER BY p.tipo, p.criado DESC
   `) as PostAtivo[];
 }
 
@@ -49,8 +52,8 @@ export async function upsertResposta(r: { warKey: string; userId: string; userna
       atualizado = now()`;
 }
 
-/** Posta a mensagem de uma rodada a partir de um TEMPLATE. */
-export async function postarMensagem(templateId: number): Promise<{ ok: boolean; erro?: string; messageId?: string }> {
+/** Posta a mensagem de uma rodada a partir de um TEMPLATE. Cria o EVENTO ligado ao post. */
+export async function postarMensagem(templateId: number): Promise<{ ok: boolean; erro?: string; messageId?: string; eventoUuid?: string }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const tpl = await getTemplate(templateId);
   if (!tpl) return { ok: false, erro: "template não encontrado" };
@@ -70,13 +73,25 @@ export async function postarMensagem(templateId: number): Promise<{ ok: boolean;
     return { ok: false, erro: `Discord ${res.status} ${txt.slice(0, 140)}` };
   }
   const msg = (await res.json()) as { id: string };
-  await sql`INSERT INTO participacao_post (message_id, tipo, channel_id, titulo, template_id, criado)
-    VALUES (${msg.id}, ${tpl.tipo}, ${cfg.channelId}, ${tpl.nome}, ${templateId}, now()) ON CONFLICT (message_id) DO NOTHING`;
-  return { ok: true, messageId: msg.id };
+  // evento + post na MESMA statement (CTE) → atômico no neon-http: se o INSERT do post falhar,
+  // o evento também não entra (sem evento órfão). Só depois do Discord aceitar a msg.
+  const rows = (await sql`
+    WITH ev AS (
+      INSERT INTO evento (tipo, titulo, template_id) VALUES (${tpl.tipo}, ${tpl.nome}, ${templateId}) RETURNING id, uuid
+    ), p AS (
+      INSERT INTO participacao_post (message_id, tipo, channel_id, titulo, template_id, evento_id, criado)
+      SELECT ${msg.id}, ${tpl.tipo}, ${cfg.channelId}, ${tpl.nome}, ${templateId}, ev.id, now() FROM ev
+      ON CONFLICT (message_id) DO NOTHING
+    )
+    SELECT uuid FROM ev`) as { uuid: string }[];
+  return { ok: true, messageId: msg.id, eventoUuid: rows[0]?.uuid };
 }
 
 /** Grava o clique (resolvendo o tipo pelo template) e devolve o payload atualizado da mensagem. */
 export async function registrarClique(o: { warKey: string; userId: string; username: string; familia: string; chave: string; templateId: number; resposta: "can" | "cant" }): Promise<Record<string, unknown> | null> {
+  // GATE do evento: travado/finalizado → não registra participação extra (aberto ou legado sem evento → segue).
+  const st = await statusPorWarKey(o.warKey);
+  if (st && st !== "aberto") return null;
   const tpl = await getTemplate(o.templateId);
   if (!tpl) {
     // template foi deletado no meio da rodada: ainda grava o clique (tipo vem do post), sem perder.
