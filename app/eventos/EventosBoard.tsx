@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
+import { TIPOS } from "@/lib/participacaoConfig";
 import type { Evento } from "@/lib/eventos";
+import type { TemplateOpt } from "./page";
 
 const rotulo = (t: string) => (t === "siege" ? "Siege" : t === "nodewar" ? "Nodewar" : t);
 function statusBadge(s: string) {
@@ -17,12 +19,27 @@ function statusBadge(s: string) {
   return <span style={{ color: m.cor, fontSize: 11.5, fontWeight: 700, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "2px 9px" }}>{m.txt}</span>;
 }
 
-export default function EventosBoard({ ativos, historico, filtros, aba, canEdit }: {
-  ativos: Evento[]; historico: Evento[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico"; canEdit: boolean;
+export default function EventosBoard({ ativos, historico, templates, filtros, aba, canEdit }: {
+  ativos: Evento[]; historico: Evento[]; templates: TemplateOpt[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico"; canEdit: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<number | null>(null);
   const [f, setF] = useState(filtros);
+  const [disp, setDisp] = useState<Record<string, string>>({});
+  const [disparando, setDisparando] = useState(false);
+
+  async function disparar(t: string) {
+    const templateId = Number(disp[t]);
+    if (!templateId) return;
+    if (!confirm(`Disparar ${rotulo(t)} agora? Cria um novo evento e posta a mensagem no Discord.`)) return;
+    setDisparando(true);
+    try {
+      const res = await fetch("/api/participacao/postar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ templateId }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) alert(d.error || "falha ao disparar");
+      else { setDisp((s) => ({ ...s, [t]: "" })); router.refresh(); }
+    } finally { setDisparando(false); }
+  }
 
   async function acao(id: number, kind: "travar" | "finalizar") {
     const desc = kind === "travar" ? "TRAVAR (nenhuma participação extra será registrada)" : "FINALIZAR (congela o resultado no histórico e tira os botões da mensagem)";
@@ -92,11 +109,33 @@ export default function EventosBoard({ ativos, historico, filtros, aba, canEdit 
         </div>
 
         {aba === "ativos" ? (
-          ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo. Dispare um template em <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.</div> : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-              {ativos.map((e) => <Cartao key={e.id} e={e} acoes />)}
-            </div>
-          )
+          <>
+            {canEdit && (
+              <div style={{ ...card, marginBottom: 14 }}>
+                <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>Disparar novo evento</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
+                  {TIPOS.map((t) => {
+                    const tpl = templates.filter((x) => x.tipo === t);
+                    return (
+                      <div key={t} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ color: C.verde, fontSize: 12.5, fontWeight: 700, width: 64 }}>{rotulo(t)}</span>
+                        <select value={disp[t] ?? ""} onChange={(e) => setDisp((s) => ({ ...s, [t]: e.target.value }))} style={{ ...input, flex: 1 }}>
+                          <option value="">— escolha o template —</option>
+                          {tpl.map((x) => <option key={x.id} value={x.id}>{x.nome}{x.tamanhoMax != null ? ` (máx ${x.tamanhoMax})` : ""}</option>)}
+                        </select>
+                        <button onClick={() => disparar(t)} disabled={disparando || !disp[t]} style={{ ...btn(C.verde), fontWeight: 700 }}>{disparando ? "…" : "📣 Disparar"}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo — dispare um acima.</div> : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+                {ativos.map((e) => <Cartao key={e.id} e={e} acoes />)}
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div style={{ ...card, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>
