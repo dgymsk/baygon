@@ -5,6 +5,7 @@
 // com um CÓDIGO, e é postada no canal de log configurado em discord_config (mesmo da /discord).
 //
 // Env necessárias: DISCORD_BOT_TOKEN, DATABASE_URL (use a connection string UNPOOLED do Neon).
+// Opcionais (ligam o poller do Garmoth a cada 2h): BAYGON_URL (base do site) + CRON_SECRET (mesmo da Vercel).
 // Rodar: npm install && npm start   (deploy: ver README.md)
 
 import { Client, GatewayIntentBits, Partials, ChannelType } from "discord.js";
@@ -92,6 +93,34 @@ client.on("messageCreate", async (msg) => {
     console.error("[worker] messageCreate erro", e?.message);
   }
 });
+
+// ---- Garmoth: dispara o refresh de gear do site a cada 2h ----
+// O Vercel Hobby não faz cron sub-diário; como este worker fica sempre-ligado, ele serve de timer.
+// A lógica (chamar a API do Garmoth + gravar) mora no site (POST /api/garmoth/refresh), autenticada
+// pelo CRON_SECRET. Precisa das envs BAYGON_URL (base do site) e CRON_SECRET (mesmo da Vercel).
+const BAYGON_URL = (process.env.BAYGON_URL || "").replace(/\/+$/, "");
+const CRON_SECRET = process.env.CRON_SECRET;
+async function atualizarGarmoth() {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 90_000); // não deixa uma rodada travar até a próxima
+  try {
+    const res = await fetch(`${BAYGON_URL}/api/garmoth/refresh`, { method: "POST", headers: { authorization: `Bearer ${CRON_SECRET}` }, signal: ac.signal });
+    const txt = (await res.text()).slice(0, 200);
+    if (res.ok) console.log(`[garmoth] refresh ok ${res.status}: ${txt}`);
+    else console.error(`[garmoth] refresh FALHOU ${res.status}: ${txt}`); // secret errado (401/403) ou erro (500/503) vira ERRO no log
+  } catch (e) {
+    console.error("[garmoth] falha no refresh", e?.message);
+  } finally {
+    clearTimeout(t);
+  }
+}
+if (BAYGON_URL && CRON_SECRET) {
+  setTimeout(atualizarGarmoth, 15000);                 // 1ª rodada ~15s após subir
+  setInterval(atualizarGarmoth, 2 * 60 * 60 * 1000);   // a cada 2h
+  console.log("[garmoth] polling ligado (a cada 2h)");
+} else {
+  console.warn("[garmoth] polling DESLIGADO — defina BAYGON_URL e CRON_SECRET p/ ligar");
+}
 
 client.login(TOKEN);
 

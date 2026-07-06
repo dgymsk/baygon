@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRow } from "@/lib/players";
 import { CLASSE_NOMES, tiposDe } from "@/lib/bdoClasses";
 import type { MediasMap } from "@/lib/stats";
+import { parseGarmothId } from "@/lib/garmothId";
 import { C } from "@/lib/theme";
 
 const GUILD: Record<string, { label: string; icon: string }> = {
@@ -21,7 +22,15 @@ const STATS = [
 ];
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? ""]);
+const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? "", p.garmoth_id ?? ""]);
+const haQuanto = (iso: string | null) => {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(ms / 3600000);
+  if (h < 1) return "agora há pouco";
+  if (h < 24) return `há ${h}h`;
+  return `há ${Math.floor(h / 24)}d`;
+};
 // PT preferida de nodewar (vira a "base" na montagem das PTs)
 const PT_OPTS: { v: string; l: string }[] = [{ v: "1", l: "PT1" }, { v: "2", l: "PT2" }, { v: "defesa", l: "Defesa" }, { v: "ungabunga", l: "UngaBunga" }];
 
@@ -37,6 +46,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
   const [novo, setNovo] = useState({ nome: "", grupo: "", classe: "", tipo: "", guilda: "MANI" });
   const [arq, setArq] = useState<string | null>(null); // nome em processo de arquivar
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [gInput, setGInput] = useState<Record<string, string>>({}); // texto CRU do campo Garmoth em edição (só normaliza no blur — auto-save nunca grava parcial)
 
   const grupos = useMemo(() => [...new Set([...rows.map((r) => r.grupo), ...gruposExtra])].sort(), [rows, gruposExtra]);
   const classes = useMemo(() => [...new Set(rows.map((r) => r.classe_bdo).filter(Boolean) as string[])].sort(), [rows]);
@@ -68,8 +78,20 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
     setBaseline(new Map(ps.map((p) => [p.nome_familia, editKey(p)])));
   }
 
-  async function salvar(auto = false) {
-    if (!dirty.length) return;
+  async function atualizarGarmoth() {
+    if (dirty.length && !(await salvar())) return; // persiste edições (inclui garmoth_id) antes; aborta se o save falhar
+    setStatus({ kind: "saving" });
+    try {
+      const res = await fetch("/api/garmoth/refresh", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "falha");
+      await refresh();
+      setStatus({ kind: "ok", msg: `Garmoth: ${d.atualizados ?? 0} build(s) atualizada(s)${d.erros?.length ? ` · ${d.erros.length} sem retorno` : ""}.` });
+    } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
+  }
+
+  async function salvar(auto = false): Promise<boolean> {
+    if (!dirty.length) return true;
     setStatus({ kind: "saving" });
     try {
       const res = await fetch("/api/players", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: dirty }) });
@@ -77,7 +99,8 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
       if (!res.ok) throw new Error(d.error ?? "falha");
       setBaseline(new Map(rows.map((p) => [p.nome_familia, editKey(p)])));
       setStatus({ kind: "ok", msg: auto ? `salvo automaticamente (${dirty.length})` : `${dirty.length} alteração(ões) salva(s).` });
-    } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
+      return true;
+    } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); return false; }
   }
 
   // auto-save: a cada 10s grava as alterações pendentes (se não estiver salvando)
@@ -216,6 +239,11 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ {status.msg}</span>}
             {status.kind === "err" && <span style={{ color: C.vermelho, fontSize: 13 }}>⚠ {status.msg}</span>}
             {canEdit && (
+              <button onClick={atualizarGarmoth} disabled={status.kind === "saving"} title="Busca a gear de todo mundo no Garmoth agora (o worker já faz isso a cada 2h)" style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.mute, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                ⟳ Garmoth
+              </button>
+            )}
+            {canEdit && (
               <button onClick={() => salvar()} disabled={!dirty.length || status.kind === "saving"} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: dirty.length ? C.verdeTint : C.inputBg, color: C.verde, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: dirty.length ? "pointer" : "default", opacity: dirty.length ? 1 : 0.5 }}>
                 {status.kind === "saving" ? "Salvando…" : `Salvar${dirty.length ? ` (${dirty.length})` : ""}`}
               </button>
@@ -233,6 +261,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                 {tab === "ativos" ? <th style={{ textAlign: "center" }}>Core</th> : <th>Saída</th>}
                 <th style={{ textAlign: "center" }}>Wars</th>
                 <th>Médias vs core (últ. 5)</th>
+                <th>Garmoth <span style={{ textTransform: "none", color: C.borderSoft }}>(AP/AAP · DP)</span></th>
                 <th style={{ textAlign: "right" }}>Ações</th>
               </tr>
             </thead>
@@ -294,6 +323,27 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                         );
                       })()}
                     </td>
+                    <td>
+                      <input placeholder="colar URL/id" value={gInput[r.nome_familia] ?? (r.garmoth_id ?? "")} disabled={ro}
+                        onChange={(e) => { const v = e.target.value; setGInput((m) => ({ ...m, [r.nome_familia]: v })); }}
+                        onBlur={() => {
+                          const raw = gInput[r.nome_familia];
+                          if (raw === undefined) return; // não editou → não mexe
+                          setGInput((m) => { const n = { ...m }; delete n[r.nome_familia]; return n; });
+                          const t = raw.trim();
+                          // vazio → limpa; válido → id; inválido/parcial → mantém o id atual (nunca apaga sem querer)
+                          patch(r.nome_familia, { garmoth_id: t === "" ? null : (parseGarmothId(t) ?? r.garmoth_id ?? null) });
+                        }}
+                        style={{ ...inp, width: 116, fontSize: 12 }} />
+                      {r.garmoth && (
+                        <div style={{ marginTop: 3, fontSize: 11, whiteSpace: "nowrap" }}>
+                          <a href={`https://garmoth.com/character/${encodeURIComponent(r.garmoth_id ?? "")}`} target="_blank" rel="noreferrer" style={{ color: C.verde, textDecoration: "none", fontWeight: 700 }} title={r.garmoth.char_name ? `${r.garmoth.char_name}${r.garmoth.spec ? ` (${r.garmoth.spec})` : ""}` : "abrir no Garmoth"}>
+                            {r.garmoth.ap ?? "?"}/{r.garmoth.aap ?? "?"} <span style={{ color: C.mute }}>· {r.garmoth.dp ?? "?"}</span>
+                          </a>
+                          <span suppressHydrationWarning title={r.garmoth.atualizado ?? ""} style={{ color: r.garmoth.stale ? C.amarelo : C.borderSoft, marginLeft: 6 }}>{r.garmoth.stale ? "⟳ id mudou" : haQuanto(r.garmoth.atualizado)}</span>
+                        </div>
+                      )}
+                    </td>
                     <td style={{ textAlign: "right" }}>
                       {!canEdit ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : (
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
@@ -321,7 +371,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={10} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
+                <tr><td colSpan={11} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
               )}
             </tbody>
           </table>
