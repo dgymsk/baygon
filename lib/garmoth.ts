@@ -6,6 +6,7 @@
  */
 import { sql } from "@/lib/db";
 import { parseGarmothId } from "@/lib/garmothId";
+import { classeGarmoth, tipoGarmoth } from "@/lib/garmothClasses";
 
 export { parseGarmothId };
 
@@ -56,6 +57,10 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
   const porId = new Map<string, string[]>(); // garmoth_id -> [nome_familia...]
   for (const r of rows) { const a = porId.get(r.garmoth_id) ?? []; a.push(r.nome_familia); porId.set(r.garmoth_id, a); }
 
+  // valores ANTERIORES (p/ registrar no histórico só quando ap/aap/dp mudam)
+  const antigos = new Map<string, { ap: number | null; aap: number | null; dp: number | null }>();
+  for (const a of (await sql`SELECT nome_familia, ap, aap, dp FROM garmoth_build`) as { nome_familia: string; ap: number | null; aap: number | null; dp: number | null }[]) antigos.set(a.nome_familia, a);
+
   const chars = await fetchBuilds([...porId.keys()]);
   const porUrl = new Map<string, GarmothChar>();
   for (const c of chars) if (typeof c.url === "string") porUrl.set(c.url, c);
@@ -67,15 +72,29 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
     const c = porUrl.get(id);
     const r = c ? resumoBuild(c) : null;
     if (!r) { erros.push(`sem retorno p/ ${id}`); continue; }
+    const classe = classeGarmoth(r.char_class);          // Garmoth é a fonte da classe/spec
+    const tipo = classe ? tipoGarmoth(classe, r.spec) : null;
+    const idUnico = nomes.length === 1;                  // id compartilhado por >1 player não define a classe de ninguém
+    const completo = r.ap != null && r.aap != null && r.dp != null;
     for (const nome of nomes) {
       upserts.push(sql`INSERT INTO garmoth_build (nome_familia, garmoth_id, char_name, char_class, spec, level, ap, aap, dp, acc, dados, atualizado)
         VALUES (${nome}, ${r.garmoth_id}, ${r.char_name}, ${r.char_class}, ${r.spec}, ${r.level}, ${r.ap}, ${r.aap}, ${r.dp}, ${r.acc}, ${JSON.stringify(r.dados)}::jsonb, now())
         ON CONFLICT (nome_familia) DO UPDATE SET garmoth_id=EXCLUDED.garmoth_id, char_name=EXCLUDED.char_name, char_class=EXCLUDED.char_class,
           spec=EXCLUDED.spec, level=EXCLUDED.level, ap=EXCLUDED.ap, aap=EXCLUDED.aap, dp=EXCLUDED.dp, acc=EXCLUDED.acc, dados=EXCLUDED.dados, atualizado=now()`);
+      // classe/tipo do player a partir do Garmoth (fonte da verdade p/ quem tem id único; tipo desconhecido preserva o manual)
+      if (classe && idUnico) upserts.push(sql`UPDATE players SET classe_bdo = ${classe}, classe_tipo = COALESCE(${tipo}, classe_tipo) WHERE nome_familia = ${nome}`);
+      // histórico de gear (só quando o TRIO ap/aap/dp está completo E mudou → sem ponto falso por resposta parcial)
+      const old = antigos.get(nome);
+      const mudou = !old || old.ap !== r.ap || old.aap !== r.aap || old.dp !== r.dp;
+      if (completo && mudou) upserts.push(sql`INSERT INTO garmoth_gear_hist (nome_familia, garmoth_id, ap, aap, dp) VALUES (${nome}, ${r.garmoth_id}, ${r.ap}, ${r.aap}, ${r.dp})`);
       atualizados++;
     }
   }
-  // grava em lotes (cada `dados` é um JSONB grande; um transaction único de ~100 poderia estourar o body do neon-http)
-  for (let i = 0; i < upserts.length; i += 30) await sql.transaction(upserts.slice(i, i + 30));
+  // grava em lotes (cada `dados` é um JSONB grande; um transaction único de ~100 poderia estourar o body do neon-http).
+  // try/catch por lote: um FK-violation (player deletado no meio do refresh) não aborta os outros lotes.
+  for (let i = 0; i < upserts.length; i += 30) {
+    try { await sql.transaction(upserts.slice(i, i + 30)); }
+    catch (e) { erros.push(`lote ${Math.floor(i / 30)}: ${(e as Error).message.slice(0, 80)}`); }
+  }
   return { pedidos: porId.size, atualizados, erros };
 }

@@ -278,13 +278,13 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                       </select>
                     </td>
                     <td>
-                      <select value={r.classe_bdo ?? ""} disabled={ro} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value || null, classe_tipo: null })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
+                      <select value={r.classe_bdo ?? ""} disabled={ro || !!r.garmoth_id} title={r.garmoth_id ? "classe vem do Garmoth" : undefined} onChange={(e) => patch(r.nome_familia, { classe_bdo: e.target.value || null, classe_tipo: null })} style={{ ...inp, width: 130, cursor: ro || r.garmoth_id ? "default" : "pointer", opacity: r.garmoth_id ? 0.7 : 1 }}>
                         <option value="">—</option>
                         {[...new Set([...CLASSE_NOMES, ...(r.classe_bdo ? [r.classe_bdo] : [])])].map((cx) => <option key={cx} value={cx}>{cx}</option>)}
                       </select>
                     </td>
                     <td>
-                      <select value={r.classe_tipo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_tipo: e.target.value || null })} disabled={ro || !r.classe_bdo} style={{ ...inp, width: 115, cursor: ro ? "default" : "pointer", opacity: r.classe_bdo ? 1 : 0.5 }}>
+                      <select value={r.classe_tipo ?? ""} onChange={(e) => patch(r.nome_familia, { classe_tipo: e.target.value || null })} disabled={ro || !r.classe_bdo || !!r.garmoth_id} title={r.garmoth_id ? "tipo vem do Garmoth" : undefined} style={{ ...inp, width: 115, cursor: ro || r.garmoth_id ? "default" : "pointer", opacity: r.classe_bdo && !r.garmoth_id ? 1 : 0.6 }}>
                         <option value="">—</option>
                         {[...new Set([...tiposDe(r.classe_bdo), ...(r.classe_tipo ? [r.classe_tipo] : [])])].map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
@@ -336,11 +336,16 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                         }}
                         style={{ ...inp, width: 116, fontSize: 12 }} />
                       {r.garmoth && (
-                        <div style={{ marginTop: 3, fontSize: 11, whiteSpace: "nowrap" }}>
-                          <a href={`https://garmoth.com/character/${encodeURIComponent(r.garmoth_id ?? "")}`} target="_blank" rel="noreferrer" style={{ color: C.verde, textDecoration: "none", fontWeight: 700 }} title={r.garmoth.char_name ? `${r.garmoth.char_name}${r.garmoth.spec ? ` (${r.garmoth.spec})` : ""}` : "abrir no Garmoth"}>
-                            {r.garmoth.ap ?? "?"}/{r.garmoth.aap ?? "?"} <span style={{ color: C.mute }}>· {r.garmoth.dp ?? "?"}</span>
-                          </a>
-                          <span suppressHydrationWarning title={r.garmoth.atualizado ?? ""} style={{ color: r.garmoth.stale ? C.amarelo : C.borderSoft, marginLeft: 6 }}>{r.garmoth.stale ? "⟳ id mudou" : haQuanto(r.garmoth.atualizado)}</span>
+                        <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                          {([["AP", r.garmoth.ap, C.verde], ["AAP", r.garmoth.aap, C.laranja], ["DP", r.garmoth.dp, "#5bb8ff"]] as const).map(([lbl, v, cor]) => (
+                            <span key={lbl} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 32, border: `1px solid ${C.border2}`, borderRadius: 5, padding: "1px 3px", lineHeight: 1.1, background: C.inputBg }}>
+                              <span style={{ fontSize: 8, color: C.mute, letterSpacing: 0.5 }}>{lbl}</span>
+                              <b style={{ fontSize: 12, color: cor }}>{v ?? "?"}</b>
+                            </span>
+                          ))}
+                          <span style={{ fontSize: 11.5, color: C.texto }} title="Gearscore = (AP+AAP)/2 + DP">GS <b style={{ color: C.verdeBright }}>{r.garmoth.gs ?? "?"}</b></span>
+                          <a href={`https://garmoth.com/character/${encodeURIComponent(r.garmoth_id ?? "")}`} target="_blank" rel="noreferrer" title={`abrir no Garmoth${r.garmoth.char_name ? ` — ${r.garmoth.char_name}` : ""}`} style={{ color: C.mute, textDecoration: "none", fontSize: 12 }}>↗</a>
+                          <span suppressHydrationWarning title={r.garmoth.atualizado ?? ""} style={{ color: r.garmoth.stale ? C.amarelo : C.borderSoft, fontSize: 10.5 }}>{r.garmoth.stale ? "⟳ id mudou" : haQuanto(r.garmoth.atualizado)}</span>
                         </div>
                       )}
                     </td>

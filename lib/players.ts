@@ -6,7 +6,7 @@ import { parseGarmothId } from "@/lib/garmothId";
 export type Guilda = "MANI" | "RESO";
 export type SaidaTipo = "Saiu" | "Kikado";
 
-export type GarmothCache = { ap: number | null; aap: number | null; dp: number | null; acc: number | null; char_name: string | null; spec: string | null; atualizado: string | null; stale: boolean };
+export type GarmothCache = { ap: number | null; aap: number | null; dp: number | null; acc: number | null; gs: number | null; char_name: string | null; spec: string | null; atualizado: string | null; stale: boolean };
 
 export type PlayerRow = {
   nome_familia: string;
@@ -43,8 +43,9 @@ export async function listPlayers(): Promise<PlayerRow[]> {
   return rows.map((r) => {
     const { g_ap, g_aap, g_dp, g_acc, g_char_name, g_spec, g_atualizado, g_src_id, ...base } = r;
     const temCache = g_atualizado != null;
+    const gs = g_ap != null && g_aap != null && g_dp != null ? Math.round((g_ap + g_aap) / 2 + g_dp) : null; // GS = (AP+AAP)/2 + DP
     const garmoth: GarmothCache | null = temCache
-      ? { ap: g_ap, aap: g_aap, dp: g_dp, acc: g_acc, char_name: g_char_name, spec: g_spec, atualizado: g_atualizado, stale: (g_src_id ?? null) !== (base.garmoth_id ?? null) }
+      ? { ap: g_ap, aap: g_aap, dp: g_dp, acc: g_acc, gs, char_name: g_char_name, spec: g_spec, atualizado: g_atualizado, stale: (g_src_id ?? null) !== (base.garmoth_id ?? null) }
       : null;
     return { ...base, garmoth };
   });
@@ -88,10 +89,14 @@ export type PlayerUpdate = {
 
 export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
   if (!updates.length) return;
+  // classe_bdo/classe_tipo são do GARMOTH p/ quem tem garmoth_id (o CASE usa o valor ATUAL da linha, pré-update):
+  // um save à mão numa aba antiga não reverte a classe que o worker atualizou. Sem id → edição manual normal.
   const queries = updates.map((u) => sql`
     UPDATE players
-    SET grupo = ${grupoOr(u.grupo)}, classe_bdo = ${u.classe_bdo?.trim() || null},
-        classe_tipo = ${u.classe_tipo?.trim() || null}, is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)},
+    SET grupo = ${grupoOr(u.grupo)},
+        classe_bdo  = CASE WHEN garmoth_id IS NOT NULL AND garmoth_id <> '' THEN classe_bdo  ELSE ${u.classe_bdo?.trim() || null} END,
+        classe_tipo = CASE WHEN garmoth_id IS NOT NULL AND garmoth_id <> '' THEN classe_tipo ELSE ${u.classe_tipo?.trim() || null} END,
+        is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)},
         pt_preferida = ${ptOr(u.pt_preferida)}, garmoth_id = ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}
     WHERE nome_familia = ${u.nome_familia}
   `);
