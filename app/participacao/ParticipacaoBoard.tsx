@@ -32,10 +32,10 @@ function NomePerfil({ nome, userId, bold }: { nome: string; userId: string | nul
 const statusIcon = (s: MembroSit["status"]) => (s === "can" ? "✅" : s === "espera" ? "⏳" : s === "cant" ? "❌" : "⬜");
 
 export default function ParticipacaoBoard({
-  cfgInit, pts, membros, templates, situacao, playersAtivos, emojis, canEdit,
+  cfgInit, pts, membros, templates, situacao, playersAtivos, emojis, imagens, canEdit,
 }: {
   cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; situacao: Record<Tipo, SituacaoVM>;
-  playersAtivos: string[]; emojis: EmojiGuild[]; canEdit: boolean;
+  playersAtivos: string[]; emojis: EmojiGuild[]; imagens: { url: string; nome: string }[]; canEdit: boolean;
 }) {
   const router = useRouter();
   const ro = !canEdit;
@@ -93,6 +93,23 @@ export default function ParticipacaoBoard({
     await api("/api/participacao/postar", jsonInit("POST", { templateId }), `${rotuloTipo(t)} postada.`);
     setDisparando(false);
   }
+  async function enviarImagem(t: Tipo, file: File) {
+    setStatus({ kind: "saving" });
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch("/api/participacao/imagem", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "falha no upload");
+      setField(t, "imagem", d.url); // seleciona a nova
+      setStatus({ kind: "ok", msg: "imagem enviada — salve a config" });
+      router.refresh(); // recarrega a lista
+    } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
+  }
+  const colarImagem = (t: Tipo, e: React.ClipboardEvent) => {
+    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+    const file = item?.getAsFile();
+    if (file) { e.preventDefault(); enviarImagem(t, file); }
+  };
 
   // ---- PTs ----
   const criarPt = () => { if (!novoPt.nome.trim()) return; api("/api/participacao/pts", jsonInit("POST", novoPt), `PT "${novoPt.nome}" criado.`); setNovoPt({ nome: "", emoji: "" }); };
@@ -182,7 +199,19 @@ export default function ParticipacaoBoard({
                     <div><label style={label}>Cargo a mencionar</label><input value={c.pingRoleId} readOnly={ro} onChange={(e) => setField(t, "pingRoleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="opcional" style={{ ...input, width: "100%" }} /></div>
                   </div>
                   <div style={{ marginTop: 8 }}><label style={label}>Mensagem (descrição)</label><textarea value={c.mensagem} readOnly={ro} onChange={(e) => setField(t, "mensagem", e.target.value)} rows={2} style={{ ...input, width: "100%", resize: "vertical" }} /></div>
-                <div style={{ marginTop: 8 }}><label style={label}>Imagem no final (URL, opcional)</label><input value={c.imagem} readOnly={ro} onChange={(e) => setField(t, "imagem", e.target.value)} placeholder="https://…" style={{ ...input, width: "100%" }} /></div>
+                <div style={{ marginTop: 8 }} onPaste={(e) => canEdit && colarImagem(t, e)}>
+                  <label style={label}>Imagem no final (opcional)</label>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <select value={c.imagem} disabled={ro} onChange={(e) => setField(t, "imagem", e.target.value)} style={{ ...input, flex: 1 }}>
+                      <option value="">— sem imagem —</option>
+                      {imagens.map((img) => <option key={img.url} value={img.url}>{img.nome}</option>)}
+                      {c.imagem && !imagens.some((i) => i.url === c.imagem) && <option value={c.imagem}>(atual)</option>}
+                    </select>
+                    {canEdit && <label style={{ ...btn(C.verde), cursor: "pointer" }}>📎 Enviar<input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) enviarImagem(t, f); e.currentTarget.value = ""; }} /></label>}
+                    {c.imagem && <img src={c.imagem} alt="" style={{ height: 34, borderRadius: 6, border: `1px solid ${C.border2}` }} />}
+                  </div>
+                  {canEdit && <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 3 }}>Escolha uma enviada, ou clique aqui e cole (Ctrl+V) / use 📎 Enviar. Depois salve a config.</div>}
+                </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12.5 }}>
                       <input type="checkbox" checked={c.agenda.ativo} disabled={ro} onChange={(e) => setAgenda(t, { ativo: e.target.checked })} style={{ accentColor: C.verde }} /> Agendar

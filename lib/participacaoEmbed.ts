@@ -56,15 +56,8 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
 
   const nomeCh = (chave: string, familia: string) => { const r = respByChave.get(chave); return r?.user_id ? `<@${r.user_id}>` : familia; };
 
-  type Emb = { title?: string; description?: string; color: number; fields?: { name: string; value: string; inline?: boolean }[]; image?: { url: string } };
-  const embeds: Emb[] = [];
-
-  // 1) cabeçalho (total + descrição)
-  const capStr = tpl.tamanho_max != null ? `${confirmados.size}/${tpl.tamanho_max}` : `${confirmados.size}`;
-  const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} espera` : "";
-  embeds.push({ title: `📢 ${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256), description: (cfg.mensagem || undefined)?.slice(0, 2000), color: COR });
-
-  // 2) UM BOX (embed) por PT: confirmados (✅) e, separada, a espera (⏳)
+  // fields INLINE = até 3 por linha (caixas lado a lado). Um field por PT (✅ + ⏳ espera separada).
+  const fields: { name: string; value: string; inline?: boolean }[] = [];
   const naoDecididos: MembroE[] = [];
   for (const tp of tpl.pts) {
     const pt = ptById.get(tp.pt_id);
@@ -78,27 +71,26 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
       (confirmados.has(r.user_id) ? conf : esp).push(m);
     }
     const linhas = conf.map((m) => `✅ ${nomeCh(m.chave, m.familia)}`);
-    if (esp.length) { linhas.push("", "**⏳ Espera**"); for (const m of esp) linhas.push(`⏳ ${nomeCh(m.chave, m.familia)}`); }
+    if (esp.length) { linhas.push("**⏳ Espera**"); for (const m of esp) linhas.push(`⏳ ${nomeCh(m.chave, m.familia)}`); }
     const cap = tp.limite != null ? `/${tp.limite}` : "";
-    embeds.push({ title: `${pt.emoji ? pt.emoji + " " : ""}${pt.nome} — ${conf.length}${cap}`.slice(0, 256), description: (linhas.length ? linhas.join("\n") : "_(ninguém)_").slice(0, 1500), color: COR });
-    if (embeds.length >= 9) break; // reserva espaço p/ o embed de listas/imagem (máx 10)
+    fields.push({ name: `${pt.emoji ? pt.emoji + " " : ""}${pt.nome} — ${conf.length}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(ninguém)_").slice(0, 1024), inline: true });
   }
 
-  // 3) listas separadas (Sem PT / Não decididos / Não vão) + imagem no final
-  const fields: { name: string; value: string; inline?: boolean }[] = [];
+  // listas full-width (inline: false) logo abaixo dos boxes
   const semPtCan = respostas.filter((r) => r.resposta === "can" && (!r.chave || !chavesAtrib.has(r.chave)));
-  if (semPtCan.length) fields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳" : "✅"} <@${r.user_id}>`).join("  ").slice(0, 1024) });
-  if (naoDecididos.length) fields.push({ name: `⬜ Não decididos — ${naoDecididos.length}`, value: naoDecididos.map((m) => nomeCh(m.chave, m.familia)).join(", ").slice(0, 1024) });
+  if (semPtCan.length) fields.push({ name: `🆕 Sem PT — ${semPtCan.length}`, value: semPtCan.map((r) => `${espera.has(r.user_id) ? "⏳" : "✅"} <@${r.user_id}>`).join("  ").slice(0, 1024), inline: false });
+  if (naoDecididos.length) fields.push({ name: `⬜ Não decididos — ${naoDecididos.length}`, value: naoDecididos.map((m) => nomeCh(m.chave, m.familia)).join(", ").slice(0, 1024), inline: false });
   const cant = respostas.filter((r) => r.resposta === "cant");
-  if (cant.length) fields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(", ").slice(0, 1024) });
-  if (fields.length || cfg.imagem) {
-    const fim: Emb = { color: COR };
-    if (fields.length) fim.fields = fields;
-    if (cfg.imagem) fim.image = { url: cfg.imagem };
-    embeds.push(fim);
-  }
+  if (cant.length) fields.push({ name: `❌ Não vão — ${cant.length}`, value: cant.map((r) => `<@${r.user_id}>`).join(", ").slice(0, 1024), inline: false });
 
-  const embedsFinal = embeds.slice(0, 10);
+  const capStr = tpl.tamanho_max != null ? `${confirmados.size}/${tpl.tamanho_max}` : `${confirmados.size}`;
+  const esperaStr = espera.size > 0 ? ` · ⏳ ${espera.size} espera` : "";
+  const embed: { title: string; description?: string; color: number; fields: typeof fields; image?: { url: string } } = {
+    title: `📢 ${tpl.nome} — ${capStr} confirmados${esperaStr}`.slice(0, 256),
+    description: (cfg.mensagem || undefined)?.slice(0, 2000), color: COR, fields: fields.slice(0, 25),
+  };
+  if (cfg.imagem) embed.image = { url: cfg.imagem };
+  const embedsFinal = [embed];
   const components = [{
     type: 1,
     components: [
