@@ -1,0 +1,17 @@
+{
+  "name": "baygon-dm-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Worker sempre-ligado no Gateway do Discord: captura DMs soltas enviadas ao bot e grava em interacao_log + posta no canal de log. Roda FORA do Vercel (Railway/Render/VPS).",
+  "scripts": {
+    "start": "node gateway.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
