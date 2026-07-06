@@ -1,13 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
-import { TIPOS } from "@/lib/participacaoConfig";
 import type { Evento } from "@/lib/eventos";
-import type { TemplateOpt, EventoAtivo } from "./page";
-import RosterView from "@/app/participacao/RosterView";
 
 const rotulo = (t: string) => (t === "siege" ? "Siege" : t === "nodewar" ? "Nodewar" : t);
 function statusBadge(s: string) {
@@ -20,47 +17,12 @@ function statusBadge(s: string) {
   return <span style={{ color: m.cor, fontSize: 11.5, fontWeight: 700, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "2px 9px" }}>{m.txt}</span>;
 }
 
-export default function EventosBoard({ ativos, historico, templates, filtros, aba, canEdit }: {
-  ativos: EventoAtivo[]; historico: Evento[]; templates: TemplateOpt[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico"; canEdit: boolean;
+// Registro (read-only): navega e abre o detalhe. Operar (disparar/travar/finalizar) é em /participacao.
+export default function EventosBoard({ ativos, historico, filtros, aba }: {
+  ativos: Evento[]; historico: Evento[]; filtros: { q: string; tipo: string; de: string; ate: string }; aba: "ativos" | "historico";
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<number | null>(null);
   const [f, setF] = useState(filtros);
-  const [disp, setDisp] = useState<Record<string, string>>({});
-  const [disparando, setDisparando] = useState(false);
-  const [selId, setSelId] = useState<number | null>(null);
-  const sel = ativos.find((e) => e.id === selId) ?? ativos[0] ?? null; // fallback: 1º ativo se nada selecionado/estale
-
-  // acompanhamento ao vivo: refresca o roster dos ativos a cada 15s
-  useEffect(() => {
-    if (aba !== "ativos" || ativos.length === 0) return;
-    const id = setInterval(() => router.refresh(), 15000);
-    return () => clearInterval(id);
-  }, [aba, ativos.length, router]);
-
-  async function disparar(t: string) {
-    const templateId = Number(disp[t]);
-    if (!templateId) return;
-    if (!confirm(`Disparar ${rotulo(t)} agora? Cria um novo evento e posta a mensagem no Discord.`)) return;
-    setDisparando(true);
-    try {
-      const res = await fetch("/api/participacao/postar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ templateId }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) alert(d.error || "falha ao disparar");
-      else { setDisp((s) => ({ ...s, [t]: "" })); router.refresh(); }
-    } finally { setDisparando(false); }
-  }
-
-  async function acao(id: number, kind: "travar" | "finalizar") {
-    const desc = kind === "travar" ? "TRAVAR (nenhuma participação extra será registrada)" : "FINALIZAR (congela o resultado no histórico e tira os botões da mensagem)";
-    if (!confirm(`Confirmar ${desc}?`)) return;
-    setBusy(id);
-    try {
-      const res = await fetch(`/api/eventos/${id}/${kind}`, { method: "POST" });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || "falha na ação"); }
-      else router.refresh();
-    } finally { setBusy(null); }
-  }
 
   function buscar() {
     const p = new URLSearchParams({ aba: "historico" });
@@ -78,21 +40,17 @@ export default function EventosBoard({ ativos, historico, templates, filtros, ab
     <Link href={a === "ativos" ? "/eventos" : "/eventos?aba=historico"} style={{ textDecoration: "none", borderRadius: 8, border: `1px solid ${aba === a ? C.verde : C.border2}`, background: aba === a ? C.verdeTint : "transparent", color: aba === a ? C.verde : C.mute, padding: "7px 15px", fontSize: 13, fontWeight: 700 }}>{txt}</Link>
   );
 
-  function Cartao({ e, acoes }: { e: Evento; acoes: boolean }) {
+  function Cartao({ e }: { e: Evento }) {
     return (
-      <div style={card}>
+      <Link href={`/eventos/${e.uuid}`} style={{ ...card, display: "block", textDecoration: "none" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
           <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>{rotulo(e.tipo)} · {e.data}</span>
           {statusBadge(e.status)}
         </div>
-        <Link href={`/eventos/${e.uuid}`} style={{ color: C.texto, fontSize: 15, fontWeight: 700, textDecoration: "none" }}>{e.titulo || "(sem título)"}</Link>
+        <div style={{ color: C.texto, fontSize: 15, fontWeight: 700 }}>{e.titulo || "(sem título)"}</div>
         <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 4, fontFamily: "'Share Tech Mono', monospace" }}>{e.uuid}</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <Link href={`/eventos/${e.uuid}`} style={{ ...btn(C.amarelo), textDecoration: "none" }}>Abrir →</Link>
-          {acoes && canEdit && e.status === "aberto" && <button onClick={() => acao(e.id, "travar")} disabled={busy === e.id} style={btn(C.amarelo)}>🔒 Travar</button>}
-          {acoes && canEdit && e.status !== "finalizado" && <button onClick={() => acao(e.id, "finalizar")} disabled={busy === e.id} style={btn(C.verde)}>🏁 Finalizar</button>}
-        </div>
-      </div>
+        <div style={{ color: C.amarelo, fontSize: 12, marginTop: 8 }}>Abrir →</div>
+      </Link>
     );
   }
 
@@ -108,83 +66,26 @@ export default function EventosBoard({ ativos, historico, templates, filtros, ab
           </div>
           <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
             <Link className="navlink" href="/painel">← Painel</Link>
-            <Link className="navlink" href="/participacao">Participação</Link>
+            <Link className="navlink" href="/participacao">Participação (operar)</Link>
             <Link className="navlink" href="/confirmados">Confirmados</Link>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <p style={{ color: C.mute, fontSize: 12.5, margin: "0 0 14px" }}>
+          Registro dos eventos. Para <b style={{ color: C.verde }}>disparar</b>, <b style={{ color: C.verde }}>acompanhar ao vivo</b> e <b style={{ color: C.verde }}>travar/finalizar</b>, use a aba <Link href="/participacao" style={{ color: C.verde }}>Disparo/Situação</Link> da Participação.
+        </p>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {abaBtn("ativos", `Ativos (${ativos.length})`)}
           {abaBtn("historico", "Histórico")}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 16, fontSize: 12.5 }}>
-          <span style={{ color: C.mute, textTransform: "uppercase", fontSize: 11, letterSpacing: 1 }}>Configurar →</span>
-          <Link href="/participacao?aba=templates" style={{ color: C.verde, textDecoration: "none" }}>Templates</Link>
-          <span style={{ color: C.borderSoft }}>·</span>
-          <Link href="/participacao?aba=pts" style={{ color: C.verde, textDecoration: "none" }}>PTs</Link>
-          <span style={{ color: C.borderSoft }}>·</span>
-          <Link href="/participacao?aba=atribuicao" style={{ color: C.verde, textDecoration: "none" }}>Atribuição</Link>
-          <span style={{ color: C.borderSoft }}>·</span>
-          <Link href="/participacao?aba=disparo" style={{ color: C.verde, textDecoration: "none" }}>Mensagem / canal / agenda</Link>
-        </div>
 
         {aba === "ativos" ? (
-          <>
-            {canEdit && (
-              <div style={{ ...card, marginBottom: 14 }}>
-                <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>Disparar novo evento</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
-                  {TIPOS.map((t) => {
-                    const tpl = templates.filter((x) => x.tipo === t);
-                    return (
-                      <div key={t} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ color: C.verde, fontSize: 12.5, fontWeight: 700, width: 64 }}>{rotulo(t)}</span>
-                        <select value={disp[t] ?? ""} onChange={(e) => setDisp((s) => ({ ...s, [t]: e.target.value }))} style={{ ...input, flex: 1 }}>
-                          <option value="">— escolha o template —</option>
-                          {tpl.map((x) => <option key={x.id} value={x.id}>{x.nome}{x.tamanhoMax != null ? ` (máx ${x.tamanhoMax})` : ""}</option>)}
-                        </select>
-                        <button onClick={() => disparar(t)} disabled={disparando || !disp[t]} style={{ ...btn(C.verde), fontWeight: 700 }}>{disparando ? "…" : "📣 Disparar"}</button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo — dispare um acima.</div> : (
-              <>
-                {/* dropdown pra ESCOLHER qual evento acompanhar */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                  <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>Acompanhar</span>
-                  <select value={sel?.id ?? ""} onChange={(e) => setSelId(Number(e.target.value))} style={{ ...input, minWidth: 280, flex: 1, maxWidth: 500 }}>
-                    {ativos.map((e) => <option key={e.id} value={e.id}>{rotulo(e.tipo)} · {e.titulo || "(sem título)"} · {e.data} · {e.status}</option>)}
-                  </select>
-                </div>
-                {/* evento selecionado: roster AO VIVO + ações (fechar/finalizar ali) */}
-                {sel && (
-                  <div style={card}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 17, fontWeight: 800, color: C.amarelo }}>{sel.titulo || "(sem título)"}</span>
-                        {statusBadge(sel.status)}
-                        <span style={{ color: C.mute, fontSize: 12 }}>{rotulo(sel.tipo)} · {sel.data}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <Link href={`/eventos/${sel.uuid}`} style={{ ...btn(C.amarelo), textDecoration: "none" }}>Abrir →</Link>
-                        {canEdit && sel.status === "aberto" && <button onClick={() => acao(sel.id, "travar")} disabled={busy === sel.id} style={btn(C.amarelo)}>🔒 Travar</button>}
-                        {canEdit && sel.status !== "finalizado" && <button onClick={() => acao(sel.id, "finalizar")} disabled={busy === sel.id} style={{ ...btn(C.verde), fontWeight: 700 }}>🏁 Finalizar</button>}
-                      </div>
-                    </div>
-                    {sel.sit ? (
-                      <>
-                        <div style={{ color: C.verde, fontSize: 12.5, marginBottom: 10 }}>● {sel.sit.templateNome} — {sel.sit.totalConfirmados}{sel.sit.tamanhoMax != null ? `/${sel.sit.tamanhoMax}` : ""} confirmados{sel.sit.totalEspera > 0 ? ` · ⏳ ${sel.sit.totalEspera} espera` : ""} <span style={{ color: C.borderSoft }}>· atualiza a cada 15s</span></div>
-                        <RosterView sit={sel.sit} />
-                      </>
-                    ) : <div style={{ color: C.borderSoft, fontSize: 12.5 }}>Sem roster (template removido?).</div>}
-                  </div>
-                )}
-              </>
-            )}
-          </>
+          ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo. Dispare na <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.</div> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+              {ativos.map((e) => <Cartao key={e.id} e={e} />)}
+            </div>
+          )
         ) : (
           <>
             <div style={{ ...card, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>
@@ -197,7 +98,7 @@ export default function EventosBoard({ ativos, historico, templates, filtros, ab
             </div>
             {historico.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento no histórico com esses filtros.</div> : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-                {historico.map((e) => <Cartao key={e.id} e={e} acoes={false} />)}
+                {historico.map((e) => <Cartao key={e.id} e={e} />)}
               </div>
             )}
           </>

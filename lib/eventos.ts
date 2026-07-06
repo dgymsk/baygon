@@ -45,18 +45,25 @@ export async function travarEvento(id: number): Promise<{ ok: boolean; erro?: st
   return { ok: true, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null };
 }
 
-/** Recalcula o roster (SituacaoNN) do post ligado ao evento, do estado ATUAL das respostas. */
-async function computeSituacao(post: { message_id: string; tipo: string; template_id: number | null }): Promise<SituacaoNN | null> {
+/** Catálogos globais (iguais entre todos os eventos) — buscados 1x e reaproveitados p/ evitar N+1. */
+export type CatalogosRoster = { ptById: Map<number, { id: number; nome: string; emoji: string; cor: string }>; membros: { tipo: string; chave: string; familia: string; pt_id: number }[]; playersCands: { chave: string; nome: string }[] };
+async function carregarCatalogos(): Promise<CatalogosRoster> {
+  const [pts, membros, players] = await Promise.all([listPts(), listMembros(), listPlayers()]);
+  return { ptById: new Map(pts.map((p) => [p.id, p])), membros, playersCands: players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia })) };
+}
+
+/** Recalcula o roster (SituacaoNN) do post ligado ao evento, do estado ATUAL das respostas.
+ *  `cat` reaproveita os catálogos globais (pts/membros/players) — passe-o quando calcular vários eventos. */
+async function computeSituacao(post: { message_id: string; tipo: string; template_id: number | null }, cat?: CatalogosRoster): Promise<SituacaoNN | null> {
   if (!post.template_id) return null;
   const tpl = await getTemplate(post.template_id);
   if (!tpl) return null;
-  const [pts, membros, players] = await Promise.all([listPts(), listMembros(post.tipo), listPlayers()]);
+  const c = cat ?? (await carregarCatalogos());
   const respostas = (await sql`
     SELECT user_id, username, familia, chave, tipo, resposta, can_em::text AS can_em, atualizado::text AS atualizado
     FROM participacao_resp WHERE war_key = ${post.message_id} ORDER BY atualizado`) as { user_id: string; username: string; familia: string | null; chave: string | null; tipo: string; resposta: "can" | "cant"; can_em: string | null; atualizado: string }[];
-  const ptById = new Map(pts.map((p) => [p.id, p]));
-  const playersCands = players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia }));
-  return montarSituacao(tpl, membros, respostas, ptById, playersCands);
+  const membrosTipo = c.membros.filter((m) => m.tipo === post.tipo);
+  return montarSituacao(tpl, membrosTipo, respostas, c.ptById, c.playersCands);
 }
 
 /** Snapshot do roster (o "bot final") — congela o computeSituacao + metadados. */
@@ -65,10 +72,10 @@ async function montarSnapshot(post: { message_id: string; tipo: string; template
   return sit ? { ...sit, versao: 1, capturadoEm: new Date().toISOString(), warKey: post.message_id } : null;
 }
 
-/** Situação AO VIVO de um evento (pro acompanhamento na aba Ativos). Recalcula do estado atual. */
-export async function situacaoAoVivoPorEvento(eventoId: number): Promise<SituacaoNN | null> {
+/** Situação AO VIVO de um evento. `cat` reaproveita os catálogos globais (evita N+1 ao calcular vários). */
+export async function situacaoAoVivoPorEvento(eventoId: number, cat?: CatalogosRoster): Promise<SituacaoNN | null> {
   const posts = (await sql`SELECT message_id, tipo, template_id::int AS template_id FROM participacao_post WHERE evento_id = ${eventoId} ORDER BY criado DESC LIMIT 1`) as { message_id: string; tipo: string; template_id: number | null }[];
-  return posts[0] ? computeSituacao(posts[0]) : null;
+  return posts[0] ? computeSituacao(posts[0], cat) : null;
 }
 
 /** Finaliza: congela o snapshot + status='finalizado'. IDEMPOTENTE (2ª chamada não reescreve o snapshot).

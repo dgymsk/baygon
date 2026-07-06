@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { TIPOS, rotuloTipo, type ParticipacaoConfig, type Tipo, type TipoCfg } from "@/lib/participacaoConfig";
-import type { PtVM, MembroVM, TemplateVM, SituacaoVM, EmojiGuild, EventoRef } from "./page";
+import type { PtVM, MembroVM, TemplateVM, EmojiGuild, EventoAtivoVM } from "./page";
 import RosterView from "./RosterView";
 
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -27,9 +27,9 @@ function GEmoji({ emoji, emojis, size = 15 }: { emoji: string; emojis: EmojiGuil
 }
 
 export default function ParticipacaoBoard({
-  cfgInit, pts, membros, templates, situacao, eventos, playersAtivos, emojis, roles, imagens, reportChannel, abaInicial, canEdit,
+  cfgInit, pts, membros, templates, eventosPorTipo, playersAtivos, emojis, roles, imagens, reportChannel, abaInicial, canEdit,
 }: {
-  cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; situacao: Record<Tipo, SituacaoVM>; eventos: Record<Tipo, EventoRef>;
+  cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; eventosPorTipo: Record<Tipo, EventoAtivoVM[]>;
   playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; reportChannel: string; abaInicial?: string; canEdit: boolean;
 }) {
   const router = useRouter();
@@ -60,12 +60,13 @@ export default function ParticipacaoBoard({
   const setOpcao = (i: number, patch: Partial<{ label: string; estilo: number; emoji: string }>) => setBuz((b) => ({ ...b, opcoes: b.opcoes.map((o, j) => (j === i ? { ...o, ...patch } : o)) }));
   const rmOpcao = (i: number) => setBuz((b) => ({ ...b, opcoes: b.opcoes.filter((_, j) => j !== i) }));
 
-  const temPost = TIPOS.some((t) => situacao[t]);
+  const [selEv, setSelEv] = useState<Record<Tipo, number | null>>({ nodewar: null, siege: null });
+  const temAtivo = TIPOS.some((t) => eventosPorTipo[t].length > 0);
   useEffect(() => {
-    if (!temPost) return;
-    const id = setInterval(() => router.refresh(), 15000);
+    if (!temAtivo) return;
+    const id = setInterval(() => router.refresh(), 15000); // acompanhamento ao vivo
     return () => clearInterval(id);
-  }, [temPost, router]);
+  }, [temAtivo, router]);
 
   async function api(url: string, init: RequestInit, msg: string) {
     setStatus({ kind: "saving" });
@@ -96,6 +97,11 @@ export default function ParticipacaoBoard({
     setDisparando(true);
     await api("/api/participacao/postar", jsonInit("POST", { templateId }), `${rotuloTipo(t)} postada.`);
     setDisparando(false);
+  }
+  async function acaoEvento(id: number, kind: "travar" | "finalizar") {
+    const desc = kind === "travar" ? "TRAVAR (nenhuma participação extra será registrada)" : "FINALIZAR (congela o resultado no histórico e tira os botões da mensagem)";
+    if (!confirm(`Confirmar ${desc}?`)) return;
+    await api(`/api/eventos/${id}/${kind}`, { method: "POST" }, kind === "travar" ? "evento travado." : "evento finalizado.");
   }
   async function enviarImagem(t: Tipo, file: File) {
     setStatus({ kind: "saving" });
@@ -226,7 +232,9 @@ export default function ParticipacaoBoard({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(520px, 1fr))", gap: 16 }}>
             {TIPOS.map((t) => {
               const c = cfg[t];
-              const sit = situacao[t];
+              const evs = eventosPorTipo[t];
+              const evSel = evs.find((e) => e.id === selEv[t]) ?? evs[0] ?? null; // fallback: 1º ativo (mais recente)
+              const sit = evSel?.sit ?? null;
               const tpisTipo = templates.filter((x) => x.tipo === t);
               return (
                 <div key={t} style={card}>
@@ -273,14 +281,26 @@ export default function ParticipacaoBoard({
                     </div>
                   )}
 
-                  {/* situação ao vivo */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", margin: "14px 0 7px", borderTop: `1px solid ${C.borderSoft}`, paddingTop: 10 }}>
-                    <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>
-                      Situação {sit ? <span style={{ color: C.verde, textTransform: "none", letterSpacing: 0 }}>● {sit.templateNome} — {sit.totalConfirmados}{sit.tamanhoMax != null ? `/${sit.tamanhoMax}` : ""}{sit.totalEspera > 0 ? ` · ⏳ ${sit.totalEspera} espera` : ""}</span> : <span style={{ color: C.mute, textTransform: "none", letterSpacing: 0 }}>{eventos[t]?.status === "finalizado" ? "(evento finalizado — veja no histórico)" : "(sem rodada — dispare acima)"}</span>}
-                    </span>
-                    {eventos[t]?.uuid && <Link className="navlink2" href={`/eventos/${eventos[t]!.uuid}`} style={{ color: C.amarelo, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>Ver evento →</Link>}
+                  {/* acompanhamento AO VIVO: seletor de evento + ações (travar/finalizar) + roster */}
+                  <div style={{ margin: "14px 0 7px", borderTop: `1px solid ${C.borderSoft}`, paddingTop: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5 }}>Situação ao vivo {evs.length === 0 && <span style={{ color: C.mute, textTransform: "none", letterSpacing: 0 }}>(sem evento ativo — dispare acima)</span>}</span>
+                      {evSel && <Link className="navlink2" href={`/eventos/${evSel.uuid}`} style={{ color: C.amarelo, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}>Ver no histórico →</Link>}
+                    </div>
+                    {evSel && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        {evs.length > 1 ? (
+                          <select value={evSel.id} onChange={(e) => setSelEv((s) => ({ ...s, [t]: Number(e.target.value) }))} style={{ ...input, flex: 1, minWidth: 200 }}>
+                            {evs.map((e) => <option key={e.id} value={e.id}>{e.titulo || "(sem título)"} · {e.data} · {e.status}</option>)}
+                          </select>
+                        ) : <span style={{ color: C.verde, fontSize: 12.5, fontWeight: 700 }}>{evSel.titulo || "(sem título)"} <span style={{ color: C.mute, fontWeight: 400 }}>· {evSel.status}</span></span>}
+                        {canEdit && evSel.status === "aberto" && <button onClick={() => acaoEvento(evSel.id, "travar")} style={btn(C.amarelo)}>🔒 Travar</button>}
+                        {canEdit && <button onClick={() => acaoEvento(evSel.id, "finalizar")} style={{ ...btn(C.verde), fontWeight: 700 }}>🏁 Finalizar</button>}
+                      </div>
+                    )}
+                    {sit && <div style={{ color: C.verde, fontSize: 12.5, marginTop: 8 }}>● {sit.templateNome} — {sit.totalConfirmados}{sit.tamanhoMax != null ? `/${sit.tamanhoMax}` : ""}{sit.totalEspera > 0 ? ` · ⏳ ${sit.totalEspera} espera` : ""} <span style={{ color: C.borderSoft }}>· atualiza a cada 15s</span></div>}
                   </div>
-                  {!sit ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : <RosterView sit={sit} emojis={emojis} />}
+                  {sit ? <RosterView sit={sit} emojis={emojis} /> : evSel ? <span style={{ color: C.borderSoft, fontSize: 12 }}>sem roster (template removido?)</span> : null}
                 </div>
               );
             })}
