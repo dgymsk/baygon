@@ -56,6 +56,8 @@ try {
 
   // Buzinador: liga um envio a uma enquete opcional (NULL = envio sem botões, comportamento atual intacto).
   await client.query(`ALTER TABLE buzinador_envio ADD COLUMN IF NOT EXISTS enquete_id BIGINT REFERENCES enquete(id) ON DELETE SET NULL`);
+  // Throttle do relatório ao vivo: último instante em que a mensagem do relatório foi editada (coalescing).
+  await client.query(`ALTER TABLE buzinador_envio ADD COLUMN IF NOT EXISTS report_atualizado TIMESTAMPTZ`);
 
   const t = await client.query(`SELECT to_regclass('enquete') e, to_regclass('enquete_opcao') o, to_regclass('enquete_voto') v, to_regclass('enquete_tally') w`);
   console.log("OK — enquete:", t.rows[0]);

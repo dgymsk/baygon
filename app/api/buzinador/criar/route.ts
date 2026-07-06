@@ -24,5 +24,5 @@ export async function POST(req: Request) {
     criadoPor: session?.user?.name ?? null,
   });
   if (!r.ok) return NextResponse.json({ error: r.erro }, { status: 400 });
-  return NextResponse.json({ envioId: r.envioId, total: r.total, naoEncontrados: r.naoEncontrados });
+  return NextResponse.json({ envioId: r.envioId, total: r.total, naoEncontrados: r.naoEncontrados, casados: r.casados });
 }

@@ -58,7 +58,7 @@ export default function ParticipacaoBoard({
 
   // Buzinador (disparo de DM em massa)
   const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[] }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "", opcoes: [] });
-  const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; naoEncontrados?: string[]; erro?: string } | null>(null);
+  const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string } | null>(null);
   const setBuzF = <K extends keyof typeof buz>(k: K, v: (typeof buz)[K]) => setBuz((b) => ({ ...b, [k]: v }));
   const addOpcao = () => setBuz((b) => (b.opcoes.length >= 25 ? b : { ...b, opcoes: [...b.opcoes, { label: "", estilo: 2, emoji: "" }] }));
   const setOpcao = (i: number, patch: Partial<{ label: string; estilo: number; emoji: string }>) => setBuz((b) => ({ ...b, opcoes: b.opcoes.map((o, j) => (j === i ? { ...o, ...patch } : o)) }));
@@ -137,13 +137,13 @@ export default function ParticipacaoBoard({
       }));
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setBuzProg({ ativo: false, total: 0, enviados: 0, falhas: 0, pendentes: 0, concluido: false, erro: d.error || "falha ao criar" }); return; }
-      const { envioId, total, naoEncontrados } = d as { envioId: number; total: number; naoEncontrados?: string[] };
-      setBuzProg({ ativo: true, total, enviados: 0, falhas: 0, pendentes: total, concluido: false, naoEncontrados });
+      const { envioId, total, naoEncontrados, casados } = d as { envioId: number; total: number; naoEncontrados?: string[]; casados?: { de: string; para: string }[] };
+      setBuzProg({ ativo: true, total, enviados: 0, falhas: 0, pendentes: total, concluido: false, naoEncontrados, casados });
       for (let i = 0; i < 1000; i++) {
         const pr = await fetch("/api/buzinador/processar", jsonInit("POST", { envioId }));
         const p = await pr.json().catch(() => ({}));
         if (!pr.ok) { setBuzProg((b) => ({ ...(b ?? { total, enviados: 0, falhas: 0, pendentes: total, concluido: false }), ativo: false, erro: p.error || "falha no lote" })); return; }
-        setBuzProg({ ativo: !p.concluido, total: p.total, enviados: p.enviados, falhas: p.falhas, pendentes: p.pendentes, concluido: p.concluido, reportOk: p.reportOk, naoEncontrados });
+        setBuzProg({ ativo: !p.concluido, total: p.total, enviados: p.enviados, falhas: p.falhas, pendentes: p.pendentes, concluido: p.concluido, reportOk: p.reportOk, naoEncontrados, casados });
         if (p.concluido) break;
       }
       setStatus({ kind: "ok", msg: "buzinada concluída" });
@@ -529,6 +529,9 @@ export default function ParticipacaoBoard({
                       <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 8 }}>
                         🏁 Concluído. {buzProg.reportOk === false ? "⚠ Não consegui postar o relatório no canal (confira permissão/ID)." : "Relatório postado no canal."}
                       </div>
+                    )}
+                    {buzProg.casados && buzProg.casados.length > 0 && (
+                      <div style={{ color: C.mute, fontSize: 12, marginTop: 8 }}>≈ {buzProg.casados.length} casado(s) por similaridade: {buzProg.casados.map((x) => `${x.de}→${x.para}`).join(", ")}</div>
                     )}
                     {buzProg.naoEncontrados && buzProg.naoEncontrados.length > 0 && (
                       <div style={{ color: C.amarelo, fontSize: 12, marginTop: 8 }}>⚠ {buzProg.naoEncontrados.length} nome(s) não encontrado(s) no servidor (ignorados): {buzProg.naoEncontrados.join(", ")}</div>

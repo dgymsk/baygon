@@ -1,7 +1,7 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { getDiscordConfig } from "@/lib/discordConfig";
-import { chaveNome } from "@/lib/nomes";
+import { chaveNome, distancia } from "@/lib/nomes";
 import { criarEnquete, getEnquete, montarComponents, tally, votos, type OpcaoInput, type ActionRow } from "@/lib/enquete";
 
 /**
@@ -22,6 +22,25 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dig = (s: unknown) => (typeof s === "string" ? s.replace(/[^0-9]/g, "").slice(0, 25) : "");
 const urlOk = (s: unknown) => (typeof s === "string" && /^https?:\/\/\S{1,500}$/.test(s.trim()) ? s.trim() : "");
 const COR = 0x34e06a;
+
+/** Melhor casamento por similaridade → userId. Conservador (limite cresce com o tamanho; nomes ≤3 nunca).
+ * Empate SÓ conta entre usuários DIFERENTES: se todas as chaves na menor distância são do MESMO user
+ * (nick/global/username parecidos), é vencedor claro — não falso-empate. Nunca casa a pessoa errada. */
+function melhorUserSimilar(k: string, cand: { chave: string; userId: string }[]): string | null {
+  const len = k.length;
+  const maxDist = len <= 3 ? 0 : len <= 6 ? 1 : 2;
+  if (maxDist === 0) return null;
+  let minD = Infinity;
+  const atMin = new Set<string>();
+  for (const c of cand) {
+    if (Math.abs(c.chave.length - len) > maxDist) continue; // poda por tamanho
+    const d = distancia(k, c.chave);
+    if (d < minD) { minD = d; atMin.clear(); atMin.add(c.userId); }
+    else if (d === minD) atMin.add(c.userId);
+  }
+  if (minD > maxDist) return null;
+  return atMin.size === 1 ? [...atMin][0] : null; // um único user na menor distância → casa; senão, ambíguo
+}
 
 /** Lista TODOS os membros do servidor ativo (paginado). Exige o "Server Members Intent".
  * `apelidos` = variações de nome (apelido/global/username) p/ casar a lista por nome. */
@@ -49,9 +68,10 @@ async function listarMembrosGuild(): Promise<MembroGuild[]> {
 }
 
 /** Resolve a audiência em uma lista de alvos {userId, nome}. */
-async function resolverAudiencia(a: Audiencia): Promise<{ ok: true; alvos: Alvo[]; naoEncontrados?: string[] } | { ok: false; erro: string }> {
+async function resolverAudiencia(a: Audiencia): Promise<{ ok: true; alvos: Alvo[]; naoEncontrados?: string[]; casados?: { de: string; para: string }[] } | { ok: false; erro: string }> {
   if (a?.tipo === "lista") {
-    // cada linha: um ID/menção → dispara direto; um nome → casa com o nome no servidor (apelido/global/username)
+    // cada linha: um ID/menção → dispara direto; um nome → casa com o nome no servidor
+    // (apelido/global/username), EXATO e por SIMILARIDADE (typos), reusando acharSimilar (conservador).
     const linhas = String(a.userIds ?? "").split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
     if (!linhas.length) return { ok: false, erro: "lista vazia" };
     const seen = new Set<string>();
@@ -63,20 +83,36 @@ async function resolverAudiencia(a: Audiencia): Promise<{ ok: true; alvos: Alvo[
       else nomes.push(l);
     }
     const naoEncontrados: string[] = [];
+    const casados: { de: string; para: string }[] = [];
     if (nomes.length) {
       let membros: MembroGuild[] | null = null;
       try { membros = await listarMembrosGuild(); } catch { membros = null; }
       if (!membros) return { ok: false, erro: "há nomes na lista, mas não consegui listar os membros pra casar. Use só IDs, ou ative o 'Server Members Intent' no bot." };
-      const idxNome = new Map<string, { userId: string; nome: string }>();
-      for (const m of membros) if (!m.bot) for (const ap of m.apelidos) { const k = chaveNome(ap); if (k && !idxNome.has(k)) idxNome.set(k, { userId: m.userId, nome: m.nome }); }
+      // candidatos por apelido (chave → userId). melhorUserSimilar trata várias chaves do MESMO user
+      // como vencedor claro (não falso-empate), então não precisa dedup por userId aqui.
+      const idxExato = new Map<string, string>(); // chaveNome(apelido) → userId (primeiro vence)
+      const cand: { chave: string; userId: string }[] = [];
+      const userToNome = new Map<string, string>();
+      for (const m of membros) if (!m.bot) {
+        userToNome.set(m.userId, m.nome);
+        for (const ap of m.apelidos) { const k = chaveNome(ap); if (!k) continue; if (!idxExato.has(k)) idxExato.set(k, m.userId); cand.push({ chave: k, userId: m.userId }); }
+      }
       for (const nm of nomes) {
-        const hit = idxNome.get(chaveNome(nm));
-        if (hit) { if (!seen.has(hit.userId)) { seen.add(hit.userId); alvos.push({ userId: hit.userId, nome: hit.nome }); } }
-        else naoEncontrados.push(nm);
+        const k = chaveNome(nm);
+        let userId = idxExato.get(k);
+        let fuzzy = false;
+        if (!userId) { const uid = melhorUserSimilar(k, cand); if (uid) { userId = uid; fuzzy = true; } }
+        if (!userId) { naoEncontrados.push(nm); continue; }
+        if (!seen.has(userId)) {
+          seen.add(userId);
+          const nome = userToNome.get(userId) ?? null;
+          alvos.push({ userId, nome });
+          if (fuzzy && nome) casados.push({ de: nm, para: nome }); // registra o casamento aproximado p/ conferência
+        }
       }
     }
     if (!alvos.length) return { ok: false, erro: `nenhum destinatário resolvido${naoEncontrados.length ? ` — não encontrei: ${naoEncontrados.slice(0, 10).join(", ")}` : ""}` };
-    return { ok: true, alvos, naoEncontrados: naoEncontrados.length ? naoEncontrados : undefined };
+    return { ok: true, alvos, naoEncontrados: naoEncontrados.length ? naoEncontrados : undefined, casados: casados.length ? casados : undefined };
   }
   let membros: Awaited<ReturnType<typeof listarMembrosGuild>>;
   try {
@@ -108,7 +144,7 @@ async function enviarDM(userId: string, mensagem: string, imagemUrl: string | nu
 }
 
 /** Cria um envio: resolve a audiência, cria a enquete (se houver opções) e grava envio + alvos. */
-export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown; canalReportId: unknown; audiencia: Audiencia; criadoPor?: unknown; opcoes?: OpcaoInput[]; contexto?: string; refId?: string | null }): Promise<{ ok: boolean; envioId?: number; total?: number; naoEncontrados?: string[]; erro?: string }> {
+export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown; canalReportId: unknown; audiencia: Audiencia; criadoPor?: unknown; opcoes?: OpcaoInput[]; contexto?: string; refId?: string | null }): Promise<{ ok: boolean; envioId?: number; total?: number; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const mensagem = String(input.mensagem ?? "").trim().slice(0, 1900);
   if (!mensagem) return { ok: false, erro: "mensagem vazia" };
@@ -141,7 +177,7 @@ export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown
     if (alvos.length) {
       await sql.transaction(alvos.map((a) => sql`INSERT INTO buzinador_alvo (envio_id, user_id, nome) VALUES (${envioId}, ${a.userId}, ${a.nome}) ON CONFLICT (envio_id, user_id) DO NOTHING`));
     }
-    return { ok: true, envioId, total: alvos.length, naoEncontrados: res.naoEncontrados };
+    return { ok: true, envioId, total: alvos.length, naoEncontrados: res.naoEncontrados, casados: res.casados };
   } catch (err) {
     if (enqueteId != null) { try { await sql`DELETE FROM enquete WHERE id = ${enqueteId}`; } catch { /* limpeza best-effort */ } }
     throw err;
@@ -203,15 +239,17 @@ export async function processarLote(envioId: number, tamanho = 20): Promise<Prog
   return { enviados: c.ok, falhas: c.falha, pendentes: c.pend, total: c.total, concluido, reportOk };
 }
 
-async function postarRelatorio(e: { id: number; mensagem: string; canal_report_id: string; criado_por: string | null; enquete_id: number | null }, c: { ok: number; falha: number; total: number }): Promise<boolean> {
+type RelE = { id: number; mensagem: string; criado_por: string | null; enquete_id: number | null };
+
+/** Monta o embed do relatório (entrega + votação), respeitando <=25 fields E soma total <=6000 chars.
+ * push() só adiciona se couber (reserva 1 slot + margem pro aviso); essenciais entram primeiro. */
+async function montarEmbedRelatorio(e: RelE, c: { ok: number; falha: number; total: number }) {
   const falhas = (await sql`SELECT user_id, nome FROM buzinador_alvo WHERE envio_id = ${e.id} AND status = 'falha' ORDER BY id`) as { user_id: string; nome: string | null }[];
   const listaFalhas = falhas.map((f) => (f.nome ? `${f.nome} (<@${f.user_id}>)` : `<@${f.user_id}>`)).join(", ");
-  // Monta os fields respeitando os limites do embed: <=25 fields E soma total <=6000 chars.
-  // push() só adiciona se couber (reserva 1 slot + margem pro aviso de corte); essenciais entram primeiro.
   const titulo = "📢 Buzinador — relatório de entrega";
   const descricao = `> ${e.mensagem.slice(0, 300)}${e.mensagem.length > 300 ? "…" : ""}`;
   const footerText = e.criado_por ? `disparado por ${e.criado_por}` : "";
-  let orcamento = 6000 - titulo.length - descricao.length - footerText.length - 120; // margem pro aviso
+  let orcamento = 6000 - titulo.length - descricao.length - footerText.length - 120;
   const fields: { name: string; value: string; inline?: boolean }[] = [];
   const push = (f: { name: string; value: string; inline?: boolean }) => {
     const custo = f.name.length + f.value.length;
@@ -242,16 +280,36 @@ async function postarRelatorio(e: { id: number; mensagem: string; canal_report_i
   }
   if (omitidas > 0) fields.push({ name: "…", value: `+${omitidas} opção(ões) não exibida(s) (limite do Discord).`, inline: false });
 
-  const embed = {
-    title: titulo,
-    description: descricao,
-    color: COR,
-    fields,
-    footer: footerText ? { text: footerText } : undefined,
-    timestamp: new Date().toISOString(),
-  };
+  return { title: titulo, description: descricao, color: COR, fields, footer: footerText ? { text: footerText } : undefined, timestamp: new Date().toISOString() };
+}
+
+async function postarRelatorio(e: RelE & { canal_report_id: string }, c: { ok: number; falha: number; total: number }): Promise<boolean> {
+  const embed = await montarEmbedRelatorio(e, c);
   const res = await botFetch(`/channels/${e.canal_report_id}/messages`, { method: "POST", body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }) });
   const reportId = res.ok ? ((await res.json()) as { id: string }).id : null;
   await sql`UPDATE buzinador_envio SET report_message_id = ${reportId} WHERE id = ${e.id}`;
   return res.ok;
+}
+
+/** Edita a mensagem do relatório já postada com o tally atual — chamado a cada voto (via hook da enquete).
+ * THROTTLE + serialização atômicos: o UPDATE só "ganha" se houver relatório postado E já faz >2s do
+ * último update. Assim uma rajada de votos coalesce em ≤1 PATCH/2s por enquete e cliques concorrentes
+ * não se atropelam (só um vence a janela) — evita flood de rate-limit e corrida de last-writer.
+ * No-op se o relatório ainda não foi postado (os votos aparecem quando ele for postado no fim da entrega). */
+export async function atualizarRelatorioPorEnquete(enqueteId: number): Promise<void> {
+  const claim = (await sql`
+    UPDATE buzinador_envio SET report_atualizado = now()
+    WHERE enquete_id = ${enqueteId} AND report_message_id IS NOT NULL
+      AND (report_atualizado IS NULL OR report_atualizado < now() - interval '2 seconds')
+    RETURNING id::int AS id, mensagem, criado_por, canal_report_id, enquete_id::int AS enquete_id, report_message_id`) as { id: number; mensagem: string; criado_por: string | null; canal_report_id: string; enquete_id: number | null; report_message_id: string | null }[];
+  const e = claim[0];
+  if (!e || !e.report_message_id) return; // sem relatório postado, ou outro voto já atualizou nos últimos 2s
+  const c = await contar(e.id);
+  const embed = await montarEmbedRelatorio(e, { ok: c.ok, falha: c.falha, total: c.total });
+  const res = await botFetch(`/channels/${e.canal_report_id}/messages/${e.report_message_id}`, { method: "PATCH", body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }) });
+  if (!res.ok && (res.status === 404 || res.status === 403)) {
+    // mensagem apagada / sem permissão → para de tentar editar a cada voto
+    await sql`UPDATE buzinador_envio SET report_message_id = NULL WHERE id = ${e.id}`;
+    console.error(`buzinador: relatório ${e.id} PATCH ${res.status} — report_message_id limpo`);
+  }
 }
