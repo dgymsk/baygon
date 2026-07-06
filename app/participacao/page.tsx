@@ -8,6 +8,7 @@ import { listPlayers } from "@/lib/players";
 import { chaveNome } from "@/lib/nomes";
 import { casarNome } from "@/lib/casarNome";
 import { canEditNow } from "@/lib/requireAuth";
+import { getDiscordConfig } from "@/lib/discordConfig";
 import ParticipacaoBoard from "./ParticipacaoBoard";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +25,8 @@ export type SitPt = { id: number; nome: string; emoji: string; cor: string; limi
 export type SituacaoVM = { templateNome: string; tamanhoMax: number | null; totalConfirmados: number; totalEspera: number; pts: SitPt[]; semPt: MembroSit[]; naoDecididos: MembroSit[]; cant: MembroSit[] } | null;
 
 export default async function ParticipacaoPage() {
-  const [cfg, posts, players, pts, membros, templates, emojis, roles, imagens, canEdit] = await Promise.all([
-    getParticipacaoConfig(), postsAtivos(), listPlayers(), listPts(), listMembros(), listTemplates(), listarEmojisGuild(), listarRolesGuild(), listImagens(), canEditNow(),
+  const [cfg, posts, players, pts, membros, templates, emojis, roles, imagens, dcfg, canEdit] = await Promise.all([
+    getParticipacaoConfig(), postsAtivos(), listPlayers(), listPts(), listMembros(), listTemplates(), listarEmojisGuild(), listarRolesGuild(), listImagens(), getDiscordConfig(), canEditNow(),
   ]);
   const playersCands = players.map((p) => ({ chave: chaveNome(p.nome_familia), nome: p.nome_familia }));
   const playersAtivos = players.filter((p) => p.ativo).map((p) => p.nome_familia).sort((a, b) => a.localeCompare(b));
@@ -65,5 +66,5 @@ export default async function ParticipacaoPage() {
     situacao[tipo] = { templateNome: tpl.nome, tamanhoMax: tpl.tamanho_max, totalConfirmados: confirmados.size, totalEspera: espera.size, pts: sitPts, semPt, naoDecididos, cant };
   }
 
-  return <ParticipacaoBoard cfgInit={cfg} pts={pts as PtVM[]} membros={membros.map((m) => ({ tipo: m.tipo, familia: m.familia, pt_id: m.pt_id }))} templates={templates as TemplateVM[]} situacao={situacao} playersAtivos={playersAtivos} emojis={emojis} roles={roles} imagens={imagens} canEdit={canEdit} />;
+  return <ParticipacaoBoard cfgInit={cfg} pts={pts as PtVM[]} membros={membros.map((m) => ({ tipo: m.tipo, familia: m.familia, pt_id: m.pt_id }))} templates={templates as TemplateVM[]} situacao={situacao} playersAtivos={playersAtivos} emojis={emojis} roles={roles} imagens={imagens} reportChannel={dcfg.reportChannel} canEdit={canEdit} />;
 }

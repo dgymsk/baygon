@@ -148,8 +148,9 @@ export async function criarEnvio(input: { mensagem: unknown; imagemUrl?: unknown
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const mensagem = String(input.mensagem ?? "").trim().slice(0, 1900);
   if (!mensagem) return { ok: false, erro: "mensagem vazia" };
-  const canal = dig(input.canalReportId);
-  if (!canal) return { ok: false, erro: "canal de relatório inválido" };
+  let canal = dig(input.canalReportId);
+  if (!canal) canal = (await getDiscordConfig()).reportChannel; // fallback pro canal padrão da config /discord
+  if (!canal) return { ok: false, erro: "canal de relatório não definido (informe no Buzinador ou em /discord)" };
   const imagemUrl = urlOk(input.imagemUrl) || null;
   const criadoPor = (String(input.criadoPor ?? "").trim().slice(0, 80)) || null;
 

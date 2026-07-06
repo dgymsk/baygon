@@ -32,10 +32,10 @@ function NomePerfil({ nome, userId, bold }: { nome: string; userId: string | nul
 const statusIcon = (s: MembroSit["status"]) => (s === "can" ? "✅" : s === "espera" ? "⏳" : s === "cant" ? "❌" : "⬜");
 
 export default function ParticipacaoBoard({
-  cfgInit, pts, membros, templates, situacao, playersAtivos, emojis, roles, imagens, canEdit,
+  cfgInit, pts, membros, templates, situacao, playersAtivos, emojis, roles, imagens, reportChannel, canEdit,
 }: {
   cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; situacao: Record<Tipo, SituacaoVM>;
-  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; canEdit: boolean;
+  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; reportChannel: string; canEdit: boolean;
 }) {
   const router = useRouter();
   const ro = !canEdit;
@@ -57,7 +57,7 @@ export default function ParticipacaoBoard({
   useEffect(() => { setTplDrafts(templates); }, [templates]); // ressincroniza após refresh
 
   // Buzinador (disparo de DM em massa)
-  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[]; textoLivre: boolean }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: "", opcoes: [], textoLivre: false });
+  const [buz, setBuz] = useState<{ mensagem: string; imagem: string; tipo: "role" | "todos" | "lista"; roleId: string; userIds: string; canal: string; opcoes: { label: string; estilo: number; emoji: string }[]; textoLivre: boolean }>({ mensagem: "", imagem: "", tipo: "role", roleId: "", userIds: "", canal: reportChannel, opcoes: [], textoLivre: false });
   const [buzProg, setBuzProg] = useState<{ ativo: boolean; total: number; enviados: number; falhas: number; pendentes: number; concluido: boolean; reportOk?: boolean; naoEncontrados?: string[]; casados?: { de: string; para: string }[]; erro?: string } | null>(null);
   const setBuzF = <K extends keyof typeof buz>(k: K, v: (typeof buz)[K]) => setBuz((b) => ({ ...b, [k]: v }));
   const addOpcao = () => setBuz((b) => (b.opcoes.length >= 25 ? b : { ...b, opcoes: [...b.opcoes, { label: "", estilo: 2, emoji: "" }] }));
@@ -480,8 +480,8 @@ export default function ParticipacaoBoard({
             </div>
 
             <div style={{ marginTop: 12 }}>
-              <label style={label}>Canal do relatório (ID)</label>
-              <input value={buz.canal} readOnly={ro} onChange={(e) => setBuzF("canal", e.target.value.replace(/[^0-9]/g, ""))} placeholder="onde o bot posta quem recebeu / falhou" style={{ ...input, width: "100%" }} />
+              <label style={label}>Canal do relatório (ID) — padrão vem de /discord</label>
+              <input value={buz.canal} readOnly={ro} onChange={(e) => setBuzF("canal", e.target.value.replace(/[^0-9]/g, ""))} placeholder="vazio = usa o canal padrão da config /discord" style={{ ...input, width: "100%" }} />
             </div>
 
             {canEdit && (

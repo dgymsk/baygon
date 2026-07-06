@@ -16,17 +16,18 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
   const [cnw, setCnw] = useState(initial.confirmNodewar);
   const [csg, setCsg] = useState(initial.confirmSiege);
   const [log, setLog] = useState(initial.logChannel);
+  const [rep, setRep] = useState(initial.reportChannel);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   async function salvar() {
     setStatus({ kind: "saving" });
     try {
-      const body = { guildId, staffRoleIds: staff.split(",").map((s) => s.trim()).filter(Boolean), confirmNodewar: cnw, confirmSiege: csg, logChannel: log };
+      const body = { guildId, staffRoleIds: staff.split(",").map((s) => s.trim()).filter(Boolean), confirmNodewar: cnw, confirmSiege: csg, logChannel: log, reportChannel: rep };
       const res = await fetch("/api/discord-config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "falha ao salvar");
       const dc = d as DiscordConfig;
-      setGuildId(dc.guildId); setStaff(dc.staffRoleIds.join(", ")); setCnw(dc.confirmNodewar); setCsg(dc.confirmSiege); setLog(dc.logChannel);
+      setGuildId(dc.guildId); setStaff(dc.staffRoleIds.join(", ")); setCnw(dc.confirmNodewar); setCsg(dc.confirmSiege); setLog(dc.logChannel); setRep(dc.reportChannel);
       setStatus({ kind: "ok", msg: "Config salva. Faça logout/login pra revalidar o acesso." });
     } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
   }
@@ -72,6 +73,7 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
           </div>
           <div style={dica}>Canais de onde a tela de Confirmados lê o embed do Apollo (por modo).</div>
           <div><label style={label}>Canal de log (respostas livres)</label><input value={log} readOnly={ro} onChange={(e) => setLog(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /><div style={dica}>Onde o bot posta as respostas de texto livre (modal “Responder” e /responder), cada uma com um código.</div></div>
+          <div><label style={label}>Canal do relatório do Buzinador (padrão)</label><input value={rep} readOnly={ro} onChange={(e) => setRep(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /><div style={dica}>Canal padrão onde o Buzinador posta o relatório de entrega/votação. No painel dá pra sobrescrever por disparo.</div></div>
         </div>
 
         {status.kind === "ok" && <div style={{ color: C.verde, fontSize: 12.5, marginTop: 10 }}>✓ {status.msg}</div>}
