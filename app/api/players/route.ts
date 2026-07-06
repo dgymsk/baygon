@@ -61,6 +61,7 @@ export async function PATCH(req: Request) {
         guilda: typeof x.guilda === "string" ? x.guilda : "MANI",
         pt_preferida: typeof x.pt_preferida === "string" && x.pt_preferida ? x.pt_preferida : null,
         garmoth_id: typeof x.garmoth_id === "string" && x.garmoth_id.trim() ? x.garmoth_id.trim() : null,
+        registro: Boolean(x.registro),
       });
     }
   }

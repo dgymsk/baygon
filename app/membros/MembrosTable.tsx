@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { PlayerRow } from "@/lib/players";
 import { CLASSE_NOMES, tiposDe } from "@/lib/bdoClasses";
 import type { MediasMap } from "@/lib/stats";
@@ -22,7 +22,7 @@ const STATS = [
 ];
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? "", p.garmoth_id ?? ""]);
+const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? "", p.garmoth_id ?? "", p.registro]);
 const haQuanto = (iso: string | null) => {
   if (!iso) return "";
   const ms = Date.now() - new Date(iso).getTime();
@@ -56,6 +56,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
   const ex = useMemo(() => rows.filter((r) => !r.ativo), [rows]);
   const nMani = ativos.filter((r) => r.guilda === "MANI").length;
   const nReso = ativos.length - nMani;
+  const nReg = ativos.filter((r) => r.registro).length;
 
   const filtered = useMemo(() => {
     const base = tab === "ativos" ? ativos : ex;
@@ -67,6 +68,10 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
       return r.nome_familia.toLowerCase().includes(s) || r.grupo.toLowerCase().includes(s) || (r.classe_bdo ?? "").toLowerCase().includes(s);
     });
   }, [tab, ativos, ex, q, gf, baseline]);
+
+  // registrados primeiro; não-registrados vão pro fim (esmaecidos, sob um divisor). sort estável preserva grupo/nome.
+  const ordenados = useMemo(() => [...filtered].sort((a, b) => Number(b.registro) - Number(a.registro)), [filtered]);
+  const temReg = ordenados.some((r) => r.registro);
 
   const patch = (nome: string, campo: Partial<PlayerRow>) =>
     setRows((prev) => prev.map((r) => (r.nome_familia === nome ? { ...r, ...campo } : r)));
@@ -174,6 +179,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
               <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
                 <Stat>{rows.length} no total</Stat>
                 <Stat><b style={{ color: C.verde }}>{ativos.length}</b> ativos</Stat>
+                <Stat><b style={{ color: C.verde }}>{nReg}</b> reg. · <span style={{ color: C.mute }}>{ativos.length - nReg} não</span></Stat>
                 <Stat>{ex.length} ex-membros</Stat>
                 <Stat><img src={GUILD.MANI.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nMani}</Stat>
                 <Stat><img src={GUILD.RESO.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nReso}</Stat>
@@ -263,15 +269,21 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                 <th style={{ textAlign: "center" }}>Wars</th>
                 <th>Médias vs core (últ. 5)</th>
                 <th>Garmoth <span style={{ textTransform: "none", color: C.borderSoft }}>(AP/AAP · DP)</span></th>
+                <th style={{ textAlign: "center" }} title="Concluiu a jornada de registro">Reg.</th>
                 <th style={{ textAlign: "right" }}>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
+              {ordenados.map((r, i) => {
                 const isDirty = baseline.get(r.nome_familia) !== editKey(r);
                 const g = GUILD[r.guilda] ?? GUILD.MANI;
+                const primeiroNaoReg = !r.registro && temReg && (i === 0 || ordenados[i - 1].registro);
                 return (
-                  <tr key={r.nome_familia} style={{ background: isDirty ? "rgba(255,210,30,.06)" : undefined }}>
+                  <Fragment key={r.nome_familia}>
+                  {primeiroNaoReg && (
+                    <tr><td colSpan={12} style={{ padding: "12px 10px 5px", color: C.mute, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", borderTop: `1px dashed ${C.border2}` }}>▽ Não registrados ({ordenados.length - ordenados.filter((x) => x.registro).length}) — aguardando a jornada de registro</td></tr>
+                  )}
+                  <tr style={{ background: isDirty ? "rgba(255,210,30,.06)" : undefined, opacity: r.registro || !temReg ? 1 : 0.5 }}>
                     <td style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
                     <td>
                       <select value={r.grupo} disabled={ro} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
@@ -350,6 +362,9 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                         </div>
                       )}
                     </td>
+                    <td style={{ textAlign: "center" }}>
+                      <input type="checkbox" checked={r.registro} disabled={ro} title={r.registro ? "registrado (jornada concluída)" : "não registrado — cai no grupo esmaecido"} onChange={(e) => patch(r.nome_familia, { registro: e.target.checked })} />
+                    </td>
                     <td style={{ textAlign: "right" }}>
                       {!canEdit ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : (
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
@@ -374,10 +389,11 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                       )}
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
-              {filtered.length === 0 && (
-                <tr><td colSpan={11} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
+              {ordenados.length === 0 && (
+                <tr><td colSpan={12} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
               )}
             </tbody>
           </table>
