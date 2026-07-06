@@ -45,7 +45,7 @@ export default function ParticipacaoBoard({
   const [disparando, setDisparando] = useState(false);
   const [disparoSel, setDisparoSel] = useState<Record<Tipo, string>>({ nodewar: "", siege: "" });
   const [novoPt, setNovoPt] = useState({ nome: "", emoji: "" });
-  const [novoTpl, setNovoTpl] = useState<{ nome: string; tipo: Tipo; tamanhoMax: string; ptIds: number[] }>({ nome: "", tipo: "nodewar", tamanhoMax: "", ptIds: [] });
+  const [novoTpl, setNovoTpl] = useState<{ nome: string; tipo: Tipo; tamanhoMax: string; pts: { pt_id: number; limite: number | null }[] }>({ nome: "", tipo: "nodewar", tamanhoMax: "", pts: [] });
   const [tipoAtrib, setTipoAtrib] = useState<Tipo>("nodewar");
   const [filtro, setFiltro] = useState("");
   const [atrib, setAtrib] = useState<Record<Tipo, Record<string, string>>>(() => {
@@ -100,10 +100,15 @@ export default function ParticipacaoBoard({
   const excluirPt = (p: PtVM) => { if (confirm(`Excluir o PT "${p.nome}"? Sai dos templates e das atribuições.`)) api("/api/participacao/pts", jsonInit("DELETE", { id: p.id }), "PT excluído."); };
 
   // ---- templates ----
-  const criarTpl = () => { if (!novoTpl.nome.trim()) return; api("/api/participacao/templates", jsonInit("POST", { nome: novoTpl.nome, tipo: novoTpl.tipo, tamanhoMax: novoTpl.tamanhoMax || null, ptIds: novoTpl.ptIds }), `template "${novoTpl.nome}" criado.`); setNovoTpl({ nome: "", tipo: "nodewar", tamanhoMax: "", ptIds: [] }); };
-  const salvarTpl = (t: TemplateVM) => api("/api/participacao/templates", jsonInit("PATCH", { id: t.id, nome: t.nome, tipo: t.tipo, tamanhoMax: t.tamanho_max, ptIds: t.pts }), "template atualizado.");
+  const ptsPayload = (arr: { pt_id: number; limite: number | null }[]) => arr.map((x) => ({ ptId: x.pt_id, limite: x.limite }));
+  const criarTpl = () => { if (!novoTpl.nome.trim()) return; api("/api/participacao/templates", jsonInit("POST", { nome: novoTpl.nome, tipo: novoTpl.tipo, tamanhoMax: novoTpl.tamanhoMax || null, pts: ptsPayload(novoTpl.pts) }), `template "${novoTpl.nome}" criado.`); setNovoTpl({ nome: "", tipo: "nodewar", tamanhoMax: "", pts: [] }); };
+  const salvarTpl = (t: TemplateVM) => api("/api/participacao/templates", jsonInit("PATCH", { id: t.id, nome: t.nome, tipo: t.tipo, tamanhoMax: t.tamanho_max, pts: ptsPayload(t.pts) }), "template atualizado.");
   const editarTpl = (t: TemplateVM, patch: Partial<TemplateVM>) => { const novo = { ...t, ...patch }; setTplDrafts((ds) => ds.map((d) => (d.id === t.id ? novo : d))); salvarTpl(novo); };
-  const togglePtTpl = (t: TemplateVM, ptId: number) => editarTpl(t, { pts: t.pts.includes(ptId) ? t.pts.filter((x) => x !== ptId) : [...t.pts, ptId] });
+  const togglePtTpl = (t: TemplateVM, ptId: number) => editarTpl(t, { pts: t.pts.some((x) => x.pt_id === ptId) ? t.pts.filter((x) => x.pt_id !== ptId) : [...t.pts, { pt_id: ptId, limite: null }] });
+  const setLimTpl = (t: TemplateVM, ptId: number, limStr: string) => { const lim = limStr ? Number(limStr) : null; editarTpl(t, { pts: t.pts.map((x) => (x.pt_id === ptId ? { ...x, limite: lim } : x)) }); };
+  // novo template (mesmos toggles, mas no estado novoTpl)
+  const toggleNovoPt = (ptId: number) => setNovoTpl((n) => ({ ...n, pts: n.pts.some((x) => x.pt_id === ptId) ? n.pts.filter((x) => x.pt_id !== ptId) : [...n.pts, { pt_id: ptId, limite: null }] }));
+  const setLimNovo = (ptId: number, limStr: string) => setNovoTpl((n) => ({ ...n, pts: n.pts.map((x) => (x.pt_id === ptId ? { ...x, limite: limStr ? Number(limStr) : null } : x)) }));
   const excluirTpl = (t: TemplateVM) => { if (confirm(`Excluir o template "${t.nome}"?`)) api("/api/participacao/templates", jsonInit("DELETE", { id: t.id }), "template excluído."); };
 
   // ---- atribuição ----
@@ -207,7 +212,7 @@ export default function ParticipacaoBoard({
                         {sit.pts.map((g) => (
                           <div key={g.id} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.surfaceSolid, padding: "8px 10px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, paddingBottom: 5, borderBottom: `1px solid ${C.borderSoft}` }}>
-                              <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b><span style={{ color: C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados}</span>
+                              <GEmoji emoji={g.emoji} emojis={emojis} size={16} /><b style={{ color: C.verde, fontSize: 13, flex: 1 }}>{g.nome}</b><span style={{ color: g.limite != null && g.confirmados >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados}{g.limite != null ? `/${g.limite}` : ""}</span>
                             </div>
                             {g.membros.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém atribuído</span> : (
                               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -276,13 +281,19 @@ export default function ParticipacaoBoard({
                   </select>
                   <input defaultValue={t.tamanho_max ?? ""} readOnly={ro} placeholder="tamanho máx" onBlur={(e) => { const v = e.target.value.replace(/[^0-9]/g, ""); const nv = v ? Number(v) : null; if (canEdit && nv !== t.tamanho_max) editarTpl(t, { tamanho_max: nv }); }} style={{ ...input, width: 100 }} />
                 </div>
-                <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>PTs do template</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>PTs + limite de players</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {pts.map((p) => {
-                    const on = t.pts.includes(p.id);
-                    return <button key={p.id} disabled={ro} onClick={() => canEdit && togglePtTpl(t, p.id)}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, border: `1px solid ${on ? C.verde : C.border2}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "3px 9px", fontSize: 12, cursor: ro ? "default" : "pointer" }}>
-                      <GEmoji emoji={p.emoji} emojis={emojis} size={13} />{p.nome}</button>;
+                    const tp = t.pts.find((x) => x.pt_id === p.id);
+                    const on = !!tp;
+                    return (
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button disabled={ro} onClick={() => canEdit && togglePtTpl(t, p.id)}
+                          style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "flex-start", gap: 4, borderRadius: 8, border: `1px solid ${on ? C.verde : C.border2}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "4px 9px", fontSize: 12, cursor: ro ? "default" : "pointer" }}>
+                          <GEmoji emoji={p.emoji} emojis={emojis} size={13} />{p.nome}</button>
+                        {on && <input key={`${t.id}-${p.id}`} defaultValue={tp!.limite ?? ""} readOnly={ro} onBlur={(e) => canEdit && setLimTpl(t, p.id, e.target.value.replace(/[^0-9]/g, ""))} placeholder="limite" style={{ ...input, width: 62 }} />}
+                      </div>
+                    );
                   })}
                   {pts.length === 0 && <span style={{ color: C.borderSoft, fontSize: 12 }}>crie PTs primeiro (aba PTs).</span>}
                 </div>
@@ -299,14 +310,21 @@ export default function ParticipacaoBoard({
                   </select>
                   <input value={novoTpl.tamanhoMax} onChange={(e) => setNovoTpl((n) => ({ ...n, tamanhoMax: e.target.value.replace(/[^0-9]/g, "") }))} placeholder="tamanho máx" style={{ ...input, width: 100 }} />
                 </div>
-                <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>PTs</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>PTs + limite de players</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {pts.map((p) => {
-                    const on = novoTpl.ptIds.includes(p.id);
-                    return <button key={p.id} onClick={() => setNovoTpl((n) => ({ ...n, ptIds: on ? n.ptIds.filter((x) => x !== p.id) : [...n.ptIds, p.id] }))}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, border: `1px solid ${on ? C.verde : C.border2}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "3px 9px", fontSize: 12, cursor: "pointer" }}>
-                      <GEmoji emoji={p.emoji} emojis={emojis} size={13} />{p.nome}</button>;
+                    const tp = novoTpl.pts.find((x) => x.pt_id === p.id);
+                    const on = !!tp;
+                    return (
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button onClick={() => toggleNovoPt(p.id)}
+                          style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "flex-start", gap: 4, borderRadius: 8, border: `1px solid ${on ? C.verde : C.border2}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "4px 9px", fontSize: 12, cursor: "pointer" }}>
+                          <GEmoji emoji={p.emoji} emojis={emojis} size={13} />{p.nome}</button>
+                        {on && <input value={tp!.limite ?? ""} onChange={(e) => setLimNovo(p.id, e.target.value.replace(/[^0-9]/g, ""))} placeholder="limite" style={{ ...input, width: 62 }} />}
+                      </div>
+                    );
                   })}
+                  {pts.length === 0 && <span style={{ color: C.borderSoft, fontSize: 12 }}>crie PTs primeiro (aba PTs).</span>}
                 </div>
                 <button onClick={criarTpl} disabled={!novoTpl.nome.trim()} style={{ ...btn(C.verde), fontWeight: 700, marginTop: 10 }}>Criar template</button>
               </div>

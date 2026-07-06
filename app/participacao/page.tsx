@@ -15,10 +15,11 @@ export const metadata = { title: "Participação · BAYGON" };
 export type { EmojiGuild };
 export type PtVM = { id: number; nome: string; emoji: string };
 export type MembroVM = { tipo: string; familia: string; pt_id: number };
-export type TemplateVM = { id: number; nome: string; tipo: string; tamanho_max: number | null; pts: number[] };
+export type TemplatePtVM = { pt_id: number; limite: number | null };
+export type TemplateVM = { id: number; nome: string; tipo: string; tamanho_max: number | null; pts: TemplatePtVM[] };
 export type StatusResp = "can" | "espera" | "cant" | null;
 export type MembroSit = { familia: string; userId: string | null; status: StatusResp };
-export type SitPt = { id: number; nome: string; emoji: string; confirmados: number; membros: MembroSit[] };
+export type SitPt = { id: number; nome: string; emoji: string; limite: number | null; confirmados: number; membros: MembroSit[] };
 export type SituacaoVM = { templateNome: string; tamanhoMax: number | null; totalConfirmados: number; totalEspera: number; pts: SitPt[]; semPt: MembroSit[]; cant: MembroSit[] } | null;
 
 export default async function ParticipacaoPage() {
@@ -42,13 +43,14 @@ export default async function ParticipacaoPage() {
     const membrosTipo = membros.filter((m) => m.tipo === tipo);
     const membrosPorPt = new Map<number, typeof membrosTipo>();
     for (const m of membrosTipo) { const a = membrosPorPt.get(m.pt_id) ?? []; a.push(m); membrosPorPt.set(m.pt_id, a); }
-    const chavesAtrib = new Set(membrosTipo.map((m) => chaveNome(m.familia)));
+    const ptsTpl = new Set(tpl.pts.map((tp) => tp.pt_id));
+    const chavesAtrib = new Set(membrosTipo.filter((m) => ptsTpl.has(m.pt_id)).map((m) => chaveNome(m.familia)));
     const sitMembro = (familia: string): MembroSit => { const r = respByChave.get(chaveNome(familia)); return { familia, userId: r?.user_id ?? null, status: r ? statusDe(r) : null }; };
-    const sitPts: SitPt[] = tpl.pts.map((pid) => {
-      const pt = ptById.get(pid);
+    const sitPts: SitPt[] = tpl.pts.map((tp) => {
+      const pt = ptById.get(tp.pt_id);
       if (!pt) return null;
-      const mem = (membrosPorPt.get(pid) ?? []).map((m) => sitMembro(m.familia));
-      return { id: pt.id, nome: pt.nome, emoji: pt.emoji, confirmados: mem.filter((m) => m.status === "can").length, membros: mem };
+      const mem = (membrosPorPt.get(tp.pt_id) ?? []).map((m) => sitMembro(m.familia));
+      return { id: pt.id, nome: pt.nome, emoji: pt.emoji, limite: tp.limite, confirmados: mem.filter((m) => m.status === "can").length, membros: mem };
     }).filter((x): x is SitPt => x !== null);
     const semPt = respostas.filter((r) => r.resposta === "can" && !chavesAtrib.has(chaveNome(casarNome(r.familia || r.username, [], playersCands)))).map((r) => ({ familia: casarNome(r.familia || r.username, [], playersCands), userId: r.user_id, status: statusDe(r) }));
     const cant = respostas.filter((r) => r.resposta === "cant" && !chavesAtrib.has(chaveNome(casarNome(r.familia || r.username, [], playersCands)))).map((r) => ({ familia: casarNome(r.familia || r.username, [], playersCands), userId: r.user_id, status: "cant" as const }));

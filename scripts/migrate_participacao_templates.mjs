@@ -40,13 +40,15 @@ try {
     tamanho_max INT,                       -- trava total da guerra (NULL = sem trava)
     criado      TIMESTAMPTZ NOT NULL DEFAULT now()
   )`);
-  // quais PTs compõem o template (+ ordem)
+  // quais PTs compõem o template (+ ordem + limite de players por PT)
   await client.query(`CREATE TABLE IF NOT EXISTS participacao_template_pt (
     template_id BIGINT NOT NULL REFERENCES participacao_template(id) ON DELETE CASCADE,
     pt_id       BIGINT NOT NULL REFERENCES participacao_pt(id) ON DELETE CASCADE,
     ordem       INT NOT NULL DEFAULT 0,
+    limite      INT,                          -- quantos players nesse PT (NULL = sem limite)
     PRIMARY KEY (template_id, pt_id)
   )`);
+  await client.query(`ALTER TABLE participacao_template_pt ADD COLUMN IF NOT EXISTS limite INT`);
 
   // post: qual template foi usado; resp: quando confirmou (ordem da espera)
   await client.query(`ALTER TABLE participacao_post ADD COLUMN IF NOT EXISTS template_id BIGINT`);

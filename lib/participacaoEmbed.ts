@@ -10,7 +10,7 @@ import type { TipoCfg } from "@/lib/participacaoConfig";
 export type PtE = { id: number; nome: string; emoji: string };
 export type MembroE = { chave: string; familia: string; pt_id: number };
 export type RespE = { user_id: string; chave: string | null; resposta: "can" | "cant"; can_em: string | null };
-export type TemplateE = { nome: string; tamanho_max: number | null; pts: number[] };
+export type TemplateE = { nome: string; tamanho_max: number | null; pts: { pt_id: number; limite: number | null }[] };
 
 const COR = 0x34e06a;
 
@@ -30,7 +30,9 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const ptById = new Map(ptsCat.map((p) => [p.id, p]));
   const membrosPorPt = new Map<number, MembroE[]>();
   for (const m of membros) { const a = membrosPorPt.get(m.pt_id) ?? []; a.push(m); membrosPorPt.set(m.pt_id, a); }
-  const chavesAtrib = new Set(membros.map((m) => m.chave));
+  // só quem está num PT DO TEMPLATE conta como atribuído; atribuído a PT fora do template → "Sem PT"
+  const ptsTpl = new Set(tpl.pts.map((tp) => tp.pt_id));
+  const chavesAtrib = new Set(membros.filter((m) => ptsTpl.has(m.pt_id)).map((m) => m.chave));
 
   const statusU = (userId: string, resp: "can" | "cant") => (resp === "cant" ? "❌" : confirmados.has(userId) ? "✅" : "⏳");
   const statusCh = (chave: string) => { const r = respByChave.get(chave); return r ? statusU(r.user_id, r.resposta) : "⬜"; };
@@ -38,14 +40,15 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const ordem = { "✅": 0, "⏳": 1, "⬜": 2, "❌": 3 } as Record<string, number>;
 
   const fields: { name: string; value: string; inline?: boolean }[] = [];
-  for (const pid of tpl.pts) {
-    const pt = ptById.get(pid);
+  for (const tp of tpl.pts) {
+    const pt = ptById.get(tp.pt_id);
     if (!pt) continue;
-    const mem = (membrosPorPt.get(pid) ?? []).slice().sort((a, b) => ordem[statusCh(a.chave)] - ordem[statusCh(b.chave)]);
+    const mem = (membrosPorPt.get(tp.pt_id) ?? []).slice().sort((a, b) => ordem[statusCh(a.chave)] - ordem[statusCh(b.chave)]);
     const conf = mem.filter((m) => { const r = respByChave.get(m.chave); return r && r.resposta === "can" && confirmados.has(r.user_id); }).length;
     const linhas = mem.map((m) => `${statusCh(m.chave)} ${nomeCh(m.chave, m.familia)}`);
     const pref = pt.emoji ? `${pt.emoji} ` : "";
-    fields.push({ name: `${pref}${pt.nome} — ${conf}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(vazio)_").slice(0, 1024), inline: true });
+    const cap = tp.limite != null ? `/${tp.limite}` : "";
+    fields.push({ name: `${pref}${pt.nome} — ${conf}${cap}`.slice(0, 256), value: (linhas.length ? linhas.join("\n") : "_(vazio)_").slice(0, 1024), inline: true });
   }
 
   const semPt = (r: RespE) => !r.chave || !chavesAtrib.has(r.chave);
