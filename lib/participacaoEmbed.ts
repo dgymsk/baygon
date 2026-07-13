@@ -47,7 +47,9 @@ export type PerfilE = { guilda: string; classe: string | null; gs: number | null
 const tag3 = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : null); // null = guilda desconhecida → sem tag
 const safeLink = (s: string) => (s || "?").replace(/[`[\]()\n]/g, "").trim() || "?"; // texto seguro p/ [texto](url)
 
-export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[], perfil?: Map<string, PerfilE>) {
+export type EmojiMapE = { classes: Record<string, string>; guildas: Record<string, string> };
+
+export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[], perfil?: Map<string, PerfilE>, emojis?: EmojiMapE) {
   const { confirmados, espera } = classificarPorPt(tpl.pts, membros, respostas);
   const respByChave = new Map<string, RespE>();
   for (const r of respostas) if (r.chave) respByChave.set(r.chave, r);
@@ -64,8 +66,13 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const linhaMembro = (m: MembroE): string => {
     const p = perfil?.get(m.chave);
     const r = respByChave.get(m.chave);
-    const texto = [tag3(p?.guilda), safeLink(m.familia), p?.gs != null ? String(p.gs) : null, p?.classe ? `(${safeLink(p.classe)})` : null].filter(Boolean).join(" ");
-    return r?.user_id ? `[${texto}](https://discord.com/users/${r.user_id})` : texto;
+    // emoji da guilda/classe (fallback pro texto onde não houver emoji). Emoji fica FORA do link (custom
+    // não renderiza dentro de link mascarado); o nick+GS ficam no link (clicável).
+    const gEmoji = (p?.guilda && emojis?.guildas[p.guilda]) || (tag3(p?.guilda) ?? "");
+    const cEmoji = (p?.classe && emojis?.classes[p.classe]) || (p?.classe ? `(${safeLink(p.classe)})` : "");
+    const alvo = [safeLink(m.familia), p?.gs != null ? String(p.gs) : null].filter(Boolean).join(" ");
+    const link = r?.user_id ? `[${alvo}](https://discord.com/users/${r.user_id})` : alvo;
+    return [gEmoji, link, cEmoji].filter(Boolean).join(" ");
   };
   const moldura = (ms: MembroE[]) => "> " + ms.map(linhaMembro).join("\n> "); // blockquote (barra à esquerda), clicável
 
