@@ -11,7 +11,7 @@ CREATE TABLE players (
   is_core      BOOLEAN NOT NULL DEFAULT FALSE,   -- sua marcação de "core"
   classe_bdo   TEXT,                             -- classe do BDO (ex: Guerreiro)
   classe_tipo  TEXT,                             -- especialização: Despertar/Sucessão/Ascensão/Talento
-  guilda       TEXT    NOT NULL DEFAULT 'MANI' CHECK (guilda IN ('MANI','RESO')),  -- guilda da aliança
+  guilda       TEXT    NOT NULL DEFAULT 'MANI',  -- id da guilda da aliança (configurável em /guildas → guild_meta)
   pt_preferida TEXT,                             -- PT preferida de nodewar (1/2/defesa/ungabunga) — base do board
   ativo        BOOLEAN NOT NULL DEFAULT TRUE,    -- FALSE = ex-membro (aba "membros antigos")
   saida_tipo   TEXT CHECK (saida_tipo IS NULL OR saida_tipo IN ('Saiu','Kikado')),  -- motivo da saída
@@ -39,7 +39,7 @@ CREATE TABLE grupos_metricas (
 -- Vagas que não passam pelo bot (Apollo), por guilda da aliança.
 -- hidden = nº de vagas reservadas; texto = nomes que ocupam vaga fora do bot (1 por linha).
 CREATE TABLE IF NOT EXISTS vagas_config (
-  guilda TEXT PRIMARY KEY CHECK (guilda IN ('MANI','RESO')),
+  guilda TEXT PRIMARY KEY,  -- id da guilda (configurável em /guildas)
   hidden INT  NOT NULL DEFAULT 0,
   texto  TEXT NOT NULL DEFAULT ''
 );

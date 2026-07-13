@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Vagas } from "@/lib/vagas";
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { C } from "@/lib/theme";
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-const GUILD = { MANI: { label: "Manicômio", icon: "/guilds/manicomio.png" }, RESO: { label: "Resonance", icon: "/guilds/resonance.png" } } as const;
 
-export default function VagasEditor({ vagasInit, canEdit }: { vagasInit: Vagas; canEdit: boolean }) {
+export default function VagasEditor({ vagasInit, canEdit, guildas }: { vagasInit: Vagas; canEdit: boolean; guildas: GuildEntry[] }) {
   const router = useRouter();
   const [vagas, setVagas] = useState<Vagas>(vagasInit);
   const [saved, setSaved] = useState(() => JSON.stringify(vagasInit));
@@ -27,9 +27,9 @@ export default function VagasEditor({ vagasInit, canEdit }: { vagasInit: Vagas; 
     setVagas(vagasInit); setSaved(vagasSig);
   });
 
-  const setVaga = (g: "MANI" | "RESO", patch: Partial<{ hidden: number; texto: string }>) => {
+  const setVaga = (g: string, patch: Partial<{ hidden: number; texto: string }>) => {
     if (ro) return;
-    setVagas((prev) => ({ ...prev, [g]: { ...prev[g], ...patch } }));
+    setVagas((prev) => ({ ...prev, [g]: { ...(prev[g] ?? { hidden: 0, texto: "" }), ...patch } }));
   };
 
   async function salvar() {
@@ -65,24 +65,24 @@ export default function VagasEditor({ vagasInit, canEdit }: { vagasInit: Vagas; 
         {ro && <span style={{ color: C.amarelo }}> Só staff edita.</span>}
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-        {(["MANI", "RESO"] as const).map((g) => (
-          <div key={g} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.inputBg, padding: "12px 14px" }}>
+        {guildas.map((g) => { const u = iconeUrl(g.icone); const v = vagas[g.id] ?? { hidden: 0, texto: "" }; return (
+          <div key={g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.inputBg, padding: "12px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <img src={GUILD[g].icon} alt="" width={18} height={18} style={{ borderRadius: 4 }} />
-              <span style={{ color: C.texto, fontWeight: 700 }}>{GUILD[g].label}</span>
+              {u ? <img src={u} alt="" width={18} height={18} style={{ borderRadius: 4 }} /> : <span style={{ fontSize: 16 }}>{g.icone || g.tag}</span>}
+              <span style={{ color: C.texto, fontWeight: 700 }}>{g.nome}</span>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: C.mute }}>
               Vagas reservadas
-              <input type="number" min={0} max={999} value={vagas[g].hidden} disabled={ro}
-                onChange={(e) => setVaga(g, { hidden: Math.max(0, Math.min(999, Math.trunc(Number(e.target.value) || 0))) })}
+              <input type="number" min={0} max={999} value={v.hidden} disabled={ro}
+                onChange={(e) => setVaga(g.id, { hidden: Math.max(0, Math.min(999, Math.trunc(Number(e.target.value) || 0))) })}
                 style={{ ...inp, width: 70 }} />
             </label>
             <div style={{ fontSize: 11, color: C.mute, marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>Nomes fora do bot (1 por linha)</div>
-            <textarea value={vagas[g].texto} disabled={ro} rows={4} placeholder={"Fulano\nBeltrano"}
-              onChange={(e) => setVaga(g, { texto: e.target.value })}
+            <textarea value={v.texto} disabled={ro} rows={4} placeholder={"Fulano\nBeltrano"}
+              onChange={(e) => setVaga(g.id, { texto: e.target.value })}
               style={{ ...inp, width: "100%", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
           </div>
-        ))}
+        ); })}
       </div>
     </div>
   );

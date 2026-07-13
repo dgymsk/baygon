@@ -6,13 +6,9 @@ import { chaveNome } from "@/lib/nomes";
 import { atribuirPromocoes } from "@/lib/substituicoes";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 
 type RemOp = { familia: string; tipo: "remover" | "subir" | null };
-
-const GUILD: Record<string, { label: string; icon: string }> = {
-  M: { label: "Manicômio", icon: "/guilds/manicomio.png" },
-  R: { label: "Resonance", icon: "/guilds/resonance.png" },
-};
 
 // ícone da pt: "c<id>" = custom emoji do Discord (CDN); "u<char>" = emoji unicode.
 function Icone({ iconKey, size = 15 }: { iconKey: string | null; size?: number }) {
@@ -41,11 +37,18 @@ function promovidosValidos(rem: Set<string>, prom: Set<string>, grupos: GrupoCon
 }
 
 export default function SubstituicoesBoard({
-  grupos, listaEspera, removidosInit, promovidosInit, rosterNomes, canEdit, warKey,
+  grupos, listaEspera, removidosInit, promovidosInit, rosterNomes, canEdit, warKey, guildas,
 }: {
-  grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; promovidosInit: string[]; rosterNomes: string[]; canEdit: boolean; warKey: string | null;
+  grupos: GrupoConf[]; listaEspera: PlayerConf[]; removidosInit: string[]; promovidosInit: string[]; rosterNomes: string[]; canEdit: boolean; warKey: string | null; guildas: GuildEntry[];
 }) {
   const router = useRouter();
+  const byTag = useMemo(() => new Map(guildas.map((g) => [g.tag, g])), [guildas]);
+  const GuildIcon = ({ tag, size = 14 }: { tag: string | null; size?: number }) => {
+    const g = tag ? byTag.get(tag) : null;
+    if (!g) return null;
+    const u = iconeUrl(g.icone);
+    return u ? <img src={u} alt={tag ?? ""} width={size} height={size} style={{ borderRadius: 3 }} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : g.icone ? <span style={{ fontSize: size }}>{g.icone}</span> : null;
+  };
   const [removidos, setRemovidos] = useState<Set<string>>(() => new Set(removidosInit.map(chaveNome)));
   const [promovidos, setPromovidos] = useState<Set<string>>(() => new Set(promovidosInit.map(chaveNome)));
   const [saving, setSaving] = useState(false);
@@ -201,13 +204,12 @@ export default function SubstituicoesBoard({
 
   // linha de membro do grupo (✕ remover / ↺ desfazer), ou promovido confirmado (✓)
   const LinhaGrupo = ({ p, prom }: { p: PlayerConf; prom?: boolean }) => {
-    const g = p.tag ? GUILD[p.tag] : null;
     const rem = isRem(p);
     const ok = conhecido(p);
     const cross = prom && dados.promovidoPara.get(chaveNome(p.nome))?.cross;
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, opacity: rem ? 0.45 : 1 }}>
-        {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
+        <GuildIcon tag={p.tag} size={14} />
         <span style={{ color: rem ? C.vermelho : prom ? C.verde : ok ? C.texto : C.mute, textDecoration: rem ? "line-through" : "none" }}>
           {prom && <span style={{ color: C.verde }}>↑ </span>}{p.nome}
         </span>
@@ -301,11 +303,10 @@ export default function SubstituicoesBoard({
               const limpo = elig === "limpo";
               const cross = elig === "cross";
               const sugerido = dados.sugeridoKeys.has(k);
-              const g = p.tag ? GUILD[p.tag] : null;
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
                   <Icone iconKey={p.iconKey ?? null} size={13} />
-                  {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
+                  <GuildIcon tag={p.tag} size={14} />
                   <span style={{ color: confirmado ? C.verde : C.texto }}>{confirmado && "↑ "}{p.nome}</span>
                   {m && <span style={{ color: C.verde, fontSize: 10.5 }}>p/ {m.grupo}{m.cross ? <span style={{ color: C.laranja }}> ⚠</span> : ""}</span>}
                   {canEdit && confirmado && (

@@ -13,7 +13,7 @@ export async function perfilGear(): Promise<Map<string, PerfilGearRow>> {
 
 /** Controle de membros (página /membros). */
 
-export type Guilda = "MANI" | "RESO";
+export type Guilda = string; // id da guilda configurada (ex. MANI/RESO); antes era "MANI"|"RESO"
 export type SaidaTipo = "Saiu" | "Kikado";
 
 export type GarmothCache = { ap: number | null; aap: number | null; dp: number | null; acc: number | null; gs: number | null; char_name: string | null; spec: string | null; atualizado: string | null; stale: boolean };
@@ -68,7 +68,7 @@ export async function listNomesFamilia(): Promise<string[]> {
 }
 
 const grupoOr = (g: string) => (g && g.trim() ? g.trim() : "Indefinido");
-const guildaOr = (g: string): Guilda => ((g ?? "").trim().toUpperCase() === "RESO" ? "RESO" : "MANI");
+const guildaOr = (g: string): Guilda => ((g ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12) || "MANI");
 
 /** Retorna false se já existia (nome_familia é PK). */
 export async function addPlayer(

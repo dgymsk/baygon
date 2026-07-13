@@ -7,11 +7,7 @@ import { CLASSE_NOMES, tiposDe } from "@/lib/bdoClasses";
 import type { MediasMap } from "@/lib/stats";
 import { parseGarmothId } from "@/lib/garmothId";
 import { C } from "@/lib/theme";
-
-const GUILD: Record<string, { label: string; icon: string }> = {
-  MANI: { label: "Manicômio", icon: "/guilds/manicomio.png" },
-  RESO: { label: "Resonance", icon: "/guilds/resonance.png" },
-};
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 
 const STATS = [
   { m: "dano_em_player", l: "PvP" },
@@ -34,16 +30,23 @@ const haQuanto = (iso: string | null) => {
 // PT preferida de nodewar (vira a "base" na montagem das PTs)
 const PT_OPTS: { v: string; l: string }[] = [{ v: "1", l: "PT1" }, { v: "2", l: "PT2" }, { v: "defesa", l: "Defesa" }, { v: "ungabunga", l: "UngaBunga" }];
 
-export default function MembrosTable({ initial, gruposExtra = [], medias = {}, canEdit = true }: { initial: PlayerRow[]; gruposExtra?: string[]; medias?: MediasMap; canEdit?: boolean }) {
+export default function MembrosTable({ initial, guildas, gruposExtra = [], medias = {}, canEdit = true }: { initial: PlayerRow[]; guildas: GuildEntry[]; gruposExtra?: string[]; medias?: MediasMap; canEdit?: boolean }) {
   const ro = !canEdit; // somente leitura
+  const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
+  const ids = useMemo(() => guildas.map((g) => g.id), [guildas]);
+  const nextGuild = (cur: string) => { const i = ids.indexOf(cur); return ids.length ? ids[(i + 1) % ids.length] : cur; };
+  const GuildIcon = ({ id, size = 16 }: { id: string; size?: number }) => {
+    const g = byId.get(id); const u = g ? iconeUrl(g.icone) : null;
+    return u ? <img src={u} alt="" width={size} height={size} style={{ borderRadius: 3 }} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <span style={{ fontSize: size - 2 }}>{g?.icone || g?.tag || id}</span>;
+  };
   const [rows, setRows] = useState<PlayerRow[]>(initial);
   const [baseline, setBaseline] = useState<Map<string, string>>(
     () => new Map(initial.map((p) => [p.nome_familia, editKey(p)])),
   );
   const [tab, setTab] = useState<"ativos" | "ex">("ativos");
   const [q, setQ] = useState("");
-  const [gf, setGf] = useState<"" | "MANI" | "RESO">("");
-  const [novo, setNovo] = useState({ nome: "", grupo: "", classe: "", tipo: "", guilda: "MANI" });
+  const [gf, setGf] = useState<string>("");
+  const [novo, setNovo] = useState(() => ({ nome: "", grupo: "", classe: "", tipo: "", guilda: guildas[0]?.id ?? "MANI" }));
   const [arq, setArq] = useState<string | null>(null); // nome em processo de arquivar
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [gInput, setGInput] = useState<Record<string, string>>({}); // texto CRU do campo Garmoth em edição (só normaliza no blur — auto-save nunca grava parcial)
@@ -54,8 +57,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
 
   const ativos = useMemo(() => rows.filter((r) => r.ativo), [rows]);
   const ex = useMemo(() => rows.filter((r) => !r.ativo), [rows]);
-  const nMani = ativos.filter((r) => r.guilda === "MANI").length;
-  const nReso = ativos.length - nMani;
+  const contGuild = useMemo(() => { const m: Record<string, number> = {}; for (const g of guildas) m[g.id] = 0; for (const r of ativos) if (r.guilda in m) m[r.guilda]++; return m; }, [ativos, guildas]);
   const nReg = ativos.filter((r) => r.registro).length;
 
   const filtered = useMemo(() => {
@@ -181,8 +183,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                 <Stat><b style={{ color: C.verde }}>{ativos.length}</b> ativos</Stat>
                 <Stat><b style={{ color: C.verde }}>{nReg}</b> reg. · <span style={{ color: C.mute }}>{ativos.length - nReg} não</span></Stat>
                 <Stat>{ex.length} ex-membros</Stat>
-                <Stat><img src={GUILD.MANI.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nMani}</Stat>
-                <Stat><img src={GUILD.RESO.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nReso}</Stat>
+                {guildas.map((g) => <Stat key={g.id}><GuildIcon id={g.id} size={14} /> {contGuild[g.id] ?? 0}</Stat>)}
               </div>
             </div>
           </div>
@@ -222,8 +223,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
               {tiposDe(novo.classe).map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <select value={novo.guilda} onChange={(e) => setNovo({ ...novo, guilda: e.target.value })} style={{ ...inp, width: 130, cursor: "pointer" }}>
-              <option value="MANI">Manicômio</option>
-              <option value="RESO">Resonance</option>
+              {guildas.map((g) => <option key={g.id} value={g.id}>{g.nome}</option>)}
             </select>
             <button onClick={adicionar} style={{ ...btn(C.amarelo), padding: "7px 16px", fontSize: 13 }}>+ Adicionar</button>
           </div>
@@ -234,8 +234,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <input placeholder="🔎 buscar nome / grupo / classe" value={q} onChange={(e) => setQ(e.target.value)} style={{ ...inp, width: 250 }} />
             <button onClick={() => setGf("")} style={chip(gf === "")}>Todas</button>
-            <button onClick={() => setGf("MANI")} style={chip(gf === "MANI")}><img src={GUILD.MANI.icon} alt="" width={16} height={16} style={{ borderRadius: 3 }} />MANI</button>
-            <button onClick={() => setGf("RESO")} style={chip(gf === "RESO")}><img src={GUILD.RESO.icon} alt="" width={16} height={16} style={{ borderRadius: 3 }} />RESO</button>
+            {guildas.map((g) => <button key={g.id} onClick={() => setGf(g.id)} style={chip(gf === g.id)}><GuildIcon id={g.id} size={16} />{g.id}</button>)}
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             {canEdit && (
@@ -277,7 +276,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
             <tbody>
               {ordenados.map((r, i) => {
                 const isDirty = baseline.get(r.nome_familia) !== editKey(r);
-                const g = GUILD[r.guilda] ?? GUILD.MANI;
+                const gdef = byId.get(r.guilda);
                 const primeiroNaoReg = !r.registro && temReg && (i === 0 || ordenados[i - 1].registro);
                 return (
                   <Fragment key={r.nome_familia}>
@@ -310,9 +309,9 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                       </select>
                     </td>
                     <td style={{ textAlign: "center" }}>
-                      <button onClick={() => patch(r.nome_familia, { guilda: r.guilda === "MANI" ? "RESO" : "MANI" })} disabled={ro} title={ro ? g.label : `${g.label} — clique pra trocar`}
+                      <button onClick={() => patch(r.nome_familia, { guilda: nextGuild(r.guilda) })} disabled={ro} title={ro ? (gdef?.nome ?? r.guilda) : `${gdef?.nome ?? r.guilda} — clique pra trocar`}
                         style={{ background: "none", border: "none", cursor: ro ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12 }}>
-                        <img src={g.icon} alt={r.guilda} width={22} height={22} style={{ borderRadius: 4 }} />{r.guilda}
+                        <GuildIcon id={r.guilda} size={22} />{r.guilda}
                       </button>
                     </td>
                     {tab === "ativos"
@@ -404,7 +403,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
         <datalist id="dl-classes">{classes.map((c) => <option key={c} value={c} />)}</datalist>
 
         <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
-          • = alteração não salva · clique no ícone da guilda pra alternar MANI/RESO · <b style={{ color: C.amarelo }}>Arquivar</b> manda pra Ex-membros com o motivo (preserva histórico) ·
+          • = alteração não salva · clique no ícone da guilda pra alternar entre as guildas · <b style={{ color: C.amarelo }}>Arquivar</b> manda pra Ex-membros com o motivo (preserva histórico) ·
           🗑 (excluir definitivo) só aparece pra quem tem 0 wars.
         </p>
       </div>

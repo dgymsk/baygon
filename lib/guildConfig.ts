@@ -1,72 +1,17 @@
 import { sql } from "@/lib/db";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { parseGuildMeta, guildMetaPadrao, type GuildMeta } from "@/lib/guild";
 
 /**
- * Identidade da ALIANÇA e das GUILDAS participantes — configurável (deixa a solução
- * agnóstica a quais guildas estão na ally). Persistida em guild_meta (singleton id=1),
- * mesmo padrão do discord_config/pt_meta. Se a tabela não existir ainda, cai no padrão
- * (retrocompatível: ids MANI/RESO batem com o que está no banco/CHECK).
- *
- * Modelo N-capaz:
- *  - alliance: marca do app (nome + ícone + banner, puxados do servidor do Discord).
- *  - guildas[]: cada guilda com { id (chave estável = players.guilda), tag (letra que o
- *    Apollo marca no apelido, ex "M"/"R"), nome, icone, cor }.
+ * Identidade da ALIANÇA e das GUILDAS participantes — leitura/gravação (server).
+ * Persistida em guild_meta (singleton id=1). Os tipos e helpers puros (parse, resolvers,
+ * iconeUrl) ficam em lib/guild.ts (client-safe) e são re-exportados aqui p/ compat.
  */
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
-export type GuildEntry = { id: string; tag: string; nome: string; icone: string; cor: string };
-export type Alliance = { nome: string; icone: string; banner: string; cor: string };
-export type GuildMeta = { alliance: Alliance; guildas: GuildEntry[] };
-
-/** Padrão = identidade atual da aliança (Manicômio + Resonance). */
-export function guildMetaPadrao(): GuildMeta {
-  return {
-    alliance: { nome: "BAYGON", icone: "", banner: "", cor: "#cc0000" },
-    guildas: [
-      { id: "MANI", tag: "M", nome: "Manicômio", icone: "/guilds/manicomio.png", cor: "#cc0000" },
-      { id: "RESO", tag: "R", nome: "Resonance", icone: "/guilds/resonance.png", cor: "#a6a6a6" },
-    ],
-  };
-}
-
-const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-const hex = (v: unknown) => { const s = str(v, 7); return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : ""; };
-// id = chave estável (vai pro banco): alfanumérico maiúsculo, ≤12
-const idOk = (v: unknown) => str(v, 12).toUpperCase().replace(/[^A-Z0-9]/g, "");
-// tag = letra(s) que o Apollo põe no apelido "[M] Fulano" → maiúsculo, ≤3
-const tagOk = (v: unknown) => str(v, 3).toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-function sanitizaEntry(raw: unknown, i: number): GuildEntry | null {
-  const o = (raw ?? {}) as Record<string, unknown>;
-  const id = idOk(o.id) || `G${i + 1}`;
-  const nome = str(o.nome, 40) || id;
-  return { id, tag: tagOk(o.tag) || id.slice(0, 1), nome, icone: str(o.icone, 240), cor: hex(o.cor) || "#a6a6a6" };
-}
-
-export function parseGuildMeta(raw: unknown): GuildMeta {
-  let obj: unknown = raw;
-  if (typeof raw === "string") { try { obj = JSON.parse(raw); } catch { obj = null; } }
-  const o = (obj ?? {}) as Partial<GuildMeta>;
-  const pad = guildMetaPadrao();
-  const a = (o.alliance ?? {}) as Partial<Alliance>;
-  const alliance: Alliance = {
-    nome: str(a.nome, 40) || pad.alliance.nome,
-    icone: str(a.icone, 300),
-    banner: str(a.banner, 400),
-    cor: hex(a.cor) || pad.alliance.cor,
-  };
-  const seen = new Set<string>();
-  const guildas: GuildEntry[] = [];
-  for (const [i, e] of (Array.isArray(o.guildas) ? o.guildas : []).entries()) {
-    const g = sanitizaEntry(e, i);
-    if (!g || seen.has(g.id)) continue;
-    seen.add(g.id);
-    guildas.push(g);
-    if (guildas.length >= 12) break;
-  }
-  return { alliance, guildas: guildas.length ? guildas : pad.guildas };
-}
+export type { GuildEntry, Alliance, GuildMeta } from "@/lib/guild";
+export { guildMetaPadrao, parseGuildMeta, guildaPorId, guildaPorTag, iconeUrl } from "@/lib/guild";
 
 export async function getGuildMeta(): Promise<GuildMeta> {
   try {
@@ -82,21 +27,6 @@ export async function setGuildMeta(raw: unknown): Promise<GuildMeta> {
   await sql`INSERT INTO guild_meta (id, config) VALUES (1, ${JSON.stringify(meta)})
     ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config`;
   return meta;
-}
-
-// ————— resolvers (usados no site e no bot) —————
-export const guildaPorId = (m: GuildMeta, id?: string | null) => (id ? m.guildas.find((g) => g.id === id) : undefined);
-export const guildaPorTag = (m: GuildMeta, tag?: string | null) =>
-  (tag ? m.guildas.find((g) => g.tag.toUpperCase() === tag.toUpperCase()) : undefined);
-
-/** URL de imagem do ícone quando possível (url/caminho ou emoji custom do Discord); emoji unicode → null (renderiza como texto). */
-export function iconeUrl(icone: string): string | null {
-  const s = (icone || "").trim();
-  if (!s) return null;
-  if (/^https?:\/\//.test(s) || s.startsWith("/")) return s;
-  const m = s.match(/^<(a?):\w+:(\d+)>$/);
-  if (m) return `https://cdn.discordapp.com/emojis/${m[2]}.${m[1] ? "gif" : "png"}?size=64`;
-  return null;
 }
 
 /**

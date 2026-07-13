@@ -29,10 +29,10 @@ function GEmoji({ emoji, emojis, size = 15 }: { emoji: string; emojis: EmojiGuil
 }
 
 export default function ParticipacaoBoard({
-  cfgInit, pts, membros, templates, eventosPorTipo, playersAtivos, emojis, roles, imagens, reportChannel, abaInicial, canEdit,
+  cfgInit, pts, membros, templates, eventosPorTipo, playersAtivos, emojis, roles, imagens, reportChannel, abaInicial, canEdit, guildTags = {},
 }: {
   cfgInit: ParticipacaoConfig; pts: PtVM[]; membros: MembroVM[]; templates: TemplateVM[]; eventosPorTipo: Record<Tipo, EventoAtivoVM[]>;
-  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; reportChannel: string; abaInicial?: string; canEdit: boolean;
+  playersAtivos: string[]; emojis: EmojiGuild[]; roles: { id: string; name: string }[]; imagens: { url: string; nome: string }[]; reportChannel: string; abaInicial?: string; canEdit: boolean; guildTags?: Record<string, string>;
 }) {
   const router = useRouter();
   const ro = !canEdit;
@@ -304,7 +304,7 @@ export default function ParticipacaoBoard({
                     )}
                     {sit && <div style={{ color: C.verde, fontSize: 12.5, marginTop: 8 }}>● {sit.templateNome} — {sit.totalConfirmados}{sit.tamanhoMax != null ? `/${sit.tamanhoMax}` : ""}{sit.totalEspera > 0 ? ` · ⏳ ${sit.totalEspera} espera` : ""} <span style={{ color: C.borderSoft }}>· atualiza a cada 15s</span></div>}
                   </div>
-                  {sit ? <RosterView sit={sit} emojis={emojis} /> : evSel ? <span style={{ color: C.borderSoft, fontSize: 12 }}>sem roster (template removido?)</span> : null}
+                  {sit ? <RosterView sit={sit} emojis={emojis} tags={guildTags} /> : evSel ? <span style={{ color: C.borderSoft, fontSize: 12 }}>sem roster (template removido?)</span> : null}
                 </div>
               );
             })}

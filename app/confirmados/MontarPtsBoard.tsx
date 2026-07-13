@@ -7,11 +7,8 @@ import { ptsAtivas, iconeDe, novoId, NUM_MIN, NUM_MAX, MAX_EXTRAS, type PtIcon, 
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
 import type { PtRow } from "@/lib/ptStatus";
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 
-const GUILD: Record<string, { label: string; icon: string }> = {
-  M: { label: "Manicômio", icon: "/guilds/manicomio.png" },
-  R: { label: "Resonance", icon: "/guilds/resonance.png" },
-};
 const VAGAS_PT = 20;
 const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = "none"; };
 
@@ -26,12 +23,19 @@ function Glyph({ icon, size = 14 }: { icon: PtIcon; size?: number }) {
 type Mark = { nome: string; pt: string | null; lider: boolean };
 
 export default function MontarPtsBoard({
-  grupos, hidden, roubo, marcacoesInit, preferidas, cfgInit, canEdit, warKey,
+  grupos, hidden, roubo, marcacoesInit, preferidas, cfgInit, canEdit, warKey, guildas,
 }: {
   grupos: GrupoConf[]; hidden: PlayerConf[]; roubo: PlayerConf[]; marcacoesInit: PtRow[]; preferidas: Record<string, string>;
-  cfgInit: PtConfig; canEdit: boolean; warKey: string | null;
+  cfgInit: PtConfig; canEdit: boolean; warKey: string | null; guildas: GuildEntry[];
 }) {
   const router = useRouter();
+  const byTag = useMemo(() => new Map(guildas.map((g) => [g.tag, g])), [guildas]);
+  const GuildIcon = ({ tag, size = 14 }: { tag: string | null; size?: number }) => {
+    const g = tag ? byTag.get(tag) : null;
+    if (!g) return null;
+    const u = iconeUrl(g.icone);
+    return u ? <img src={u} alt={tag ?? ""} width={size} height={size} style={{ borderRadius: 3 }} onError={imgErr} /> : g.icone ? <span style={{ fontSize: size }}>{g.icone}</span> : null;
+  };
   const [marks, setMarks] = useState<Map<string, Mark>>(() => {
     const m = new Map<string, Mark>();
     for (const r of marcacoesInit) m.set(r.chave, { nome: r.familia, pt: r.pt, lider: r.lider });
@@ -221,11 +225,10 @@ export default function MontarPtsBoard({
   const MemberRow = ({ p }: { p: PlayerConf }) => {
     const k = chaveNome(p.nome);
     const m = marks.get(k);
-    const g = p.tag ? GUILD[p.tag] : null;
     return (
       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "3px 6px", fontSize: 12.5 }}>
         <Coroa p={p} />
-        {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}
+        <GuildIcon tag={p.tag} size={14} />
         <span style={{ color: C.texto, fontWeight: m?.lider ? 700 : 400 }}>{p.nome}</span>
         {p.nota && <span style={{ color: C.mute, fontSize: 11 }}>({p.nota})</span>}
         <span style={{ marginLeft: "auto", display: "inline-flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 3 }}>
@@ -311,10 +314,9 @@ export default function MontarPtsBoard({
           <div style={{ color: C.vermelho, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⚠ Fora das PTs ({foraDasPts.length}) <span style={{ color: C.mute, fontWeight: 400, fontSize: 11.5 }}>— confirmaram mas não estão em nenhum squad</span></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "3px 14px" }}>
             {foraDasPts.map((p, i) => {
-              const g = p.tag ? GUILD[p.tag] : null;
               return (
                 <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: C.texto }}>
-                  {g && <img src={g.icon} alt={p.tag ?? ""} width={14} height={14} style={{ borderRadius: 3 }} />}{p.nome}
+                  <GuildIcon tag={p.tag} size={14} />{p.nome}
                 </span>
               );
             })}
@@ -379,12 +381,11 @@ export default function MontarPtsBoard({
                     <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 2 }}>
                       {dentro.map((p, i) => {
                         const lider = !!marks.get(chaveNome(p.nome))?.lider;
-                        const g = p.tag ? GUILD[p.tag] : null;
                         return (
                           <li key={i} style={{ color: C.texto, fontSize: 12.5, fontWeight: lider ? 700 : 400 }}>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                               {lider && <span style={{ filter: "drop-shadow(0 0 3px rgba(255,210,30,.7))" }}>👑</span>}
-                              {g && <img src={g.icon} alt={p.tag ?? ""} width={13} height={13} style={{ borderRadius: 2 }} />}
+                              <GuildIcon tag={p.tag} size={13} />
                               {p.nome}
                             </span>
                           </li>

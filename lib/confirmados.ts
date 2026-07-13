@@ -6,6 +6,7 @@
 import { sql } from "@/lib/db";
 import { parseConfig } from "@/lib/ptConfig";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { getGuildMeta } from "@/lib/guildConfig";
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
@@ -22,7 +23,7 @@ async function canalDoModo(): Promise<string | undefined> {
   }
 }
 
-export type Tag = "M" | "R" | null;
+export type Tag = string | null; // tag da guilda vinda do Apollo ([M]/[R]/…), configurável em /guildas
 // iconKey: chave do ícone (pt) da linha — usado p/ casar quem está na espera com seu grupo.
 export type PlayerConf = { tag: Tag; nome: string; nota: string | null; iconKey?: string | null };
 export type GrupoConf = { nome: string; capacidade: string | null; limite: number | null; iconKey: string | null; players: PlayerConf[] };
@@ -60,16 +61,23 @@ function iconeChave(raw: string): string | null {
   return null;
 }
 
-function parsePlayer(line: string): PlayerConf | null {
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Regex "[TAG] Nome" com as tags configuradas (fallback M|R). */
+function tagRegex(tags: string[]): RegExp {
+  const alt = (tags.length ? tags : ["M", "R"]).map(esc).join("|");
+  return new RegExp(`^\\[(${alt})\\]\\s*(.+)$`, "i");
+}
+
+function parsePlayer(line: string, tagRe: RegExp): PlayerConf | null {
   const iconKey = iconeChave(line);
   const s = limpa(line.replace(/^>>>\s*/, "")).replace(/\\([_*~`])/g, "$1").trim();
-  const m = s.match(/^\[([MR])\]\s*(.+)$/);
+  const m = s.match(tagRe);
   if (!m) return null;
   let nome = m[2].trim();
   let nota: string | null = null;
   const pm = nome.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   if (pm) { nome = pm[1].trim(); nota = pm[2].trim(); }
-  return nome ? { tag: m[1] as Tag, nome, nota, iconKey } : null;
+  return nome ? { tag: m[1].toUpperCase() as Tag, nome, nota, iconKey } : null;
 }
 
 // Cache curto em memória: o Discord limita por canal (429). Numa rajada de leituras
@@ -79,7 +87,8 @@ const TTL_MS = Number(process.env.CONFIRMADOS_TTL_MS ?? 10_000);
 const sleepC = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function fetchConfirmados(): Promise<Confirmados> {
-  const CHANNEL = await canalDoModo();
+  const [CHANNEL, meta] = await Promise.all([canalDoModo(), getGuildMeta()]);
+  const tagRe = tagRegex(meta.guildas.map((g) => g.tag).filter(Boolean));
   if (!BOT_TOKEN || !CHANNEL) return { ok: false, erro: "bot não configurado", grupos: [], listaEspera: [] };
 
   if (cache && cache.data.ok && cache.channel === CHANNEL && Date.now() - cache.at < TTL_MS) return cache.data;
@@ -132,12 +141,12 @@ export async function fetchConfirmados(): Promise<Confirmados> {
     // regex de capacidade e viraria um "grupo" fantasma, comendo os reservas.
     if (/lista de espera/i.test(nome) || inWaitlist || !nome) {
       inWaitlist = true;
-      listaEspera.push(...f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p));
+      listaEspera.push(...f.value.split("\n").map((l) => parsePlayer(l, tagRe)).filter((p): p is PlayerConf => !!p));
       continue;
     }
     const cap = nome.match(/^(.*?)\s*\((\d+\/(\d+))\)\s*$/);
     if (cap) {
-      const players = f.value.split("\n").map(parsePlayer).filter((p): p is PlayerConf => !!p);
+      const players = f.value.split("\n").map((l) => parsePlayer(l, tagRe)).filter((p): p is PlayerConf => !!p);
       grupos.push({ nome: cap[1].trim(), capacidade: cap[2], limite: Number(cap[3]), iconKey: iconeChave(f.name), players });
     }
   }

@@ -5,6 +5,7 @@ import { listPts, listMembros, getTemplate } from "@/lib/participacaoPt";
 import { montarEmbed } from "@/lib/participacaoEmbed";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
+import { getGuildMeta } from "@/lib/guildConfig";
 import { statusPorWarKey } from "@/lib/eventos";
 
 /**
@@ -62,8 +63,9 @@ export async function postarMensagem(templateId: number): Promise<{ ok: boolean;
   const cfg = (await getParticipacaoConfig())[tpl.tipo as Tipo];
   if (!cfg.channelId) return { ok: false, erro: `canal do ${rotuloTipo(tpl.tipo as Tipo)} não configurado` };
 
-  const [pts, membros, perfil, emojis] = await Promise.all([listPts(), listMembros(tpl.tipo), perfilGear(), getEmojiMapResolvido()]);
-  const payload = montarEmbed(cfg, templateId, tpl, pts, membros, [], perfil, emojis); // rodada nova
+  const [pts, membros, perfil, emojis, meta] = await Promise.all([listPts(), listMembros(tpl.tipo), perfilGear(), getEmojiMapResolvido(), getGuildMeta()]);
+  const tags = Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag]));
+  const payload = montarEmbed(cfg, templateId, tpl, pts, membros, [], perfil, emojis, tags); // rodada nova
   const body = {
     content: cfg.pingRoleId ? `<@&${cfg.pingRoleId}>` : undefined,
     allowed_mentions: cfg.pingRoleId ? { roles: [cfg.pingRoleId] } : { parse: [] },
@@ -103,6 +105,7 @@ export async function registrarClique(o: { warKey: string; userId: string; usern
   }
   await upsertResposta({ warKey: o.warKey, userId: o.userId, username: o.username, familia: o.familia, chave: o.chave, tipo: tpl.tipo, resposta: o.resposta });
   const cfg = (await getParticipacaoConfig())[tpl.tipo as Tipo];
-  const [pts, membros, respostas, perfil, emojis] = await Promise.all([listPts(), listMembros(tpl.tipo), getRespostas(o.warKey), perfilGear(), getEmojiMapResolvido()]);
-  return montarEmbed(cfg, o.templateId, tpl, pts, membros, respostas, perfil, emojis) as unknown as Record<string, unknown>;
+  const [pts, membros, respostas, perfil, emojis, meta] = await Promise.all([listPts(), listMembros(tpl.tipo), getRespostas(o.warKey), perfilGear(), getEmojiMapResolvido(), getGuildMeta()]);
+  const tags = Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag]));
+  return montarEmbed(cfg, o.templateId, tpl, pts, membros, respostas, perfil, emojis, tags) as unknown as Record<string, unknown>;
 }

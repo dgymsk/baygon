@@ -3,19 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { C } from "@/lib/theme";
-import type { GuildMeta, GuildEntry } from "@/lib/guildConfig";
+import { iconeUrl, type GuildMeta, type GuildEntry } from "@/lib/guild";
 
 const imgErr = (e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = "none"; };
 
-// mesma lógica de iconeUrl do server (inline p/ não puxar o módulo server pro bundle client)
-function iconeUrl(icone: string): string | null {
-  const s = (icone || "").trim();
-  if (!s) return null;
-  if (/^https?:\/\//.test(s) || s.startsWith("/")) return s;
-  const m = s.match(/^<(a?):\w+:(\d+)>$/);
-  if (m) return `https://cdn.discordapp.com/emojis/${m[2]}.${m[1] ? "gif" : "png"}?size=64`;
-  return null;
-}
 function Icone({ icone, size = 26, radius = 6 }: { icone: string; size?: number; radius?: number }) {
   const url = iconeUrl(icone);
   if (url) return <img src={url} width={size} height={size} alt="" onError={imgErr} style={{ borderRadius: radius, objectFit: "cover" }} />;

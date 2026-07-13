@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { C } from "@/lib/theme";
 import { getEventoByUuid, desempenhoDaWar } from "@/lib/eventos";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { getGuildMeta } from "@/lib/guildConfig";
 import { canEditNow } from "@/lib/requireAuth";
 import { listNomesFamilia } from "@/lib/players";
 import RosterView from "@/app/participacao/RosterView";
@@ -18,8 +19,9 @@ const badgeCor = (s: string) => (s === "aberto" ? C.verde : s === "travado" ? C.
 // Página HUB visual do evento: snapshot da participação + facetas futuras (confirmados / resultado).
 export default async function EventoDetalhe({ params }: { params: Promise<{ uuid: string }> }) {
   const { uuid } = await params;
-  const [ev, dc, canEdit, nomes] = await Promise.all([getEventoByUuid(uuid), getDiscordConfig(), canEditNow(), listNomesFamilia()]);
+  const [ev, dc, canEdit, nomes, gmeta] = await Promise.all([getEventoByUuid(uuid), getDiscordConfig(), canEditNow(), listNomesFamilia(), getGuildMeta()]);
   if (!ev) notFound();
+  const guildTags = Object.fromEntries(gmeta.guildas.map((g) => [g.id, g.tag]));
   nomes.sort((a, b) => a.localeCompare(b, "pt-BR"));
   const statsIniciais = ev.warId != null ? await desempenhoDaWar(ev.warId) : []; // pré-carrega a tabela se já há war ligada
 
@@ -71,7 +73,7 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
                 ● {ev.snapshot.templateNome} — {ev.snapshot.totalConfirmados}{ev.snapshot.tamanhoMax != null ? `/${ev.snapshot.tamanhoMax}` : ""} confirmados{ev.snapshot.totalEspera > 0 ? ` · ⏳ ${ev.snapshot.totalEspera} espera` : ""}
                 <span style={{ color: C.borderSoft, marginLeft: 8 }}>congelado {new Date(ev.snapshot.capturadoEm).toLocaleString("pt-BR")}</span>
               </div>
-              <RosterView sit={ev.snapshot} />
+              <RosterView sit={ev.snapshot} tags={guildTags} />
             </>
           ) : (
             <div style={{ color: C.borderSoft, fontSize: 12.5 }}>{ev.status === "finalizado" ? "Sem snapshot (evento sem roster no momento da finalização)." : "O snapshot é gravado ao FINALIZAR o evento. Enquanto ativo, veja a situação ao vivo em Participação."}</div>

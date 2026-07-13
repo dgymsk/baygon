@@ -52,9 +52,7 @@ function EmojiPicker({ emojis, value, onPick }: { emojis: EmojiGuild[]; value: s
   );
 }
 
-const GUILDAS: { k: string; label: string }[] = [{ k: "MANI", label: "Manicômio (MAN)" }, { k: "RESO", label: "Resonance (RES)" }];
-
-export default function EmojiConfigForm({ initial, emojis, classes, canEdit }: { initial: EmojiMap; emojis: EmojiGuild[]; classes: string[]; canEdit: boolean }) {
+export default function EmojiConfigForm({ initial, emojis, classes, guildas, canEdit }: { initial: EmojiMap; emojis: EmojiGuild[]; classes: string[]; guildas: { id: string; tag: string; nome: string }[]; canEdit: boolean }) {
   const [map, setMap] = useState<EmojiMap>({ classes: { ...initial.classes }, guildas: { ...initial.guildas } });
   const [status, setStatus] = useState<{ kind: "idle" | "saving" | "ok" | "err"; msg?: string }>({ kind: "idle" });
   const ro = !canEdit;
@@ -104,7 +102,7 @@ export default function EmojiConfigForm({ initial, emojis, classes, canEdit }: {
 
         <div style={{ ...card, marginBottom: 14 }}>
           <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 }}>Guildas</div>
-          {GUILDAS.map((g) => <Row key={g.k} label={g.label} value={map.guildas[g.k] ?? ""} onPick={(v) => setG(g.k, v)} />)}
+          {guildas.map((g) => <Row key={g.id} label={`${g.nome} (${g.tag})`} value={map.guildas[g.id] ?? ""} onPick={(v) => setG(g.id, v)} />)}
         </div>
 
         <div style={card}>

@@ -8,6 +8,7 @@ import { listPlayers } from "@/lib/players";
 import { chaveNome } from "@/lib/nomes";
 import { canEditNow } from "@/lib/requireAuth";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { getGuildMeta } from "@/lib/guildConfig";
 import type { SituacaoVM } from "@/lib/participacaoSituacao";
 import ParticipacaoBoard from "./ParticipacaoBoard";
 
@@ -25,9 +26,10 @@ export type EventoAtivoVM = { id: number; uuid: string; tipo: string; status: st
 
 export default async function ParticipacaoPage({ searchParams }: { searchParams: Promise<{ aba?: string }> }) {
   const { aba: abaInicial } = await searchParams;
-  const [cfg, players, pts, membros, templates, emojis, roles, imagens, dcfg, ativos, canEdit] = await Promise.all([
-    getParticipacaoConfig(), listPlayers(), listPts(), listMembros(), listTemplates(), listarEmojisGuild(), listarRolesGuild(), listImagens(), getDiscordConfig(), listEventos({ status: "ativos", limit: 100 }), canEditNow(),
+  const [cfg, players, pts, membros, templates, emojis, roles, imagens, dcfg, ativos, canEdit, meta] = await Promise.all([
+    getParticipacaoConfig(), listPlayers(), listPts(), listMembros(), listTemplates(), listarEmojisGuild(), listarRolesGuild(), listImagens(), getDiscordConfig(), listEventos({ status: "ativos", limit: 100 }), canEditNow(), getGuildMeta(),
   ]);
+  const guildTags = Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag]));
   const playersAtivos = players.filter((p) => p.ativo).map((p) => p.nome_familia).sort((a, b) => a.localeCompare(b));
 
   // roster AO VIVO de cada evento ativo. Reaproveita os catálogos já buscados (pts/membros/players) →
@@ -37,5 +39,5 @@ export default async function ParticipacaoPage({ searchParams }: { searchParams:
   const eventosPorTipo = {} as Record<Tipo, EventoAtivoVM[]>;
   for (const tipo of TIPOS) eventosPorTipo[tipo] = ativosComSit.filter((e) => e.tipo === tipo);
 
-  return <ParticipacaoBoard cfgInit={cfg} pts={pts as PtVM[]} membros={membros.map((m) => ({ tipo: m.tipo, familia: m.familia, pt_id: m.pt_id }))} templates={templates as TemplateVM[]} eventosPorTipo={eventosPorTipo} playersAtivos={playersAtivos} emojis={emojis} roles={roles} imagens={imagens} reportChannel={dcfg.reportChannel} abaInicial={abaInicial} canEdit={canEdit} />;
+  return <ParticipacaoBoard cfgInit={cfg} pts={pts as PtVM[]} membros={membros.map((m) => ({ tipo: m.tipo, familia: m.familia, pt_id: m.pt_id }))} templates={templates as TemplateVM[]} eventosPorTipo={eventosPorTipo} playersAtivos={playersAtivos} emojis={emojis} roles={roles} imagens={imagens} reportChannel={dcfg.reportChannel} abaInicial={abaInicial} canEdit={canEdit} guildTags={guildTags} />;
 }

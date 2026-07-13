@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
 import { C } from "@/lib/theme";
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 
 type Row = { familia: string; participar: boolean };
 
@@ -20,15 +21,13 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
   });
 }
 
-const GUILD = { M: { label: "Manicômio", icon: "/guilds/manicomio.png" }, R: { label: "Resonance", icon: "/guilds/resonance.png" } } as const;
-
 export default function ParticiparReconcile({
-  confirmados, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados, guildas, totalBot,
+  confirmados, offBot, canEdit, statusInicial, posInicial, warKey, correcoesInit, naoEncontrados, guildas, totalBot, guildaDefs,
 }: {
   confirmados: string[]; offBot: string[]; canEdit: boolean;
   statusInicial: Row[]; posInicial: boolean; warKey: string | null;
-  correcoesInit: { de: string; para: string }[]; naoEncontrados: string[]; guildas: Record<string, "M" | "R">;
-  totalBot: { M: number; R: number };
+  correcoesInit: { de: string; para: string }[]; naoEncontrados: string[]; guildas: Record<string, string>;
+  totalBot: Record<string, number>; guildaDefs: GuildEntry[];
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,11 +81,12 @@ export default function ParticiparReconcile({
   for (const s of participarRows) { if (!esperadoSet.has(chaveNome(s.familia))) retirar.push(s.familia); }
 
   // membros DO BOT que marcaram Participar, por guilda (p/ o "X de Y no bot")
-  const conta = { M: 0, R: 0 };
+  const conta: Record<string, number> = {};
+  for (const g of guildaDefs) conta[g.tag] = 0;
   for (const nome of confirmados) {
     if (!participarSet.has(chaveNome(nome))) continue;
-    const g = guildas[chaveNome(nome)];
-    if (g === "M") conta.M++; else if (g === "R") conta.R++;
+    const t = guildas[chaveNome(nome)];
+    if (t && t in conta) conta[t]++;
   }
 
   async function togglePos() {
@@ -246,8 +246,9 @@ export default function ParticiparReconcile({
             <span><b style={{ color: C.texto }}>{status.length}</b> membros no status; <b style={{ color: C.texto }}>{participarRows.length}</b> com “Participar”.</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 10 }}>
               <span style={{ color: C.verde, fontWeight: 700 }} title="quantos do bot marcaram Participar, de cada guilda / total da guilda no bot">Confirmados:</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.M}</b><span style={{ color: C.mute }}>/{totalBot.M}</span></span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> <b>{conta.R}</b><span style={{ color: C.mute }}>/{totalBot.R}</span></span>
+              {guildaDefs.map((g) => { const u = iconeUrl(g.icone); return (
+                <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}>{u ? <img src={u} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> : <span>{g.icone || g.tag}</span>} <b>{conta[g.tag] ?? 0}</b><span style={{ color: C.mute }}>/{totalBot[g.tag] ?? 0}</span></span>
+              ); })}
             </span>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>

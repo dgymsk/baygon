@@ -44,12 +44,12 @@ export function classificarPorPt(
 }
 
 export type PerfilE = { guilda: string; classe: string | null; gs: number | null };
-const tag3 = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : null); // null = guilda desconhecida → sem tag
+// a tag curta da guilda vem do guild_meta (param `tags`: id da guilda → tag). Sem tag → sem rótulo.
 const safeLink = (s: string) => (s || "?").replace(/[`[\]()\n]/g, "").trim() || "?"; // texto seguro p/ [texto](url)
 
 export type EmojiMapE = { classes: Record<string, string>; guildas: Record<string, string> };
 
-export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[], perfil?: Map<string, PerfilE>, emojis?: EmojiMapE) {
+export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, ptsCat: PtE[], membros: MembroE[], respostas: RespE[], perfil?: Map<string, PerfilE>, emojis?: EmojiMapE, tags: Record<string, string> = {}) {
   const { confirmados, espera } = classificarPorPt(tpl.pts, membros, respostas);
   const respByChave = new Map<string, RespE>();
   for (const r of respostas) if (r.chave) respByChave.set(r.chave, r);
@@ -68,7 +68,7 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
     const r = respByChave.get(m.chave);
     // ordem: {emoji guilda} · Nome · GS · {emoji classe}. Emoji FORA do link (custom não renderiza dentro de
     // link mascarado); o Nome fica no link (clicável). Fallback pro texto (MAN/RES, (classe)) onde faltar emoji.
-    const gEmoji = (p?.guilda && emojis?.guildas[p.guilda]) || (tag3(p?.guilda) ?? "");
+    const gEmoji = (p?.guilda && emojis?.guildas[p.guilda]) || (p?.guilda && tags[p.guilda]) || "";
     const cEmoji = (p?.classe && emojis?.classes[p.classe]) || (p?.classe ? `(${safeLink(p.classe)})` : "");
     const nome = r?.user_id ? `[${safeLink(m.familia)}](https://discord.com/users/${r.user_id})` : safeLink(m.familia);
     const gs = p?.gs != null ? String(p.gs) : null;

@@ -9,6 +9,7 @@ import { canonicalizarNomes } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { sql } from "@/lib/db";
 import { canEditNow } from "@/lib/requireAuth";
+import { getGuildMeta, iconeUrl } from "@/lib/guildConfig";
 import { C } from "@/lib/theme";
 import RefreshButton from "./RefreshButton";
 import ParticiparReconcile from "./ParticiparReconcile";
@@ -20,11 +21,6 @@ import AutoSync from "./AutoSync";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
 
-const GUILD: Record<string, { label: string; icon: string }> = {
-  M: { label: "Manicômio", icon: "/guilds/manicomio.png" },
-  R: { label: "Resonance", icon: "/guilds/resonance.png" },
-};
-
 function fmtData(unix?: number): string {
   if (!unix) return "";
   return new Date(unix * 1000).toLocaleString("pt-BR", {
@@ -33,20 +29,25 @@ function fmtData(unix?: number): string {
 }
 
 export default async function ConfirmadosPage() {
-  const [conf, rosterRows, canEdit, vagas] = await Promise.all([
+  const [conf, rosterRows, canEdit, vagas, meta] = await Promise.all([
     fetchConfirmados(),
     sql`SELECT nome_familia, pt_preferida, guilda FROM players`,
     canEditNow(),
     getVagas(),
+    getGuildMeta(),
   ]);
+  const byId = new Map(meta.guildas.map((g) => [g.id, g]));
+  const tagPorId = (id?: string | null) => (id ? byId.get(id)?.tag ?? null : null);
   const totalConf = conf.grupos.reduce((s, g) => s + g.players.length, 0);
-  const nM = conf.grupos.reduce((s, g) => s + g.players.filter((p) => p.tag === "M").length, 0);
-  const nR = totalConf - nM;
+  // confirmados por tag (do Apollo), p/ os chips + o "X de Y no bot" da conferência
+  const contBot: Record<string, number> = {};
+  for (const g of meta.guildas) contBot[g.tag] = 0;
+  for (const grp of conf.grupos) for (const p of grp.players) if (p.tag && p.tag in contBot) contBot[p.tag]++;
   const confirmadosNomes = conf.grupos.flatMap((g) => g.players.map((p) => p.nome));
-  const offBotMani = nomesDoTexto(vagas.MANI.texto);
-  const offBotReso = nomesDoTexto(vagas.RESO.texto);
-  const offBotNomes = [...offBotMani, ...offBotReso];
-  const hiddenTotal = vagas.MANI.hidden + vagas.RESO.hidden;
+  // reservas fora do bot, por guilda configurada (id → tag + nomes)
+  const offBotPorGuilda = meta.guildas.map((g) => ({ tag: g.tag, nomes: nomesDoTexto(vagas[g.id]?.texto ?? "") }));
+  const offBotNomes = offBotPorGuilda.flatMap((o) => o.nomes);
+  const hiddenTotal = meta.guildas.reduce((s, g) => s + (vagas[g.id]?.hidden ?? 0), 0);
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
   const [statusBruto, remocoesInit, ptInit, posLiberacao, ptCfg] = await Promise.all([getStatus(warKey), getRemocoes(warKey), getPt(warKey), getPosLiberacao(warKey), getPtConfig()]);
   const playersRows = rosterRows as { nome_familia: string; pt_preferida: string | null; guilda: string }[];
@@ -54,17 +55,17 @@ export default async function ConfirmadosPage() {
   const rosterNomes = playersNomes.map((n) => n.toLowerCase());
   // PT preferida (base de nodewar) + guilda (p/ o ícone) por chave canônica
   const prefPorChave = new Map<string, string>();
-  const guildaPorChave = new Map<string, "M" | "R">();
+  const guildaPorChave = new Map<string, string>(); // chave -> tag da guilda (do players.guilda)
   for (const r of playersRows) {
     const k = chaveNome(r.nome_familia);
     if (r.pt_preferida) prefPorChave.set(k, r.pt_preferida);
-    if (k) guildaPorChave.set(k, r.guilda === "RESO" ? "R" : "M");
+    const t = tagPorId(r.guilda);
+    if (k && t) guildaPorChave.set(k, t);
   }
   // guilda por chave p/ a conferência (tag do bot tem prioridade; depois reservas; depois players)
-  const guildasConf: Record<string, "M" | "R"> = {};
+  const guildasConf: Record<string, string> = {};
   for (const g of conf.grupos) for (const p of g.players) if (p.tag) guildasConf[chaveNome(p.nome)] = p.tag;
-  for (const n of offBotMani) guildasConf[chaveNome(n)] = "M";
-  for (const n of offBotReso) guildasConf[chaveNome(n)] = "R";
+  for (const o of offBotPorGuilda) for (const n of o.nomes) guildasConf[chaveNome(n)] = o.tag;
   for (const [k, gg] of guildaPorChave) if (!(k in guildasConf)) guildasConf[k] = gg;
 
   // canonicaliza os nomes lidos pela IA (Sykoltic→Sykotic, Denzell→Denzel) com PRIORIDADE
@@ -74,7 +75,7 @@ export default async function ConfirmadosPage() {
     const add = (nome: string) => { const k = chaveNome(nome); if (k && !m.has(k)) m.set(k, nome); };
     for (const g of conf.grupos) for (const p of g.players) add(p.nome);
     for (const p of conf.listaEspera) add(p.nome);
-    for (const n of [...offBotMani, ...offBotReso]) add(n);
+    for (const n of offBotNomes) add(n);
     return [...m].map(([chave, nome]) => ({ chave, nome }));
   })();
   const playersCand = (() => {
@@ -102,10 +103,9 @@ export default async function ConfirmadosPage() {
 
   // reservas (hidden) como linhas de roster, deduplicadas contra os nomes do bot
   const botChaves = new Set(confirmadosNomes.map(chaveNome));
-  const hiddenMembros = [
-    ...offBotMani.map((n) => ({ tag: "M" as const, nome: n, nota: null, iconKey: null })),
-    ...offBotReso.map((n) => ({ tag: "R" as const, nome: n, nota: null, iconKey: null })),
-  ].filter((p) => { const k = chaveNome(p.nome); return k && !botChaves.has(k); });
+  const hiddenMembros = offBotPorGuilda
+    .flatMap((o) => o.nomes.map((n) => ({ tag: o.tag as string | null, nome: n, nota: null as string | null, iconKey: null as string | null })))
+    .filter((p) => { const k = chaveNome(p.nome); return k && !botChaves.has(k); });
 
   // roubo de vaga (pós-liberação): Participar in-game e NÃO oficial (nem bot, nem reserva)
   const oficiaisChaves = new Set([...confirmadosNomes, ...offBotNomes].map(chaveNome));
@@ -173,8 +173,9 @@ export default async function ConfirmadosPage() {
             <AutoSync />
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
               <Stat><b style={{ color: C.verde }}>{totalConf}</b> confirmados</Stat>
-              <Stat><img src={GUILD.M.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nM}</Stat>
-              <Stat><img src={GUILD.R.icon} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> {nR}</Stat>
+              {meta.guildas.map((g) => { const u = iconeUrl(g.icone); return (
+                <Stat key={g.id}>{u ? <img src={u} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> : <span>{g.icone || g.tag}</span>} {contBot[g.tag] ?? 0}</Stat>
+              ); })}
               <Stat>{conf.listaEspera.length} na lista de espera</Stat>
               {hiddenTotal > 0 && <Stat>{hiddenTotal} reservada(s) fora do bot</Stat>}
               {posLiberacao && <Stat><span style={{ color: C.laranja }}>🏴 {rouboMembros.length} roubaram vaga</span></Stat>}
@@ -182,20 +183,22 @@ export default async function ConfirmadosPage() {
             </div>
 
             {/* vagas fora do bot — editável aqui (migrado do /config) */}
-            <VagasEditor vagasInit={vagas} canEdit={canEdit} />
+            <VagasEditor vagasInit={vagas} canEdit={canEdit} guildas={meta.guildas} />
 
             {/* reconciliação bot x in-game (Participar) */}
-            <ParticiparReconcile confirmados={confirmadosNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} guildas={guildasConf} totalBot={{ M: nM, R: nR }} />
+            <ParticiparReconcile confirmados={confirmadosNomes} offBot={offBotNomes} canEdit={canEdit} statusInicial={statusInicial} posInicial={posLiberacao} warKey={warKey} correcoesInit={correcoesScan} naoEncontrados={naoEncontradosPart} guildas={guildasConf} totalBot={contBot} guildaDefs={meta.guildas} />
 
             {/* substituições: remover do grupo + confirmar quem sobe da espera */}
-            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} />
+            <SubstituicoesBoard grupos={conf.grupos} listaEspera={conf.listaEspera} removidosInit={removidosInit} promovidosInit={promovidosInit} rosterNomes={rosterNomes} canEdit={canEdit} warKey={warKey} guildas={meta.guildas} />
 
             {/* montar PTs (squads): SÓ confirmados in-game; coroa de líder + 1/2/Defesa/UngaBunga + popup */}
-            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboConf} marcacoesInit={ptInit} preferidas={preferidas} cfgInit={ptCfg} canEdit={canEdit} warKey={warKey} />
+            <MontarPtsBoard grupos={gruposPtConf} hidden={hiddenConf} roubo={rouboConf} marcacoesInit={ptInit} preferidas={preferidas} cfgInit={ptCfg} canEdit={canEdit} warKey={warKey} guildas={meta.guildas} />
 
             <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14 }}>
               Lido da mensagem do Apollo no Discord (atualiza com o botão ↻). <span style={{ color: C.amarelo }}>•</span> = nome fora do roster.
-              Ícone <img src={GUILD.M.icon} alt="" width={12} height={12} style={{ borderRadius: 2, verticalAlign: "-1px" }} /> Manicômio · <img src={GUILD.R.icon} alt="" width={12} height={12} style={{ borderRadius: 2, verticalAlign: "-1px" }} /> Resonance.
+              {meta.guildas.map((g, i) => { const u = iconeUrl(g.icone); return (
+                <span key={g.id}>{i === 0 ? " Ícone " : " · "}{u ? <img src={u} alt="" width={12} height={12} style={{ borderRadius: 2, verticalAlign: "-1px" }} /> : <span>{g.icone || g.tag}</span>} {g.nome}</span>
+              ); })}.
             </p>
           </>
         )}

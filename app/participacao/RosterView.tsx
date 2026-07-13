@@ -28,14 +28,14 @@ function NomePerfil({ nome, userId, bold }: { nome: string; userId: string | nul
   return <a href={`https://discord.com/users/${userId}`} target="_blank" rel="noreferrer" style={{ ...st, color: C.texto, textDecoration: "none" }}>{nome}</a>;
 }
 const statusIcon = (s: StatusResp) => (s === "can" ? "✅" : s === "espera" ? "⏳" : s === "cant" ? "❌" : "⬜");
-const TAG = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : null); // tag da guilda (null = desconhecida → não rotula)
 const ROXO = "#a6a6a6"; // classe → cinza aço (paleta couro/sangue/aço)
-// linha do roster: [TAG] nick  GS  [Classe] (monospace p/ alinhar os números)
-function Linha({ icon, m }: { icon: string; m: MembroSit }) {
+// linha do roster: [TAG] nick  GS  [Classe] (monospace p/ alinhar os números). tags = id da guilda → tag curta.
+function Linha({ icon, m, tags }: { icon: string; m: MembroSit; tags: Record<string, string> }) {
+  const tag = m.guilda ? tags[m.guilda] : null;
   return (
     <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontFamily: "'Share Tech Mono', monospace" }}>
       <span>{icon}</span>
-      {TAG(m.guilda) && <span style={{ color: C.mute }}>[{TAG(m.guilda)}]</span>}
+      {tag && <span style={{ color: C.mute }}>[{tag}]</span>}
       <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><NomePerfil nome={m.familia} userId={m.userId} bold /></span>
       <b style={{ color: m.gs != null ? C.verde : C.borderSoft }}>{m.gs ?? "—"}</b>
       {m.classe && <span style={{ color: ROXO }}>[{m.classe}]</span>}
@@ -43,7 +43,7 @@ function Linha({ icon, m }: { icon: string; m: MembroSit }) {
   );
 }
 
-export default function RosterView({ sit, emojis = [] }: { sit: SituacaoNN; emojis?: EmojiGuild[] }) {
+export default function RosterView({ sit, emojis = [], tags = {} }: { sit: SituacaoNN; emojis?: EmojiGuild[]; tags?: Record<string, string> }) {
   return (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
@@ -56,9 +56,9 @@ export default function RosterView({ sit, emojis = [] }: { sit: SituacaoNN; emoj
             </div>
             {g.confirmados.length === 0 && g.espera.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém confirmou</span> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {g.confirmados.map((m, i) => <Linha key={"c" + i} icon="✅" m={m} />)}
+                {g.confirmados.map((m, i) => <Linha key={"c" + i} icon="✅" m={m} tags={tags} />)}
                 {g.espera.length > 0 && <span style={{ color: C.amarelo, fontSize: 11, fontWeight: 700, marginTop: 3 }}>⏳ Espera</span>}
-                {g.espera.map((m, i) => <Linha key={"e" + i} icon="⏳" m={m} />)}
+                {g.espera.map((m, i) => <Linha key={"e" + i} icon="⏳" m={m} tags={tags} />)}
               </div>
             )}
           </div>
