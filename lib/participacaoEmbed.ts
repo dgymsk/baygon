@@ -66,13 +66,13 @@ export function montarEmbed(cfg: TipoCfg, templateId: number, tpl: TemplateE, pt
   const linhaMembro = (m: MembroE): string => {
     const p = perfil?.get(m.chave);
     const r = respByChave.get(m.chave);
-    // emoji da guilda/classe (fallback pro texto onde não houver emoji). Emoji fica FORA do link (custom
-    // não renderiza dentro de link mascarado); o nick+GS ficam no link (clicável).
+    // ordem: {emoji guilda} · Nome · GS · {emoji classe}. Emoji FORA do link (custom não renderiza dentro de
+    // link mascarado); o Nome fica no link (clicável). Fallback pro texto (MAN/RES, (classe)) onde faltar emoji.
     const gEmoji = (p?.guilda && emojis?.guildas[p.guilda]) || (tag3(p?.guilda) ?? "");
     const cEmoji = (p?.classe && emojis?.classes[p.classe]) || (p?.classe ? `(${safeLink(p.classe)})` : "");
-    const alvo = [safeLink(m.familia), p?.gs != null ? String(p.gs) : null].filter(Boolean).join(" ");
-    const link = r?.user_id ? `[${alvo}](https://discord.com/users/${r.user_id})` : alvo;
-    return [gEmoji, link, cEmoji].filter(Boolean).join(" ");
+    const nome = r?.user_id ? `[${safeLink(m.familia)}](https://discord.com/users/${r.user_id})` : safeLink(m.familia);
+    const gs = p?.gs != null ? String(p.gs) : null;
+    return [gEmoji, nome, gs, cEmoji].filter(Boolean).join(" · ");
   };
   const moldura = (ms: MembroE[]) => "> " + ms.map(linhaMembro).join("\n> "); // blockquote (barra à esquerda), clicável
 
