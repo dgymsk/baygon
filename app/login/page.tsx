@@ -18,9 +18,9 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
       }}
     >
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');`}</style>
-      <img src="/mascot.png" alt="BAYGON" width={96} height={96} style={{ filter: "drop-shadow(0 0 24px rgba(52,224,106,.55))" }} />
+      <img src="/mascot.png" alt="BAYGON" width={96} height={96} style={{ filter: "drop-shadow(0 0 24px rgba(204,0,0,.55))" }} />
       <div style={{ textAlign: "center" }}>
-        <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 44, letterSpacing: 3, margin: 0, color: C.verde, textShadow: "0 0 24px rgba(52,224,106,.35)" }}>
+        <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 44, letterSpacing: 3, margin: 0, color: C.verde, textShadow: "0 0 24px rgba(204,0,0,.35)" }}>
           BAYGON
         </h1>
         <p style={{ color: C.mute, marginTop: 6, fontSize: 14, letterSpacing: 1 }}>

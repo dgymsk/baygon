@@ -23,7 +23,7 @@ export type Progresso = { enviados: number; falhas: number; pendentes: number; t
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dig = (s: unknown) => (typeof s === "string" ? s.replace(/[^0-9]/g, "").slice(0, 25) : "");
 const urlOk = (s: unknown) => (typeof s === "string" && /^https?:\/\/\S{1,500}$/.test(s.trim()) ? s.trim() : "");
-const COR = 0x34e06a;
+const COR = 0xcc0000; // carmesim (paleta couro/sangue/aço)
 
 /** Melhor casamento por similaridade → userId. Conservador (limite cresce com o tamanho; nomes ≤3 nunca).
  * Empate SÓ conta entre usuários DIFERENTES: se todas as chaves na menor distância são do MESMO user

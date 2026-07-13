@@ -1,32 +1,37 @@
 /**
- * Paleta BAYGON — terminal/veneno: preto esverdeado + VERDE NEON (mascote/veneno)
- * como acento dominante, no estilo do app de avaliação. Amarelo só p/ avisos.
+ * Paleta BAYGON — couro/aço/sangue: preto grafite + VERMELHO CARMESIM (sangue)
+ * como acento dominante, cinza aço como neutro e branco giz no texto.
+ *   Preto Couro/Grafite  #0D0D0D–#1A1A1A
+ *   Branco Giz/Pálido     #F2F2F2
+ *   Vermelho Sangue/Carmesim #990000–#CC0000
+ *   Cinza Metálico/Aço    #737373–#A6A6A6
+ * (chaves mantêm o nome antigo — ex. `verde` = acento — p/ compatibilidade com o site.)
  */
 export const C = {
-  // base
-  bg0: "#050a07",
-  bgGlow: "radial-gradient(1100px 600px at 70% -10%, #0c2417 0%, #050a07 65%)",
-  surface: "linear-gradient(180deg,#0a1610 0%,#070f0a 100%)",
-  surfaceSolid: "#0a140e",
-  inputBg: "#06100b",
-  border: "#1c3a28",
-  border2: "#2a5a3c",
-  borderSoft: "#142b1d",
-  tooltipBg: "#07120c",
+  // base — preto couro / grafite escuro
+  bg0: "#0d0d0d",
+  bgGlow: "radial-gradient(1100px 600px at 70% -10%, #241010 0%, #0d0d0d 62%)",
+  surface: "linear-gradient(180deg,#1a1a1a 0%,#0f0f0f 100%)",
+  surfaceSolid: "#161616",
+  inputBg: "#131313",
+  border: "#2c2c2c",
+  border2: "#454545",
+  borderSoft: "#202020",
+  tooltipBg: "#161616",
 
-  // acentos
-  verde: "#34e06a", // verde neon — principal / positivo
-  verdeBright: "#5cff8a",
-  amarelo: "#ffd21e", // amarelo — avisos pontuais / pendente
-  laranja: "#f4881f",
-  vermelho: "#ff4d4d", // perigo / negativo
+  // acentos — vermelho sangue / carmesim (acento) + aço p/ neutro
+  verde: "#cc0000", // acento principal / positivo (carmesim)
+  verdeBright: "#e11414",
+  amarelo: "#a6a6a6", // "avisos" → aço claro (paleta sem amarelo)
+  laranja: "#990000", // sangue escuro (2º tom)
+  vermelho: "#cc0000", // perigo / negativo (carmesim)
 
-  // texto
-  texto: "#d6f0dd",
-  mute: "#6f9a80",
-  branco: "#ffffff",
+  // texto — branco giz + cinza aço
+  texto: "#f2f2f2",
+  mute: "#8f8f8f",
+  branco: "#f2f2f2",
 
   // tints
-  verdeTint: "rgba(52,224,106,.15)",
-  amareloTint: "rgba(255,210,30,.15)",
+  verdeTint: "rgba(204,0,0,.15)",
+  amareloTint: "rgba(166,166,166,.13)",
 } as const;

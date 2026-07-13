@@ -6,11 +6,11 @@ import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, Respon
 import { C } from "@/lib/theme";
 import type { GearAtual, PontoGear } from "@/lib/garmothStats";
 
-const AZUL = "#5bb8ff";
+const AZUL = "#6f93b5"; // azul-aço dessaturado (único tom frio p/ separar a série DP)
 const LINHAS = [
   { key: "gs", label: "GS", cor: C.verde },
-  { key: "ap", label: "AP", cor: C.verdeBright },
-  { key: "aap", label: "AAP", cor: C.laranja },
+  { key: "ap", label: "AP", cor: C.branco },
+  { key: "aap", label: "AAP", cor: C.mute },
   { key: "dp", label: "DP", cor: AZUL },
 ] as const;
 const ESPEC = (s: string | null) => (s === "succ" ? "Sucessão" : s === "awk" ? "Awakening" : s || "");
@@ -138,13 +138,13 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
                           <stop offset="100%" stopColor={C.verde} stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="#142b1d" />
-                      <XAxis dataKey="label" tick={{ fill: C.mute, fontSize: 11 }} stroke="#1c3a28" />
-                      <YAxis domain={[(min: number) => Math.floor(min * 0.94), (max: number) => Math.ceil(max * 1.04)]} tick={{ fill: C.mute, fontSize: 11 }} stroke="#1c3a28" width={44} />
+                      <CartesianGrid stroke="#202020" />
+                      <XAxis dataKey="label" tick={{ fill: C.mute, fontSize: 11 }} stroke="#2c2c2c" />
+                      <YAxis domain={[(min: number) => Math.floor(min * 0.94), (max: number) => Math.ceil(max * 1.04)]} tick={{ fill: C.mute, fontSize: 11 }} stroke="#2c2c2c" width={44} />
                       <Tooltip contentStyle={{ background: C.tooltipBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto }} labelStyle={{ color: C.texto }} formatter={(v, n) => [v as number, String(n).toUpperCase()]} />
                       {vis.gs && <Area type="monotone" dataKey="gs" name="gs" stroke={C.verde} strokeWidth={3} fill="url(#gsFill)" dot={{ r: 3, fill: C.verde }} activeDot={{ r: 6 }} />}
-                      {vis.ap && <Line type="monotone" dataKey="ap" name="ap" stroke={C.verdeBright} strokeWidth={2} dot={{ r: 2.5 }} />}
-                      {vis.aap && <Line type="monotone" dataKey="aap" name="aap" stroke={C.laranja} strokeWidth={2} dot={{ r: 2.5 }} />}
+                      {vis.ap && <Line type="monotone" dataKey="ap" name="ap" stroke={C.branco} strokeWidth={2} dot={{ r: 2.5 }} />}
+                      {vis.aap && <Line type="monotone" dataKey="aap" name="aap" stroke={C.mute} strokeWidth={2} dot={{ r: 2.5 }} />}
                       {vis.dp && <Line type="monotone" dataKey="dp" name="dp" stroke={AZUL} strokeWidth={2} dot={{ r: 2.5 }} />}
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -167,7 +167,7 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
                 </div>
                 <b style={{ width: 54, textAlign: "right", color: C.verde, fontSize: 15, fontFamily: "'Share Tech Mono', monospace" }}>{r.gs ?? "—"}</b>
                 <span style={{ width: 128, textAlign: "right", color: C.mute, fontSize: 11 }}>
-                  <span style={{ color: C.verdeBright }}>{r.ap ?? "?"}</span>/<span style={{ color: C.laranja }}>{r.aap ?? "?"}</span> · <span style={{ color: AZUL }}>{r.dp ?? "?"}</span>
+                  <span style={{ color: C.branco }}>{r.ap ?? "?"}</span>/<span style={{ color: C.mute }}>{r.aap ?? "?"}</span> · <span style={{ color: AZUL }}>{r.dp ?? "?"}</span>
                 </span>
               </div>
             ))}

@@ -9,7 +9,7 @@ import {
 } from "recharts";
 import type { DiscrepanciaRow, Populacao, WarInfo } from "@/lib/score";
 
-const GOLD = "#34e06a", CRIM = "#ff4d4d", PARCH = "#d6f0dd", MUTE = "#6f9a80", BG2 = "#07120c";
+const GOLD = "#cc0000", CRIM = "#8f8f8f", PARCH = "#f2f2f2", MUTE = "#8f8f8f", BG2 = "#141414";
 const LENTES: { key: Populacao; label: string }[] = [
   { key: "core_grupo", label: "Core do grupo" },
   { key: "grupo", label: "Grupo inteiro" },
@@ -79,7 +79,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
 
   const Select = ({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) => (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      style={{ background: "#06100b", color: PARCH, border: "1px solid #2a5a3c", borderRadius: 8, padding: "8px 12px", fontFamily: "inherit", fontSize: 14, outline: "none", cursor: "pointer" }}>
+      style={{ background: "#131313", color: PARCH, border: "1px solid #454545", borderRadius: 8, padding: "8px 12px", fontFamily: "inherit", fontSize: 14, outline: "none", cursor: "pointer" }}>
       {children}
     </select>
   );
@@ -90,9 +90,9 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
   );
 
   return (
-    <div style={{ background: "radial-gradient(1200px 600px at 70% -10%, #0c2417 0%, #050a07 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
+    <div style={{ background: "radial-gradient(1200px 600px at 70% -10%, #241010 0%, #0d0d0d 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
-        .card{background:linear-gradient(180deg,#0a1610 0%,#07120c 100%);border:1px solid #1c3a28;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(52,224,106,.08);}
+        .card{background:linear-gradient(180deg,#1a1a1a 0%,#0f0f0f 100%);border:1px solid #2c2c2c;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(204,0,0,.10);}
         select:focus{border-color:${GOLD}}
         a.navlink{color:${MUTE};text-decoration:none;font-size:13px;letter-spacing:1px}
         a.navlink:hover{color:${GOLD}}
@@ -101,7 +101,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-          <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 30, letterSpacing: 1, margin: 0, color: GOLD, textShadow: "0 2px 12px rgba(52,224,106,.25)" }}>
+          <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 30, letterSpacing: 1, margin: 0, color: GOLD, textShadow: "0 2px 12px rgba(204,0,0,.25)" }}>
             BAYGON{grupo ? ` · ${grupo}` : ""}
           </h1>
           <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
@@ -170,12 +170,12 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
                 <div style={{ fontFamily: "'Share Tech Mono', monospace", color: PARCH, fontSize: 16, marginBottom: 6, paddingLeft: 8 }}>{player} vs régua</div>
                 <ResponsiveContainer width="100%" height={300}>
                   <RadarChart data={radarData} outerRadius="72%">
-                    <PolarGrid stroke="#1c3a28" />
+                    <PolarGrid stroke="#2c2c2c" />
                     <PolarAngleAxis dataKey="metric" tick={{ fill: PARCH, fontSize: 12 }} />
-                    <PolarRadiusAxis domain={[0, 200]} tick={{ fill: MUTE, fontSize: 10 }} stroke="#1c3a28" />
+                    <PolarRadiusAxis domain={[0, 200]} tick={{ fill: MUTE, fontSize: 10 }} stroke="#2c2c2c" />
                     <Radar name="régua (100%)" dataKey={() => 100} stroke={MUTE} fill={MUTE} fillOpacity={0.12} strokeDasharray="4 4" />
                     <Radar name={player} dataKey="show" stroke={GOLD} fill={GOLD} fillOpacity={0.35} strokeWidth={2} />
-                    <Tooltip contentStyle={{ background: BG2, border: "1px solid #2a5a3c", borderRadius: 8, color: PARCH }}
+                    <Tooltip contentStyle={{ background: BG2, border: "1px solid #454545", borderRadius: 8, color: PARCH }}
                       formatter={(_value, _name, item) => [`${((item?.payload?.real as number) ?? 0).toFixed(0)}%`, player]} />
                   </RadarChart>
                 </ResponsiveContainer>
@@ -186,12 +186,12 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
                 <div style={{ fontFamily: "'Share Tech Mono', monospace", color: PARCH, fontSize: 16, marginBottom: 6, paddingLeft: 8 }}>Ranking · {mBar?.rotulo ?? ""}</div>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={bars} layout="vertical" margin={{ left: 18, right: 24 }}>
-                    <CartesianGrid horizontal={false} stroke="#142b1d" />
-                    <XAxis type="number" tick={{ fill: MUTE, fontSize: 11 }} stroke="#1c3a28" />
-                    <YAxis type="category" dataKey="nome" width={96} tick={{ fill: PARCH, fontSize: 11 }} stroke="#1c3a28" />
+                    <CartesianGrid horizontal={false} stroke="#202020" />
+                    <XAxis type="number" tick={{ fill: MUTE, fontSize: 11 }} stroke="#2c2c2c" />
+                    <YAxis type="category" dataKey="nome" width={96} tick={{ fill: PARCH, fontSize: 11 }} stroke="#2c2c2c" />
                     <ReferenceLine x={100} stroke={PARCH} strokeDasharray="5 4" label={{ value: "régua", fill: MUTE, fontSize: 10, position: "top" }} />
-                    <Tooltip cursor={{ fill: "rgba(52,224,106,.06)" }}
-                      contentStyle={{ background: BG2, border: "1px solid #2a5a3c", borderRadius: 8, color: PARCH }}
+                    <Tooltip cursor={{ fill: "rgba(204,0,0,.06)" }}
+                      contentStyle={{ background: BG2, border: "1px solid #454545", borderRadius: 8, color: PARCH }}
                       formatter={(v) => [`${Number(v).toFixed(0)}%`, mBar?.rotulo ?? ""]} />
                     <Bar dataKey="val" radius={[0, 4, 4, 0]}>
                       {bars.map((b, i) => <Cell key={i} fill={b.me ? "#ffffff" : colorFor(b.val)} fillOpacity={b.me ? 1 : 0.85} />)}
@@ -204,7 +204,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
         )}
 
         <p style={{ color: MUTE, fontSize: 11.5, marginTop: 18, lineHeight: 1.6 }}>
-          Barra branca = player selecionado no radar · <b style={{ color: GOLD }}>dourado</b> = ≥ régua, <b style={{ color: CRIM }}>vermelho</b> = abaixo.
+          Barra branca = player selecionado no radar · <b style={{ color: GOLD }}>carmesim</b> = ≥ régua, <b style={{ color: CRIM }}>cinza</b> = abaixo.
           No radar, valores acima de 200% aparecem no teto; o número real está no card e no tooltip. Métricas e cores de cada grupo são definidos em <Link className="navlink" href="/config" style={{ color: GOLD }}>Configuração</Link>.
         </p>
       </div>

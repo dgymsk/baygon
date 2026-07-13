@@ -29,7 +29,7 @@ function NomePerfil({ nome, userId, bold }: { nome: string; userId: string | nul
 }
 const statusIcon = (s: StatusResp) => (s === "can" ? "✅" : s === "espera" ? "⏳" : s === "cant" ? "❌" : "⬜");
 const TAG = (g?: string | null) => (g === "RESO" ? "RES" : g === "MANI" ? "MAN" : null); // tag da guilda (null = desconhecida → não rotula)
-const ROXO = "#b39cff";
+const ROXO = "#a6a6a6"; // classe → cinza aço (paleta couro/sangue/aço)
 // linha do roster: [TAG] nick  GS  [Classe] (monospace p/ alinhar os números)
 function Linha({ icon, m }: { icon: string; m: MembroSit }) {
   return (

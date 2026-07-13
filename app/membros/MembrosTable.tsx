@@ -163,7 +163,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
         input:focus,select:focus{border-color:${C.verde}}
         table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;text-align:left;border-bottom:1px solid ${C.borderSoft};font-size:13px}
         th{color:${C.mute};font-size:10.5px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600;position:sticky;top:0;background:${C.surfaceSolid}}
-        tbody tr:hover{background:rgba(126,224,70,.04)}
+        tbody tr:hover{background:rgba(204,0,0,.04)}
         input[type=checkbox]{accent-color:${C.verde}}
       `}</style>
 
@@ -171,7 +171,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <img src="/mascot.png" alt="BAYGON" width={40} height={40} style={{ filter: "drop-shadow(0 0 10px rgba(126,224,70,.45))" }} />
+            <img src="/mascot.png" alt="BAYGON" width={40} height={40} style={{ filter: "drop-shadow(0 0 10px rgba(204,0,0,.45))" }} />
             <div>
               <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 26, letterSpacing: 1, margin: 0, color: C.amarelo }}>
                 BAYGON <span style={{ color: C.mute, fontSize: 14, fontFamily: "inherit", letterSpacing: 2 }}>· MEMBROS</span>
@@ -284,7 +284,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                   {primeiroNaoReg && (
                     <tr><td colSpan={12} style={{ padding: "12px 10px 5px", color: C.mute, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", borderTop: `1px dashed ${C.border2}` }}>▽ Não registrados ({ordenados.length - ordenados.filter((x) => x.registro).length}) — aguardando a jornada de registro</td></tr>
                   )}
-                  <tr style={{ background: isDirty ? "rgba(255,210,30,.06)" : undefined, opacity: r.registro || !temReg ? 1 : 0.5 }}>
+                  <tr style={{ background: isDirty ? "rgba(204,0,0,.08)" : undefined, opacity: r.registro || !temReg ? 1 : 0.5 }}>
                     <td style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
                     <td>
                       <select value={r.grupo} disabled={ro} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
@@ -351,7 +351,7 @@ export default function MembrosTable({ initial, gruposExtra = [], medias = {}, c
                         style={{ ...inp, width: 116, fontSize: 12 }} />
                       {r.garmoth && (
                         <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                          {([["AP", r.garmoth.ap, C.verde], ["AAP", r.garmoth.aap, C.laranja], ["DP", r.garmoth.dp, "#5bb8ff"]] as const).map(([lbl, v, cor]) => (
+                          {([["AP", r.garmoth.ap, C.verde], ["AAP", r.garmoth.aap, C.mute], ["DP", r.garmoth.dp, "#6f93b5"]] as const).map(([lbl, v, cor]) => (
                             <span key={lbl} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 32, border: `1px solid ${C.border2}`, borderRadius: 5, padding: "1px 3px", lineHeight: 1.1, background: C.inputBg }}>
                               <span style={{ fontSize: 8, color: C.mute, letterSpacing: 0.5 }}>{lbl}</span>
                               <b style={{ fontSize: 12, color: cor }}>{v ?? "?"}</b>

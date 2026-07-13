@@ -18,16 +18,16 @@ export default async function EuPage() {
 
   if (!eu) {
     return (
-      <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#0b170e,#08120b 62%)", color: "#e9f3e1", fontFamily: "'Saira',system-ui,sans-serif", padding: "40px 24px", display: "flex", justifyContent: "center" }}>
-        <div style={{ maxWidth: 560, border: "1px solid rgba(163,230,53,0.11)", borderRadius: 16, background: "rgba(163,230,53,0.022)", padding: 28 }}>
+      <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#151515,#0d0d0d 62%)", color: "#f2f2f2", fontFamily: "'Saira',system-ui,sans-serif", padding: "40px 24px", display: "flex", justifyContent: "center" }}>
+        <div style={{ maxWidth: 560, border: "1px solid rgba(166,166,166,0.16)", borderRadius: 16, background: "rgba(204,0,0,0.035)", padding: 28 }}>
           <style>{`@import url('https://fonts.googleapis.com/css2?family=Saira:wght@300;400;500;600&display=swap');`}</style>
-          <h1 style={{ color: "#facc15", fontSize: 20, marginBottom: 10 }}>Não encontrei seu personagem</h1>
-          <p style={{ color: "rgba(233,243,225,0.55)", fontSize: 14, lineHeight: 1.6 }}>
+          <h1 style={{ color: "#cc0000", fontSize: 20, marginBottom: 10 }}>Não encontrei seu personagem</h1>
+          <p style={{ color: "rgba(242,242,242,0.55)", fontSize: 14, lineHeight: 1.6 }}>
             {familia
-              ? <>Procurei pela família <b style={{ color: "#e9f3e1" }}>“{familia}”</b> (do seu apelido no Discord) e não bateu com ninguém no roster. Confira se seu apelido no servidor está como <b style={{ color: "#e9f3e1" }}>[M] SuaFamília</b> (ou [R]) e relogue, ou fale com a staff.</>
-              : <>Seu apelido no servidor do Discord não tem o nome de família. Ajuste pra <b style={{ color: "#e9f3e1" }}>[M] SuaFamília</b> e relogue.</>}
+              ? <>Procurei pela família <b style={{ color: "#f2f2f2" }}>“{familia}”</b> (do seu apelido no Discord) e não bateu com ninguém no roster. Confira se seu apelido no servidor está como <b style={{ color: "#f2f2f2" }}>[M] SuaFamília</b> (ou [R]) e relogue, ou fale com a staff.</>
+              : <>Seu apelido no servidor do Discord não tem o nome de família. Ajuste pra <b style={{ color: "#f2f2f2" }}>[M] SuaFamília</b> e relogue.</>}
           </p>
-          <div style={{ marginTop: 16 }}><a href="/painel" style={{ color: "#38bdf8", textDecoration: "none", fontSize: 13 }}>← Voltar ao painel</a></div>
+          <div style={{ marginTop: 16 }}><a href="/painel" style={{ color: "#cc0000", textDecoration: "none", fontSize: 13 }}>← Voltar ao painel</a></div>
         </div>
       </div>
     );

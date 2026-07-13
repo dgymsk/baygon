@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import type { Escopo, PontoEvolucao } from "@/lib/evolucao";
 
-const GOLD = "#34e06a", CRIM = "#ff4d4d", PARCH = "#d6f0dd", MUTE = "#6f9a80", BG2 = "#07120c";
+const GOLD = "#cc0000", CRIM = "#8f8f8f", PARCH = "#f2f2f2", MUTE = "#8f8f8f", BG2 = "#141414";
 const fmt = (iso: string) => iso.slice(5).split("-").reverse().join("/"); // dd/mm
 
 export default function Evolucao({
@@ -44,17 +44,17 @@ export default function Evolucao({
 
   const Select = ({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) => (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      style={{ background: "#06100b", color: PARCH, border: "1px solid #2a5a3c", borderRadius: 8, padding: "8px 12px", fontFamily: "inherit", fontSize: 14, outline: "none", cursor: "pointer" }}>
+      style={{ background: "#131313", color: PARCH, border: "1px solid #454545", borderRadius: 8, padding: "8px 12px", fontFamily: "inherit", fontSize: 14, outline: "none", cursor: "pointer" }}>
       {children}
     </select>
   );
-  const dateInp = { background: "#06100b", color: PARCH, border: "1px solid #2a5a3c", borderRadius: 8, padding: "7px 10px", fontFamily: "inherit", fontSize: 14, outline: "none", colorScheme: "dark" } as const;
+  const dateInp = { background: "#131313", color: PARCH, border: "1px solid #454545", borderRadius: 8, padding: "7px 10px", fontFamily: "inherit", fontSize: 14, outline: "none", colorScheme: "dark" } as const;
   const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: MUTE, letterSpacing: 1 }}>{label}{children}</label>
   );
 
   return (
-    <div style={{ background: "radial-gradient(1200px 600px at 70% -10%, #0c2417 0%, #050a07 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
+    <div style={{ background: "radial-gradient(1200px 600px at 70% -10%, #241010 0%, #0d0d0d 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${MUTE};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${GOLD}}
         select:focus,input:focus{border-color:${GOLD}}`}</style>
@@ -93,7 +93,7 @@ export default function Evolucao({
           <Field label="ATÉ"><input type="date" value={to} min={from} max={maxData} onChange={(e) => setTo(e.target.value)} style={dateInp} /></Field>
         </div>
 
-        <div style={{ border: "1px solid #1c3a28", borderRadius: 14, background: "linear-gradient(180deg,#0a1610,#07120c)", padding: "18px 12px 8px" }}>
+        <div style={{ border: "1px solid #2c2c2c", borderRadius: 14, background: "linear-gradient(180deg,#1a1a1a,#0f0f0f)", padding: "18px 12px 8px" }}>
           {loading ? (
             <p style={{ color: MUTE, padding: 20 }}>Carregando…</p>
           ) : data.length === 0 ? (
@@ -101,9 +101,9 @@ export default function Evolucao({
           ) : (
             <ResponsiveContainer width="100%" height={360}>
               <LineChart data={data} margin={{ top: 10, right: 24, left: 4, bottom: 4 }}>
-                <CartesianGrid stroke="#142b1d" />
-                <XAxis dataKey="label" tick={{ fill: MUTE, fontSize: 11 }} stroke="#1c3a28" />
-                <YAxis domain={[0, (max: number) => Math.max(110, Math.ceil(max * 1.05))]} tick={{ fill: MUTE, fontSize: 11 }} stroke="#1c3a28" />
+                <CartesianGrid stroke="#202020" />
+                <XAxis dataKey="label" tick={{ fill: MUTE, fontSize: 11 }} stroke="#2c2c2c" />
+                <YAxis domain={[0, (max: number) => Math.max(110, Math.ceil(max * 1.05))]} tick={{ fill: MUTE, fontSize: 11 }} stroke="#2c2c2c" />
                 {/* zona de atenção < 80% */}
                 <ReferenceArea y1={0} y2={80} fill={CRIM} fillOpacity={0.06} />
                 {/* faixas */}
@@ -113,7 +113,7 @@ export default function Evolucao({
                   <ReferenceLine y={media} stroke={PARCH} strokeDasharray="2 4" label={{ value: `média ${media.toFixed(0)}%`, fill: PARCH, fontSize: 10, position: "insideTopRight" }} />
                 )}
                 <Tooltip
-                  contentStyle={{ background: BG2, border: "1px solid #2a5a3c", borderRadius: 8, color: PARCH }}
+                  contentStyle={{ background: BG2, border: "1px solid #454545", borderRadius: 8, color: PARCH }}
                   labelStyle={{ color: PARCH }}
                   formatter={(v) => [`${Number(v).toFixed(0)}%`, "performance"]}
                   labelFormatter={(l, p) => { const r = p?.[0]?.payload?.resultado; return `${l}${r ? " · " + r : ""}`; }}
@@ -125,7 +125,7 @@ export default function Evolucao({
         </div>
 
         <p style={{ color: MUTE, fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
-          Cada ponto = uma war. <b style={{ color: GOLD }}>Dourado 100%</b> = empatou com o core · <b style={{ color: CRIM }}>vermelho 80%</b> = piso de atenção ·
+          Cada ponto = uma war. <b style={{ color: GOLD }}>Carmesim 100%</b> = empatou com o core · <b style={{ color: CRIM }}>cinza 80%</b> = piso de atenção ·
           linha clara = média do período ({media != null ? `${media.toFixed(0)}%` : "—"}). Cada % é limitada a 200% (teto, como no radar). Escolha grupo/player e o range acima.
         </p>
       </div>

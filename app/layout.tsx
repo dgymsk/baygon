@@ -27,8 +27,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               title="Minhas stats"
               style={{
                 display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none",
-                borderRadius: 999, border: "1px solid #2a5a3c", background: "#06100b",
-                color: "#d6f0dd", padding: "6px 12px", fontSize: 12,
+                borderRadius: 999, border: "1px solid #454545", background: "#131313",
+                color: "#f2f2f2", padding: "6px 12px", fontSize: 12,
               }}
             >
               {session.user.image && (
@@ -42,8 +42,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 type="submit"
                 title="Sair"
                 style={{
-                  cursor: "pointer", borderRadius: 999, border: "1px solid #2a5a3c", background: "#06100b",
-                  color: "#6f9a80", padding: "6px 12px", fontSize: 12, fontFamily: "inherit",
+                  cursor: "pointer", borderRadius: 999, border: "1px solid #454545", background: "#131313",
+                  color: "#8f8f8f", padding: "6px 12px", fontSize: 12, fontFamily: "inherit",
                 }}
               >
                 Sair
