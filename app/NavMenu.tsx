@@ -15,6 +15,7 @@ const LINKS: { href: string; label: string; staff?: boolean }[] = [
   { href: "/gear", label: "⚔️ Gear" },
   { href: "/evolucao", label: "📈 Evolução" },
   { href: "/eu", label: "🧍 Minhas stats" },
+  { href: "/guildas", label: "🛡️ Guildas", staff: true },
   { href: "/emojis", label: "😀 Emojis", staff: true },
   { href: "/config", label: "⚙️ Config", staff: true },
   { href: "/discord", label: "🤖 Discord", staff: true },

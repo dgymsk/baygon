@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { getGuildMeta, iconeUrl } from "@/lib/guildConfig";
 
 const GOLD = "#cc0000", PARCH = "#f2f2f2", MUTE = "#8f8f8f";
 
-export default function Home() {
+export default async function Home() {
+  const meta = await getGuildMeta();
+  const icon = iconeUrl(meta.alliance.icone) || "/mascot.png";
+  const nomes = meta.guildas.map((g) => g.nome);
   return (
     <main
       style={{
@@ -20,12 +24,12 @@ export default function Home() {
     >
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');`}</style>
       <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-        <img src="/mascot.png" alt="BAYGON" width={92} height={92} style={{ filter: "drop-shadow(0 0 22px rgba(204,0,0,.55))" }} />
+        <img src={icon} alt={meta.alliance.nome} width={92} height={92} style={{ filter: "drop-shadow(0 0 22px rgba(204,0,0,.55))", borderRadius: 16, objectFit: "cover" }} />
         <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 46, letterSpacing: 3, margin: "4px 0 0", color: GOLD, textShadow: "0 0 24px rgba(204,0,0,.35)" }}>
-          BAYGON
+          {meta.alliance.nome}
         </h1>
         <p style={{ color: MUTE, marginTop: 2, fontSize: 14, letterSpacing: 1 }}>
-          Aliança · <span style={{ color: "#e5e5e5" }}>Manicômio</span> + <span style={{ color: "#e5e5e5" }}>Resonance</span> · Node War
+          Aliança · {nomes.map((n, i) => (<span key={i}>{i > 0 && " + "}<span style={{ color: "#e5e5e5" }}>{n}</span></span>))} · Node War
         </p>
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
