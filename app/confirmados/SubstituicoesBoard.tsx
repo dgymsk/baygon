@@ -277,7 +277,7 @@ export default function SubstituicoesBoard({
           <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6 }}>
               <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}><Icone iconKey={g.iconKey} /> {g.nome}</span>
-              <span style={{ color: C.mute, fontSize: 11 }} title="ocupadas/limite (após remoções e promoções confirmadas)">{ativos}/{g.limite ?? "?"}{livre > 0 ? ` · ${livre} livre` : ""}</span>
+              <span style={{ color: C.mute, fontSize: 11 }} title="ocupadas/limite (após remoções e promoções confirmadas)">{ativos}{g.limite != null ? `/${g.limite}` : ""}{livre > 0 ? ` · ${livre} livre` : ""}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {g.players.length === 0 && promoted.length === 0
