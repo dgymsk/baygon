@@ -43,7 +43,8 @@ export async function getPt(currentWarKey: string | null): Promise<PtRow[]> {
  * cliente stale e não escreve com war desconhecida; limpa o scan ao trocar de war.
  */
 export async function aplicarOps(ops: unknown, warKeyCliente?: string | null): Promise<PtRow[]> {
-  const conf = await fetchConfirmados();
+  // resolve pela war que o CLIENTE está vendo (pode ser uma sala escolhida à mão no seletor)
+  const conf = await fetchConfirmados({ warKey: warKeyCliente ?? undefined });
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
   if (!warKey) return readPt(); // war desconhecida (bot fora) → não escreve
   if (warKeyCliente && warKeyCliente !== warKey) return getPt(warKey); // cliente stale

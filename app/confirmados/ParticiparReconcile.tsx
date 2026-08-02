@@ -142,7 +142,7 @@ export default function ParticiparReconcile({
         setFalhas(falhasLocal.slice()); // antes do save: lista de falhas não some se o save der erro
         if (map.size > 0) {
           setProg("salvando…");
-          const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...map.values()] }) });
+          const save = await fetch("/api/participar/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membros: [...map.values()], warKey }) });
           const sj = await save.json().catch(() => ({} as { error?: string; status?: Row[] }));
           if (!save.ok) throw new Error(sj.error || "falha ao salvar status");
           setStatus(sj.status ?? []);

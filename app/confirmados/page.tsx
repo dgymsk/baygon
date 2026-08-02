@@ -17,6 +17,7 @@ import VagasEditor from "./VagasEditor";
 import SubstituicoesBoard from "./SubstituicoesBoard";
 import MontarPtsBoard from "./MontarPtsBoard";
 import AutoSync from "./AutoSync";
+import SalaSelect from "./SalaSelect";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Confirmados · BAYGON" };
@@ -28,9 +29,10 @@ function fmtData(unix?: number): string {
   });
 }
 
-export default async function ConfirmadosPage() {
+export default async function ConfirmadosPage({ searchParams }: { searchParams: Promise<{ sala?: string }> }) {
+  const { sala } = await searchParams;
   const [conf, rosterRows, canEdit, vagas, meta] = await Promise.all([
-    fetchConfirmados(),
+    fetchConfirmados({ canal: sala }),
     sql`SELECT nome_familia, pt_preferida, guilda FROM players`,
     canEditNow(),
     getVagas(),
@@ -151,18 +153,23 @@ export default async function ConfirmadosPage() {
                     // de qual sala veio o embed — com N canais configurados (um por dia da semana),
                     // sem isso não dá pra saber qual war está na tela
                     <span
-                      title={(conf.canaisLidos ?? 1) > 1 ? `Post mais recente entre os ${conf.canaisLidos} canais configurados` : "Canal configurado do Apollo"}
-                      style={{ border: `1px solid ${C.border2}`, borderRadius: 999, padding: "1px 9px", fontSize: 12, color: C.texto, background: C.inputBg, whiteSpace: "nowrap" }}
+                      title={conf.escolha === "manual" ? "Sala escolhida à mão no seletor"
+                        : conf.escolha === "dia" ? "War de HOJE (escolha automática)"
+                        : "Nenhuma war hoje — mostrando o post mais recente"}
+                      style={{ border: `1px solid ${conf.escolha === "manual" ? C.amarelo : C.border2}`, borderRadius: 999, padding: "1px 9px", fontSize: 12, color: C.texto, background: C.inputBg, whiteSpace: "nowrap" }}
                     >
                       📖 lendo <b style={{ color: C.amarelo }}>#{conf.canalNome}</b>
-                      {(conf.canaisLidos ?? 1) > 1 && <span style={{ color: C.mute }}> · de {conf.canaisLidos} salas</span>}
+                      <span style={{ color: C.mute }}>
+                        {conf.escolha === "manual" ? " · manual" : conf.escolha === "dia" ? " · war de hoje" : " · mais recente"}
+                      </span>
                     </span>
                   )}
                 </div>
               )}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+            <SalaSelect salas={conf.salas ?? []} atual={conf.canalId ?? null} escolha={conf.escolha} />
             <RefreshButton />
             <Link className="navlink" href="/painel">← Painel</Link>
             <Link className="navlink" href="/membros">Membros</Link>

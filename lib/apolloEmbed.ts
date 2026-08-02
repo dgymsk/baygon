@@ -73,6 +73,23 @@ export function parsePlayer(line: string, tagRe: RegExp): PlayerConf | null {
   return nome && !ehRuido(nome) ? { tag, nome, nota, iconKey } : null;
 }
 
+/** Nome de campo que o Apollo usa pro horário do evento (PT ou EN). */
+const ehCampoHorario = (nome: string) => /^(hor[aá]rio|time|when)$/i.test(nome);
+
+/**
+ * Só o INÍCIO do evento (unix), sem pagar o parse completo. Usado pra escolher entre vários
+ * canais qual é a war do dia — o Apollo já publica a de amanhã antes da de hoje acontecer,
+ * então "post mais recente" não serve como critério.
+ */
+export function inicioDoEmbed(embed: EmbedApollo): number | undefined {
+  for (const f of embed.fields ?? []) {
+    if (!ehCampoHorario(limpa(f.name))) continue;
+    const t = f.value.match(/<t:(\d+):/);
+    if (t) return Number(t[1]);
+  }
+  return undefined;
+}
+
 /** Embed do Apollo → grupos + lista de espera + horário de início. */
 export function parseEmbedApollo(embed: EmbedApollo, tagRe: RegExp): { grupos: GrupoConf[]; listaEspera: PlayerConf[]; inicioUnix?: number } {
   const grupos: GrupoConf[] = [];
@@ -83,7 +100,7 @@ export function parseEmbedApollo(embed: EmbedApollo, tagRe: RegExp): { grupos: G
   for (const f of embed.fields ?? []) {
     const nome = limpa(f.name);
     // o Apollo pode estar em português ou inglês, dependendo do servidor
-    if (/^(hor[aá]rio|time|when)$/i.test(nome)) {
+    if (ehCampoHorario(nome)) {
       const t = f.value.match(/<t:(\d+):/);
       if (t) inicioUnix = Number(t[1]);
       continue;

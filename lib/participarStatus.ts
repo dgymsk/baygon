@@ -26,8 +26,8 @@ export async function getStatus(currentWarKey: string | null): Promise<StatusRow
  * Relê a war ATUAL do bot no servidor (não confia no client, evita corrida com
  * página stale) e, se mudou, limpa o scan antigo antes de gravar — tudo atômico.
  */
-export async function saveStatus(membros: unknown): Promise<StatusRow[]> {
-  const conf = await fetchConfirmados();
+export async function saveStatus(membros: unknown, warKeyCliente?: string | null): Promise<StatusRow[]> {
+  const conf = await fetchConfirmados({ warKey: warKeyCliente ?? undefined });
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
 
   const lista = Array.isArray(membros) ? membros : [];
@@ -71,7 +71,7 @@ export async function getPosLiberacao(currentWarKey: string | null): Promise<boo
 
 /** Liga/desliga o "pós-liberação" da war atual (relê a war no servidor; rejeita cliente stale). */
 export async function setPosLiberacao(valor: boolean, warKeyCliente?: string | null): Promise<boolean> {
-  const conf = await fetchConfirmados();
+  const conf = await fetchConfirmados({ warKey: warKeyCliente ?? undefined });
   const warKey = conf.ok ? (conf.messageId ?? null) : null;
   if (!warKey) return getPosLiberacao(null); // war desconhecida (bot fora) → não escreve
   if (warKeyCliente && warKeyCliente !== warKey) return getPosLiberacao(warKey); // cliente stale
