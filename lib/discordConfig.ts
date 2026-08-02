@@ -9,6 +9,15 @@ import { sql } from "@/lib/db";
 export type DiscordConfig = { guildId: string; staffRoleIds: string[]; confirmNodewar: string; confirmSiege: string; logChannel: string; reportChannel: string; registroRoleId: string; registerChannel: string };
 
 const dig = (s: unknown) => (typeof s === "string" ? s.replace(/[^0-9]/g, "").slice(0, 25) : "");
+/** LISTA de IDs de canal (CSV). O Apollo pode postar em N canais — no Psicose é um por dia
+ *  da semana. Aceita string com vírgulas/espaços ou array; devolve CSV sem repetidos.
+ *  Um ID só continua valendo (compat com a config antiga de canal único). */
+const digs = (s: unknown) => {
+  const bruto = Array.isArray(s) ? s : typeof s === "string" ? s.split(/[^0-9]+/) : [];
+  return [...new Set(bruto.map(dig).filter(Boolean))].slice(0, 12).join(",");
+};
+/** CSV de canais → array (usado por quem vai ler os canais). */
+export const canaisDe = (csv: string): string[] => csv.split(",").map((s) => s.trim()).filter(Boolean);
 const envGuild = () => (process.env.DISCORD_GUILD_ID ?? "").split(",").map((s) => s.trim()).filter(Boolean)[0] ?? "";
 const envStaff = () => (process.env.DISCORD_STAFF_ROLE_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -21,8 +30,8 @@ export function parseDiscordConfig(raw: unknown): DiscordConfig {
   return {
     guildId: dig(c.guildId) || envGuild(),
     staffRoleIds: roles.length ? roles : envStaff(),
-    confirmNodewar: dig(c.confirmNodewar) || (process.env.DISCORD_CONFIRM_CHANNEL_ID_NODEWAR ?? process.env.DISCORD_CONFIRM_CHANNEL_ID ?? ""),
-    confirmSiege: dig(c.confirmSiege) || (process.env.DISCORD_CONFIRM_CHANNEL_ID_SIEGE ?? ""),
+    confirmNodewar: digs(c.confirmNodewar) || (process.env.DISCORD_CONFIRM_CHANNEL_ID_NODEWAR ?? process.env.DISCORD_CONFIRM_CHANNEL_ID ?? ""),
+    confirmSiege: digs(c.confirmSiege) || (process.env.DISCORD_CONFIRM_CHANNEL_ID_SIEGE ?? ""),
     logChannel: dig(c.logChannel) || (process.env.DISCORD_LOG_CHANNEL_ID ?? ""),
     reportChannel: dig(c.reportChannel) || (process.env.DISCORD_REPORT_CHANNEL_ID ?? ""),
     registroRoleId: dig(c.registroRoleId),
@@ -34,7 +43,7 @@ export function parseDiscordConfig(raw: unknown): DiscordConfig {
 function sanitizaStore(raw: unknown): DiscordConfig {
   const c = (raw ?? {}) as Partial<DiscordConfig>;
   const roles = Array.isArray(c.staffRoleIds) ? [...new Set(c.staffRoleIds.map(dig).filter(Boolean))] : (typeof c.staffRoleIds === "string" ? (c.staffRoleIds as string).split(",").map(dig).filter(Boolean) : []);
-  return { guildId: dig(c.guildId), staffRoleIds: roles, confirmNodewar: dig(c.confirmNodewar), confirmSiege: dig(c.confirmSiege), logChannel: dig(c.logChannel), reportChannel: dig(c.reportChannel), registroRoleId: dig(c.registroRoleId), registerChannel: dig(c.registerChannel) };
+  return { guildId: dig(c.guildId), staffRoleIds: roles, confirmNodewar: digs(c.confirmNodewar), confirmSiege: digs(c.confirmSiege), logChannel: dig(c.logChannel), reportChannel: dig(c.reportChannel), registroRoleId: dig(c.registroRoleId), registerChannel: dig(c.registerChannel) };
 }
 
 export async function getDiscordConfig(): Promise<DiscordConfig> {

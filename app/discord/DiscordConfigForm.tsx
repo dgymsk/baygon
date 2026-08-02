@@ -65,15 +65,20 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
         <p style={{ color: C.mute, fontSize: 12.5, margin: "0 0 16px" }}>
           Define <b style={{ color: C.verde }}>qual servidor</b> toda a solução usa (login, bot, emojis, canais). Campo vazio usa o valor do ambiente (env). Pra pegar um ID: no Discord, ative o Modo Desenvolvedor → clique direito → <b>Copiar ID</b>. Depois de trocar o servidor, o bot precisa estar nele e você deve <b>relogar</b>.
         </p>
+        <p style={{ color: C.amarelo, fontSize: 12.5, margin: "0 0 16px", border: `1px solid ${C.border2}`, borderRadius: 10, padding: "9px 12px", background: C.inputBg }}>
+          ⚠ Trocar de servidor <b>não se resolve só aqui</b>. Também precisa: o canal onde o bot posta a chamada
+          (fica em <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>, não nesta tela), registrar
+          os <b>slash commands</b> no servidor novo (<code>scripts/register_commands.mjs</code>) e todo mundo <b>relogar</b>.
+        </p>
 
         <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
           <div><label style={label}>Servidor ativo (Guild ID)</label><input value={guildId} readOnly={ro} onChange={(e) => setGuildId(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do servidor" style={input} /><div style={dica}>Onde o login é liberado e o bot opera.</div></div>
           <div><label style={label}>Cargos de staff (IDs, separados por vírgula)</label><input value={staff} readOnly={ro} onChange={(e) => setStaff(e.target.value)} placeholder="123, 456 (vazio = todos editam)" style={input} /><div style={dica}>Quem pode editar no site e disparar o bot. Vazio = todo membro edita.</div></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div><label style={label}>Canal Apollo — Nodewar</label><input value={cnw} readOnly={ro} onChange={(e) => setCnw(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /></div>
-            <div><label style={label}>Canal Apollo — Siege</label><input value={csg} readOnly={ro} onChange={(e) => setCsg(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /></div>
+            <div><label style={label}>Canais Apollo — Nodewar</label><input value={cnw} readOnly={ro} onChange={(e) => setCnw(e.target.value.replace(/[^0-9,\s]/g, ""))} placeholder="ID (ou vários, separados por vírgula)" style={input} /></div>
+            <div><label style={label}>Canais Apollo — Siege</label><input value={csg} readOnly={ro} onChange={(e) => setCsg(e.target.value.replace(/[^0-9,\s]/g, ""))} placeholder="ID (ou vários, separados por vírgula)" style={input} /></div>
           </div>
-          <div style={dica}>Canais de onde a tela de Confirmados lê o embed do Apollo (por modo).</div>
+          <div style={dica}>Canais de onde a tela de Confirmados lê o embed do Apollo (por modo). Aceita <b>vários IDs separados por vírgula</b> — quando o Apollo posta um evento por canal (ex.: um por dia da semana), lemos todos e usamos o post mais recente.</div>
           <div><label style={label}>Canal de log (respostas livres)</label><input value={log} readOnly={ro} onChange={(e) => setLog(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /><div style={dica}>Onde o bot posta as respostas de texto livre (modal “Responder” e /responder), cada uma com um código.</div></div>
           <div><label style={label}>Canal do relatório do Buzinador (padrão)</label><input value={rep} readOnly={ro} onChange={(e) => setRep(e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do canal" style={input} /><div style={dica}>Canal padrão onde o Buzinador posta o relatório de entrega/votação. No painel dá pra sobrescrever por disparo.</div></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 12 }}>
