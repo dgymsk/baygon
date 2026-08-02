@@ -7,7 +7,8 @@ export function ehAtaque(nome: string): boolean {
   return /^ataque\b/i.test(nome.trim());
 }
 
-export type Slot = { removido: PlayerConf; promovido: PlayerConf | null; cross: boolean };
+// removido = null → vaga LIVRE (capacidade ociosa do grupo, ninguém precisou sair)
+export type Slot = { removido: PlayerConf | null; promovido: PlayerConf | null; cross: boolean };
 export type GrupoView = { g: GrupoConf; ataque: boolean; slots: Slot[] };
 export type Atribuicao = {
   grupoView: GrupoView[];
@@ -16,7 +17,22 @@ export type Atribuicao = {
 };
 
 /**
- * Casa removidos (vagas) com promovidos confirmados. Regras:
+ * Vagas de um grupo = uma por REMOVIDO + a CAPACIDADE OCIOSA (limite − confirmados do bot).
+ * A ociosa usa a contagem ORIGINAL do bot, não a pós-remoção — senão as duas parcelas se
+ * sobrepõem e um grupo cheio contaria a mesma vaga duas vezes. Grupo estourado (ex.: 4/2)
+ * tem ociosa 0, então remover alguém lá continua abrindo exatamente 1 vaga, como antes.
+ */
+export function vagasDoGrupo(g: GrupoConf, removidos: Set<string>): number {
+  const rem = g.players.filter((p) => removidos.has(chaveNome(p.nome))).length;
+  const ociosa = g.limite != null ? Math.max(0, g.limite - g.players.length) : 0;
+  return rem + ociosa;
+}
+/** Total de vagas do roster — cap global das promoções. */
+export const totalVagas = (grupos: GrupoConf[], removidos: Set<string>) =>
+  grupos.reduce((s, g) => s + vagasDoGrupo(g, removidos), 0);
+
+/**
+ * Casa vagas (removidos + capacidade ociosa) com promovidos confirmados. Regras:
  *  1) mesma classe (mesmo ícone) numa vaga NÃO-ataque — match limpo;
  *  2) vaga de ATAQUE pega qualquer reserva — match limpo (ataque é flex);
  *  3) sobra → cross: vaga não-ataque preenchida por outra classe (marcado p/ AVISO).
@@ -31,7 +47,7 @@ export function atribuirPromocoes(
   type Vaga = { gIdx: number; icon: string | null; ataque: boolean; prom: PlayerConf | null };
   const vagas: Vaga[] = [];
   grupos.forEach((g, gIdx) => {
-    const n = g.players.filter(isRem).length;
+    const n = vagasDoGrupo(g, removidos);
     const ataque = ehAtaque(g.nome);
     for (let i = 0; i < n; i++) vagas.push({ gIdx, icon: g.iconKey, ataque, prom: null });
   });
@@ -48,13 +64,13 @@ export function atribuirPromocoes(
   const promovidoPara = new Map<string, { grupo: string; cross: boolean }>();
   const grupoView: GrupoView[] = grupos.map((g, gIdx) => {
     const removidosAqui = g.players.filter(isRem);
-    const vagasAqui = vagas.filter((v) => v.gIdx === gIdx); // mesma ordem/contagem dos removidos
-    const slots: Slot[] = removidosAqui.map((rmv, i) => {
-      const v = vagasAqui[i];
-      const promovido = v?.prom ?? null;
+    const vagasAqui = vagas.filter((v) => v.gIdx === gIdx); // as N primeiras são as das remoções
+    const slots: Slot[] = vagasAqui.map((v, i) => {
+      const removido = removidosAqui[i] ?? null; // sem removido = vaga livre (capacidade ociosa)
+      const promovido = v.prom ?? null;
       const cross = !!promovido && !v.ataque && (promovido.iconKey ?? null) !== v.icon;
       if (promovido) promovidoPara.set(chaveNome(promovido.nome), { grupo: g.nome, cross });
-      return { removido: rmv, promovido, cross };
+      return { removido, promovido, cross };
     });
     return { g, ataque: ehAtaque(g.nome), slots };
   });

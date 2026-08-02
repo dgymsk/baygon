@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chaveNome } from "@/lib/nomes";
-import { atribuirPromocoes } from "@/lib/substituicoes";
+import { atribuirPromocoes, totalVagas } from "@/lib/substituicoes";
 import { C } from "@/lib/theme";
 import type { GrupoConf, PlayerConf } from "@/lib/confirmados";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
@@ -19,16 +19,16 @@ function Icone({ iconKey, size = 15 }: { iconKey: string | null; size?: number }
 
 /**
  * Poda as promoções confirmadas ao TOTAL de vagas abertas (cap global, em ordem da espera).
- * Agora qualquer reserva pode subir em qualquer vaga (Ataque é flex; outras aceitam cross com
- * aviso), então o limite é global — não mais por ícone. Evita "promoção fantasma" quando o
- * total de vagas encolhe (ex.: desfazer uma remoção).
+ * Qualquer reserva pode subir em qualquer vaga (Ataque é flex; outras aceitam cross com aviso),
+ * então o limite é global — não por ícone. Evita "promoção fantasma" quando o total de vagas
+ * encolhe (ex.: desfazer uma remoção). Vagas = removidos + capacidade ociosa (lib compartilhado).
  */
 function promovidosValidos(rem: Set<string>, prom: Set<string>, grupos: GrupoConf[], listaEspera: PlayerConf[]): Set<string> {
   const isRem = (p: PlayerConf) => rem.has(chaveNome(p.nome));
-  const totalVagas = grupos.reduce((s, g) => s + g.players.filter(isRem).length, 0);
+  const cap = totalVagas(grupos, rem);
   const valido = new Set<string>();
   for (const w of listaEspera) {
-    if (valido.size >= totalVagas) break;
+    if (valido.size >= cap) break;
     const k = chaveNome(w.nome);
     if (isRem(w) || !prom.has(k)) continue;
     valido.add(k);
@@ -85,18 +85,19 @@ export default function SubstituicoesBoard({
     }
 
     const grupoView = grupos.map((g, i) => {
-      const removidosAqui = gv0[i].slots.map((s) => s.removido);
+      const removidosAqui = gv0[i].slots.filter((s) => s.removido).length;
       const promoted = gv0[i].slots.map((s) => s.promovido).filter((p): p is PlayerConf => !!p);
       const abertasAqui = gv0[i].slots.filter((s) => !s.promovido).length;
-      const ativos = g.players.length - removidosAqui.length + promoted.length;
+      const ativos = g.players.length - removidosAqui + promoted.length;
       const livre = g.limite != null ? Math.max(0, g.limite - ativos) : 0;
       return { g, ataque: gv0[i].ataque, promoted, abertasAqui, ativos, livre };
     });
 
-    // plano: cada removido -> confirmado (✓, cross marcado) OU vaga aberta + sugestão limpa.
+    // plano: cada vaga -> confirmado (✓, cross marcado) OU vaga aberta + sugestão limpa. A vaga
+    // vem de uma remoção (removido != null) ou de capacidade ociosa do grupo (removido == null).
     // Sugestões em 2 passes (não-ataque mesmo-ícone primeiro; ataque pega as sobras) — espelha
     // a prioridade da atribuição pra não "roubar" o mesmo-ícone de uma vaga não-ataque.
-    const plano: { pt: string; iconKey: string | null; removido: PlayerConf; promovido: PlayerConf | null; cross: boolean; sugestao: PlayerConf | null; ataque: boolean }[] = [];
+    const plano: { pt: string; iconKey: string | null; removido: PlayerConf | null; promovido: PlayerConf | null; cross: boolean; sugestao: PlayerConf | null; ataque: boolean }[] = [];
     for (let i = 0; i < grupos.length; i++) {
       const g = grupos[i];
       for (const s of gv0[i].slots) plano.push({ pt: g.nome, iconKey: g.iconKey, removido: s.removido, promovido: s.promovido, cross: s.cross, sugestao: null, ataque: gv0[i].ataque });
@@ -110,8 +111,11 @@ export default function SubstituicoesBoard({
     for (const r of plano) if (!r.ataque) sugerir(r);
     for (const r of plano) if (r.ataque) sugerir(r);
     const sugeridoKeys = new Set(plano.filter((r) => r.sugestao).map((r) => chaveNome(r.sugestao!.nome)));
+    // vaga livre sem ninguém sugerido/confirmado não vira linha — o card do grupo já mostra
+    // "⏳ N vaga(s) aberta(s)". Sem isso um grupo 0/7 despejaria 7 linhas vazias no plano.
+    const planoVisivel = plano.filter((r) => r.removido || r.promovido || r.sugestao);
 
-    return { grupoView, plano, promovidoKeys, promovidoPara, eligPorChave, sugeridoKeys };
+    return { grupoView, plano: planoVisivel, promovidoKeys, promovidoPara, eligPorChave, sugeridoKeys };
   }, [removidos, promovidos, grupos, listaEspera]);
 
   // envia DELTAS (ops) por linha — seguro p/ edição concorrente. Fila serializada.
@@ -192,9 +196,12 @@ export default function SubstituicoesBoard({
   const isRem = (p: PlayerConf) => removidos.has(chaveNome(p.nome));
   const temAcao = removidos.size > 0 || promovidos.size > 0;
 
-  const planoTexto = dados.plano.map((r) => r.promovido
-    ? `Sair: ${r.removido.nome}  →  SOBE: ${r.promovido.nome}${r.cross ? " (OUTRA CLASSE)" : ""}  (${r.pt})`
-    : `Sair: ${r.removido.nome}  →  vaga aberta${r.sugestao ? ` (sugerido: ${r.sugestao.nome})` : " (sem reserva)"}  (${r.pt})`).join("\n");
+  const planoTexto = dados.plano.map((r) => {
+    const de = r.removido ? `Sair: ${r.removido.nome}` : "Vaga livre";
+    return r.promovido
+      ? `${de}  →  SOBE: ${r.promovido.nome}${r.cross ? " (OUTRA CLASSE)" : ""}  (${r.pt})`
+      : `${de}  →  vaga aberta${r.sugestao ? ` (sugerido: ${r.sugestao.nome})` : " (sem reserva)"}  (${r.pt})`;
+  }).join("\n");
 
   function copiarPlano() {
     const p = navigator.clipboard?.writeText(planoTexto);
@@ -255,7 +262,9 @@ export default function SubstituicoesBoard({
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, flexWrap: "wrap" }}>
                 <Icone iconKey={r.iconKey} size={14} />
                 <span style={{ color: C.mute, fontSize: 11, minWidth: 84 }}>{r.pt}</span>
-                <span style={{ color: C.vermelho, textDecoration: "line-through" }}>{r.removido.nome}</span>
+                {r.removido
+                  ? <span style={{ color: C.vermelho, textDecoration: "line-through" }}>{r.removido.nome}</span>
+                  : <span style={{ color: C.mute, fontStyle: "italic" }} title="capacidade ociosa do grupo — ninguém precisou sair">vaga livre</span>}
                 <span style={{ color: C.mute }}>→</span>
                 {r.promovido
                   ? <span style={{ color: C.verde }}>↑ {r.promovido.nome}{r.cross && <span style={{ color: C.laranja, fontSize: 11 }}> ⚠ outra classe</span>}</span>
