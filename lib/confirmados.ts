@@ -20,6 +20,9 @@ export type Confirmados = {
   inicioUnix?: number;
   messageTs?: string;
   messageId?: string; // id da mensagem do bot = chave da war (p/ auto-reset do scan)
+  canalId?: string;   // de QUAL canal veio o embed (com N canais configurados, importa saber)
+  canalNome?: string;
+  canaisLidos?: number; // quantos canais foram consultados nesta leitura
   grupos: GrupoConf[];
   listaEspera: PlayerConf[];
 };
@@ -49,6 +52,23 @@ type MsgApollo = { id?: string; embeds?: { title?: string; fields?: { name: stri
 let cache: { at: number; chave: string; data: Confirmados } | null = null;
 const TTL_MS = Number(process.env.CONFIRMADOS_TTL_MS ?? 10_000);
 const sleepC = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Nome do canal (#sala) — só pra mostrar na tela de qual sala veio a leitura.
+ *  Cache próprio: nome de canal quase nunca muda e não vale uma chamada por render. */
+const nomesCanal = new Map<string, string>();
+async function nomeDoCanal(id: string): Promise<string | undefined> {
+  const cached = nomesCanal.get(id);
+  if (cached) return cached;
+  try {
+    const r = await fetch(`https://discord.com/api/v10/channels/${id}`, { headers: { Authorization: `Bot ${BOT_TOKEN}` }, cache: "no-store" });
+    if (!r.ok) return undefined;
+    const nome = ((await r.json()) as { name?: string }).name;
+    if (nome) nomesCanal.set(id, nome);
+    return nome;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Últimas mensagens de UM canal, com 1 retry honrando o Retry-After do 429. */
 async function lerCanal(channel: string): Promise<{ ok: true; msgs: MsgApollo[] } | { ok: false; status: number }> {
@@ -81,18 +101,19 @@ export async function fetchConfirmados(): Promise<Confirmados> {
   // lê os canais em paralelo e fica com o embed do Apollo MAIS RECENTE entre eles
   const lidos = await Promise.all(canais.map(lerCanal));
   let apollo: MsgApollo | undefined;
+  let canalId: string | undefined;
   let falhas = 0, proibido = 0, transiente = false;
-  for (const r of lidos) {
+  lidos.forEach((r, i) => {
     if (!r.ok) {
       falhas++;
       if (r.status === 403) proibido++;
       if (r.status === 429 || r.status >= 500 || r.status === 0) transiente = true;
-      continue;
+      return;
     }
     const m = r.msgs.find((x) => x.embeds?.length && x.author?.bot) ?? r.msgs.find((x) => x.embeds?.length);
-    if (!m?.embeds?.[0]?.fields?.length) continue;
-    if (!apollo || (m.timestamp ?? "") > (apollo.timestamp ?? "")) apollo = m;
-  }
+    if (!m?.embeds?.[0]?.fields?.length) return;
+    if (!apollo || (m.timestamp ?? "") > (apollo.timestamp ?? "")) { apollo = m; canalId = canais[i]; }
+  });
 
   if (!apollo) {
     // transiente (limite/instabilidade) → devolve o último bom (dos MESMOS canais) em vez de quebrar a tela
@@ -102,10 +123,15 @@ export async function fetchConfirmados(): Promise<Confirmados> {
       : "nenhuma mensagem de confirmação encontrada";
     return { ok: false, erro, grupos: [], listaEspera: [] };
   }
-  const embed = apollo.embeds![0];
+  const msg: MsgApollo = apollo;
+  const embed = msg.embeds![0];
   const { grupos, listaEspera, inicioUnix } = parseEmbedApollo(embed, tagRe);
+  const canalNome = canalId ? await nomeDoCanal(canalId) : undefined;
 
-  const data: Confirmados = { ok: true, title: embed.title, inicioUnix, messageTs: apollo.timestamp, messageId: apollo.id, grupos, listaEspera };
+  const data: Confirmados = {
+    ok: true, title: embed.title, inicioUnix, messageTs: msg.timestamp, messageId: msg.id,
+    canalId, canalNome, canaisLidos: canais.length, grupos, listaEspera,
+  };
   cache = { at: Date.now(), chave, data };
   return data;
 }

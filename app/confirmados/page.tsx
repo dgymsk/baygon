@@ -145,8 +145,19 @@ export default async function ConfirmadosPage() {
                 BAYGON <span style={{ color: C.mute, fontSize: 14, letterSpacing: 2 }}>· CONFIRMADOS</span>
               </h1>
               {conf.ok && (
-                <div style={{ color: C.mute, fontSize: 13, marginTop: 4 }}>
-                  <b style={{ color: C.verde }}>{conf.title}</b>{conf.inicioUnix ? ` · ${fmtData(conf.inicioUnix)}` : ""}
+                <div style={{ color: C.mute, fontSize: 13, marginTop: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span><b style={{ color: C.verde }}>{conf.title}</b>{conf.inicioUnix ? ` · ${fmtData(conf.inicioUnix)}` : ""}</span>
+                  {conf.canalNome && (
+                    // de qual sala veio o embed — com N canais configurados (um por dia da semana),
+                    // sem isso não dá pra saber qual war está na tela
+                    <span
+                      title={(conf.canaisLidos ?? 1) > 1 ? `Post mais recente entre os ${conf.canaisLidos} canais configurados` : "Canal configurado do Apollo"}
+                      style={{ border: `1px solid ${C.border2}`, borderRadius: 999, padding: "1px 9px", fontSize: 12, color: C.texto, background: C.inputBg, whiteSpace: "nowrap" }}
+                    >
+                      📖 lendo <b style={{ color: C.amarelo }}>#{conf.canalNome}</b>
+                      {(conf.canaisLidos ?? 1) > 1 && <span style={{ color: C.mute }}> · de {conf.canaisLidos} salas</span>}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -163,9 +174,9 @@ export default async function ConfirmadosPage() {
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 24, color: C.mute }}>
             <p style={{ margin: 0, color: C.vermelho }}>⚠ Não consegui ler a confirmação: {conf.erro}</p>
             <p style={{ marginBottom: 0, fontSize: 13 }}>
-              {conf.erro === "bot sem acesso ao canal"
-                ? "O bot BAYGON precisa de “Ver Canal” + “Ler Histórico de Mensagens” no canal do Apollo."
-                : "Verifique se há uma mensagem de confirmação recente no canal."}
+              {conf.erro?.startsWith("bot sem acesso")
+                ? "O bot precisa de “Ver Canal” + “Ler Histórico de Mensagens” no(s) canal(is) do Apollo."
+                : "Verifique se há uma mensagem de confirmação recente no(s) canal(is) configurado(s) em /discord."}
             </p>
           </div>
         ) : (
