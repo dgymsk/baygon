@@ -1,7 +1,8 @@
 import { sql } from "@/lib/db";
 import { listFuncoes } from "@/lib/funcao";
 import { listParties } from "@/lib/party";
-import { getPreset } from "@/lib/intencaoPreset";
+import { getPreset, listPresets } from "@/lib/intencaoPreset";
+import { desempenhoDaWar } from "@/lib/eventos";
 import { getMarcas, getRespostasInt } from "@/lib/intencao";
 import { getEscalacao } from "@/lib/escalacao";
 import { getPresenca } from "@/lib/presencaEvento";
@@ -32,12 +33,18 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     return <EventoBoard evento={null} grupos={[]} parties={[]} escalados={[]} canEdit={false} guildas={[]} />;
   }
 
-  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit] = await Promise.all([
+  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, statsIniciais, vizinhos] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     listFuncoes(), listParties(), getMarcas(ev.message_id), getRespostasInt(ev.message_id),
     getEscalacao(ev.evento_id), getPresenca(ev.evento_id), faltasPorChave(), perfilGear(), listPlayers(),
-    getGuildMeta(), canEditNow(),
+    getGuildMeta(), canEditNow(), listPresets(),
+    ev.war_id != null ? desempenhoDaWar(ev.war_id) : Promise.resolve([]), // pré-carrega a tabela de stats
+    // vizinhos p/ navegar sem voltar ao hub (mais recente → mais antigo)
+    sql`SELECT e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.data::text AS data, e.status
+        FROM intencao_post p JOIN evento e ON e.id = p.evento_id
+        ORDER BY e.data DESC, p.criado DESC LIMIT 40`,
   ]);
+  const vizinhosVM = vizinhos as { uuid: string; titulo: string; data: string; status: string }[];
 
   const fById = new Map(funcoes.map((f) => [f.id, f]));
   const ordem = preset?.funcoes.map((v) => v.funcao_id) ?? [...new Set(marcas.map((m) => m.funcao_id))];
@@ -96,9 +103,11 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
 
   return (
     <EventoBoard
-      evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id }}
+      evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} escalados={escalados}
       canEdit={canEdit && ev.status === "aberto"} guildas={meta.guildas}
+      vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
+      playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais}
     />
   );
 }

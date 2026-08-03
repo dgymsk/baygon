@@ -5,6 +5,9 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
+import ConfirmacaoBoard from "./ConfirmacaoBoard";
+// captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
+import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
 
 /**
  * Tela do evento. A escalação é o coração: à esquerda o pool AGRUPADO POR FUNÇÃO (a função que a
@@ -39,11 +42,17 @@ function Pokebola({ size = 13 }: { size?: number }) {
 }
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
-type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string };
+type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string; warId: number | null; presetId: number | null };
+export type EvLink = { uuid: string; titulo: string; data: string; status: string };
+export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
   evento, grupos, parties, escalados, canEdit, guildas,
-}: { evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; escalados: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[] }) {
+  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [],
+}: {
+  evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; escalados: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
+  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[];
+}) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats">("escalacao");
   const [local, setLocal] = useState<Record<string, number | null>>({});
@@ -53,6 +62,10 @@ export default function EventoBoard({
   const [sincronizou, setSincronizou] = useState(false);
   const arrastando = useRef<string | null>(null);
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
+  // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
+  const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
+  const proximo = iAtual > 0 ? vizinhos[iAtual - 1] : null;
+  const anterior = iAtual >= 0 && iAtual < vizinhos.length - 1 ? vizinhos[iAtual + 1] : null;
 
   const todos = useMemo(() => {
     const m = new Map<string, JogadorVM>();
@@ -99,6 +112,15 @@ export default function EventoBoard({
       await api({ acao: "sync", messageId: evento.messageId });
       setErro(""); setSincronizou(true); setTimeout(() => setSincronizou(false), 2500);
     } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
+  /** Troca a chamada que rege o evento — muda o agrupamento do pool por função. */
+  async function trocarPreset(presetId: number) {
+    if (!canEdit || !evento || !Number.isFinite(presetId)) return;
+    setSalvando(true);
+    try { await api({ acao: "preset-do-evento", messageId: evento.messageId, presetId }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
   }
 
@@ -227,14 +249,37 @@ export default function EventoBoard({
           </button>
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}
           <Link className="navlink" href="/hub">← Hub</Link>
-          <Link className="navlink" href={`/eventos/${evento.uuid}`}>Resultado</Link>
         </div>
+      </div>
+
+      {/* navegação: pular de evento sem voltar ao hub, e trocar a chamada que rege este */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <button onClick={() => anterior && router.push(`/hub/${anterior.uuid}`)} disabled={!anterior}
+          title={anterior ? `← ${anterior.titulo}` : "é o mais antigo"} style={navBtn(!!anterior)}>‹ anterior</button>
+        <select value={evento.uuid} onChange={(e) => router.push(`/hub/${e.target.value}`)}
+          style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "5px 9px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer", maxWidth: 320 }}>
+          {vizinhos.map((v) => <option key={v.uuid} value={v.uuid}>{v.data.slice(0, 10)} · {v.titulo}{v.status !== "aberto" ? ` (${v.status})` : ""}</option>)}
+        </select>
+        <button onClick={() => proximo && router.push(`/hub/${proximo.uuid}`)} disabled={!proximo}
+          title={proximo ? `${proximo.titulo} →` : "é o mais recente"} style={navBtn(!!proximo)}>próximo ›</button>
+
+        {canEdit && presets.length > 0 && (
+          <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: C.mute, fontSize: 11.5 }}>chamada:</span>
+            <select value={evento.presetId ?? ""} onChange={(e) => trocarPreset(Number(e.target.value))} disabled={salvando}
+              title="qual chamada rege este evento — muda como o pool é agrupado por função"
+              style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 8px", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+              {evento.presetId == null && <option value="">(nenhuma)</option>}
+              {presets.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.tipo}</option>)}
+            </select>
+          </span>
+        )}
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Presença"], ["stats", "📊 Estatísticas"]] as const).map(([k, t]) => (
+        {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Confirmação"], ["stats", "📊 Estatísticas"]] as const).map(([k, t]) => (
           <button key={k} onClick={() => setAba(k)} style={{ cursor: "pointer", borderRadius: 8, border: `1px solid ${aba === k ? C.verde : C.border2}`, background: aba === k ? C.verdeTint : "transparent", color: aba === k ? C.verde : C.mute, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit" }}>{t}</button>
         ))}
       </div>
@@ -299,24 +344,17 @@ export default function EventoBoard({
       )}
 
       {aba === "presenca" && (
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 14 }}>
-          <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
-            Confirmação in-game deste evento — o passo &quot;vai jogar&quot;. A presença <b>oficial</b> só existe quando as
-            estatísticas da war entram. Clique no ◻/✅ pra corrigir na mão.
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 6 }}>
-            {[...todos.values()].sort((a, b) => a.familia.localeCompare(b.familia)).map((j) => <Card key={j.chave} j={j} />)}
-            {!todos.size && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>Ninguém marcou nesta chamada.</span>}
-          </div>
-        </div>
+        <ConfirmacaoBoard eventoId={evento.eventoId} canEdit={canEdit}
+          alvos={[...todos.values()].sort((a, b) => a.familia.localeCompare(b.familia)).map((j) => ({
+            chave: j.chave, familia: j.familia, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
+          }))} />
       )}
 
       {aba === "stats" && (
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 14 }}>
           {!evento.temWar && (
             <div style={{ color: C.amarelo, fontSize: 12.5, marginBottom: 12 }}>
-              ⚠ Sem estatística da war ainda. Grave o resultado em <Link href={`/eventos/${evento.uuid}`} style={{ color: C.verde }}>Resultado</Link> pra
-              fechar o funil deste evento — sem isso não dá pra dizer quem realmente jogou.
+              ⚠ Sem estatística da war ainda — é ela que fecha o funil e diz quem realmente jogou. Grave abaixo.
             </div>
           )}
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
@@ -341,6 +379,12 @@ export default function EventoBoard({
               })}
             </tbody>
           </table>
+
+          {/* captura das estatísticas de combate — MESMO fluxo do /eventos, trazido pra cá */}
+          <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 16, paddingTop: 4 }}>
+            <ResultadoExtrair id={evento.eventoId} canEdit={canEdit} players={playersNomes}
+              warIdInicial={evento.warId} statsIniciais={statsIniciais} />
+          </div>
         </div>
       )}
     </Casca>
@@ -361,6 +405,11 @@ const Linha = ({ k, v, cor }: { k: string; v: string; cor?: string }) => (
     <span style={{ color: "#8f8f8f" }}>{k}</span><span style={{ color: cor ?? "#e5e5e5" }}>{v}</span>
   </span>
 );
+const navBtn = (on: boolean) => ({
+  cursor: on ? "pointer" : "not-allowed", opacity: on ? 1 : 0.35,
+  borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute,
+  padding: "5px 10px", fontSize: 12, fontFamily: "inherit",
+} as const);
 const Th = ({ children }: { children: React.ReactNode }) => <th style={{ textAlign: "left", padding: "7px 11px", fontWeight: 600 }}>{children}</th>;
 const Td = ({ children }: { children: React.ReactNode }) => <td style={{ padding: "6px 11px", color: C.mute }}>{children}</td>;
 

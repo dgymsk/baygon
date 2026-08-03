@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
 import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
@@ -51,6 +52,15 @@ export async function POST(req: Request) {
       if (!Number.isFinite(id)) return NextResponse.json({ error: "preset inválido" }, { status: 400 });
       const r = await postarIntencao(id);
       return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
+    }
+
+    // --- troca a chamada (preset) que rege o evento: muda como o pool é agrupado ---
+    case "preset-do-evento": {
+      const mid = typeof b.messageId === "string" ? b.messageId : "";
+      const pid = Math.trunc(Number(b.presetId));
+      if (!mid || !Number.isFinite(pid)) return NextResponse.json({ error: "dados inválidos" }, { status: 400 });
+      await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE message_id = ${mid}`;
+      return NextResponse.json({ ok: true });
     }
 
     // --- redesenha a mensagem no Discord com o estado atual do banco ---
