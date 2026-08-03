@@ -3,7 +3,7 @@ import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { rotuloTipo, type Tipo } from "@/lib/participacaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
 import { listFuncoes } from "@/lib/funcao";
-import { getPreset, listMembrosInt } from "@/lib/intencaoPreset";
+import { getPreset, listPlayerFuncoes } from "@/lib/intencaoPreset";
 import { montarEmbedIntencao, type FuncaoI, type MarcaI, type RespI } from "@/lib/intencaoEmbed";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
@@ -45,15 +45,12 @@ export async function getRespostasInt(messageId: string): Promise<RespI[]> {
   return (await sql`SELECT user_id, familia, chave, resposta FROM intencao_resp WHERE message_id = ${messageId} ORDER BY atualizado`) as RespI[];
 }
 
-/** Funções do preset, na ordem dele, resolvidas contra o catálogo de funções. */
+/** O bot mostra TODAS as funções do catálogo (o preset não as filtra — ele define PTs e teto).
+ *  Do preset vêm só o nome da rodada e o tipo. */
 async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string } | null> {
   const [preset, cat] = await Promise.all([getPreset(presetId), listFuncoes()]);
   if (!preset) return null;
-  const byId = new Map(cat.map((p) => [p.id, p]));
-  const funcoes: FuncaoI[] = preset.funcoes
-    .map((v) => byId.get(v.funcao_id))
-    .filter((p): p is NonNullable<typeof p> => !!p)
-    .map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
+  const funcoes: FuncaoI[] = cat.map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
   return { funcoes, nome: preset.nome, tipo: preset.tipo };
 }
 
@@ -63,7 +60,7 @@ export async function montarPayload(messageId: string, presetId: number): Promis
   if (!info) return null;
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   const [marcas, respostas, membros, perfil, emojis, meta] = await Promise.all([
-    getMarcas(messageId), getRespostasInt(messageId), listMembrosInt(info.tipo),
+    getMarcas(messageId), getRespostasInt(messageId), listPlayerFuncoes(),
     perfilGear(), getEmojiMapResolvido(), getGuildMeta(),
   ]);
   return montarEmbedIntencao({
@@ -78,11 +75,11 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const info = await funcoesDoPreset(presetId);
   if (!info) return { ok: false, erro: "preset não encontrado" };
-  if (!info.funcoes.length) return { ok: false, erro: "preset sem nenhuma função — nada pra marcar" };
+  if (!info.funcoes.length) return { ok: false, erro: "nenhuma função cadastrada — crie ao menos uma em Definições" };
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   if (!cfg.channelId) return { ok: false, erro: `canal do ${rotuloTipo(info.tipo as Tipo)} não configurado` };
 
-  const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listMembrosInt(info.tipo)]);
+  const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listPlayerFuncoes()]);
   const payload = montarEmbedIntencao({
     presetId, presetNome: info.nome, mensagem: cfg.mensagem, imagem: cfg.imagem,
     funcoes: info.funcoes, marcas: [], respostas: [], membros, perfil, emojis,

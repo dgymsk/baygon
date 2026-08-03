@@ -1,7 +1,7 @@
 import { sql } from "@/lib/db";
 import { listFuncoes } from "@/lib/funcao";
 import { listParties } from "@/lib/party";
-import { getPreset, listPresets } from "@/lib/intencaoPreset";
+import { getPreset, listPresets, listPlayerFuncoes } from "@/lib/intencaoPreset";
 import { desempenhoDaWar } from "@/lib/eventos";
 import { getMarcas, getRespostasInt } from "@/lib/intencao";
 import { getEscalacao } from "@/lib/escalacao";
@@ -47,7 +47,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const vizinhosVM = vizinhos as { uuid: string; titulo: string; data: string; status: string }[];
 
   const fById = new Map(funcoes.map((f) => [f.id, f]));
-  const ordem = preset?.funcoes.map((v) => v.funcao_id) ?? [...new Set(marcas.map((m) => m.funcao_id))];
+  const ordemFuncoes = funcoes.map((f) => f.id); // pool agrupa por TODAS as funções do catálogo
   const presencaPorChave = new Map(presenca.map((p) => [p.chave, p.participar]));
   const escalaPorChave = new Map(escalacao.map((e) => [e.chave, e.party_id]));
   const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
@@ -84,7 +84,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const porUser = new Map(respVai.map((r) => [r.user_id, vm(r.user_id, r.familia, r.chave)]));
 
   // pool agrupado por FUNÇÃO — cada pessoa aparece em UMA (a marca é única por rodada)
-  const grupos: GrupoVM[] = ordem.map((id) => {
+  const grupos: GrupoVM[] = ordemFuncoes.map((id: number) => {
     const f = fById.get(id);
     const ids = marcas.filter((m) => m.funcao_id === id).map((m) => m.user_id);
     return {
@@ -98,7 +98,9 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     grupos.push({ funcaoId: null, nome: "Sem função marcada", emoji: null, jogadores: semFuncao.map((r) => porUser.get(r.user_id)!).filter(Boolean) });
   }
 
-  const partiesVM: PartyVM[] = parties.map((p) => ({ id: p.id, nome: p.nome, icone: p.icone || null }));
+  // colunas da escalação = as PTs DO PRESET, na ordem dele (não o catálogo inteiro)
+  const pById = new Map(parties.map((x) => [x.id, x]));
+  const partiesVM: PartyVM[] = (preset?.parties ?? []).map((v) => pById.get(v.party_id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }));
   const escalados = [...porUser.values()].filter((j) => j.escaladoEm != null);
 
   return (

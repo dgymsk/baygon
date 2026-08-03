@@ -7,7 +7,7 @@ import { C } from "@/lib/theme";
 import { chaveNome } from "@/lib/nomes";
 import type { Funcao } from "@/lib/funcao";
 import type { Party } from "@/lib/party";
-import type { Preset, MembroInt } from "@/lib/intencaoPreset";
+import type { Preset, PlayerFuncao } from "@/lib/intencaoPreset";
 
 /**
  * Central de definições — cria num lugar só e vale em todo lugar. Três eixos que NÃO se misturam:
@@ -22,7 +22,7 @@ const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
   funcoes, parties, presets, membros, jogadores, canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: MembroInt[]; jogadores: Jog[]; canEdit: boolean }) {
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,8 +38,8 @@ export default function ConfigBoard({
   const doTipo = useMemo(() => presets.filter((p) => p.tipo === tipo), [presets, tipo]);
   const [presetId, setPresetId] = useState<number | null>(null);
   const preset = useMemo(() => doTipo.find((p) => p.id === presetId) ?? doTipo[0] ?? null, [doTipo, presetId]);
-  const noPreset = useMemo(() => (preset?.funcoes ?? []).map((v) => v.funcao_id), [preset]);
-  const membrosTipo = useMemo(() => membros.filter((m) => m.tipo === tipo), [membros, tipo]);
+  const noPreset = useMemo(() => (preset?.parties ?? []).map((v) => v.party_id), [preset]);
+  const membrosTipo = membros; // função do jogador é global — não depende de tipo nem de preset
   const funcoesPorChave = useMemo(() => {
     const m = new Map<string, number[]>();
     for (const x of membrosTipo) { const a = m.get(x.chave) ?? []; a.push(x.funcao_id); m.set(x.chave, a); }
@@ -167,7 +167,7 @@ export default function ConfigBoard({
 
         {/* PRESET DO BOT */}
         <div style={card}>
-          <Titulo>Chamada do bot <Sub>quais funções viram botão, em que ordem</Sub></Titulo>
+          <Titulo>Preset da guerra <Sub>quais PTs entram em campo e quanta gente cabe — o bot mostra <b>todas</b> as funções, independente disto</Sub></Titulo>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             {TIPOS.map((t) => <button key={t} onClick={() => setTipo(t)} style={{ ...chip(tipo === t), cursor: "pointer", textTransform: "capitalize" }}>{t}</button>)}
           </div>
@@ -197,22 +197,31 @@ export default function ConfigBoard({
                   {canEdit && <button disabled={busy || !noPreset.length} onClick={() => api({ acao: "postar", id: preset.id }, "chamada postada no Discord")} style={{ ...btn(C.verde), background: C.verdeTint }}>📢 Postar chamada</button>}
                 </span>
               </div>
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
-                {funcoes.map((f) => {
-                  const on = noPreset.includes(f.id);
+              {/* o preset é composto de PTs — elas viram as colunas da escalação */}
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+                {parties.map((p) => {
+                  const on = noPreset.includes(p.id);
                   return (
-                    <button key={f.id} disabled={!canEdit} style={chip(on)}
-                      onClick={() => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, funcoes: on ? noPreset.filter((x) => x !== f.id) : [...noPreset, f.id] })}>
-                      <Icone raw={f.emoji} /> {f.nome}
+                    <button key={p.id} disabled={!canEdit} style={chip(on)}
+                      onClick={() => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, parties: on ? noPreset.filter((x) => x !== p.id) : [...noPreset, p.id] })}>
+                      <Icone raw={p.icone} /> {p.nome}
                     </button>
                   );
                 })}
+                {!parties.length && <Vazio>Nenhuma party criada ainda — crie acima.</Vazio>}
+                <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: C.mute, fontSize: 11.5 }}>máx. na guerra:</span>
+                  <input type="number" min={1} max={500} defaultValue={preset.tamanho_max ?? ""} disabled={!canEdit} placeholder="—"
+                    onBlur={(e) => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, tamanhoMax: e.target.value || null }, "teto salvo")}
+                    title="quantas pessoas cabem nesta guerra — referência da escalação, o bot não corta ninguém"
+                    style={{ ...input, width: 74, padding: "5px 8px", fontSize: 12.5 }} />
+                </span>
               </div>
-              {!!noPreset.length && <div style={{ color: C.borderSoft, fontSize: 11.5, marginBottom: 12 }}>Ordem dos botões: {noPreset.map((id) => fById.get(id)?.nome ?? id).join(" → ")}</div>}
+              {!!noPreset.length && <div style={{ color: C.borderSoft, fontSize: 11.5, marginBottom: 12 }}>Colunas da escalação: {noPreset.map((id) => parties.find((x) => x.id === id)?.nome ?? id).join(" → ")}</div>}
 
               <div style={{ borderTop: `1px solid ${C.borderSoft}`, paddingTop: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                  <span style={{ color: C.verde, fontWeight: 700, fontSize: 13 }}>Função de casa <Sub>só monta a lista ⬜ de quem não respondeu</Sub></span>
+                  <span style={{ color: C.verde, fontWeight: 700, fontSize: 13 }}>Função do jogador <Sub>o que ele sabe fazer — vale em todo preset, várias por pessoa</Sub></span>
                   <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="filtrar jogador…" style={{ ...input, minWidth: 170, padding: "5px 9px", fontSize: 12.5 }} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: "5px 14px", marginTop: 10 }}>
@@ -221,9 +230,8 @@ export default function ConfigBoard({
                     return (
                       <div key={j.nome} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, flexWrap: "wrap" }}>
                         <span style={{ color: meus.length ? C.texto : C.mute, minWidth: 100 }}>{j.nome}</span>
-                        {noPreset.map((id) => {
-                          const f = fById.get(id);
-                          if (!f) return null;
+                        {funcoes.map((f) => {
+                          const id = f.id;
                           const on = meus.includes(id);
                           return (
                             <button key={id} disabled={!canEdit} title={f.nome}
@@ -237,7 +245,7 @@ export default function ConfigBoard({
                     );
                   })}
                 </div>
-                {!noPreset.length && <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 8 }}>Escolha as funções da chamada acima pra poder atribuir.</div>}
+                {!funcoes.length && <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 8 }}>Crie ao menos uma função lá em cima pra poder atribuir.</div>}
               </div>
             </>
           )}

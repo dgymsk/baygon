@@ -2,7 +2,7 @@ import Link from "next/link";
 import { funilEventos, resumoSerie, totaisHub } from "@/lib/hub";
 import { postsIntencaoAtivos } from "@/lib/intencao";
 import { listPresets } from "@/lib/intencaoPreset";
-import { listFuncoes } from "@/lib/funcao";
+import { listParties } from "@/lib/party";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
 import Lancar from "./Lancar";
@@ -14,12 +14,13 @@ const fmtData = (d: string) =>
   new Date(d).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
 
 export default async function HubPage() {
-  const [eventos, serie, totais, ativos, presets, funcoes, canEdit] = await Promise.all([
-    funilEventos(), resumoSerie(), totaisHub(), postsIntencaoAtivos(), listPresets(), listFuncoes(), canEditNow(),
+  const [eventos, serie, totais, ativos, presets, parties, canEdit] = await Promise.all([
+    funilEventos(), resumoSerie(), totaisHub(), postsIntencaoAtivos(), listPresets(), listParties(), canEditNow(),
   ]);
-  const nomeFuncao = new Map(funcoes.map((f) => [f.id, f.nome]));
-  const funcoesPorPreset = Object.fromEntries(
-    presets.map((p) => [p.id, p.funcoes.map((v) => nomeFuncao.get(v.funcao_id)).filter((x): x is string => !!x)]),
+  // o preset é PTs + teto de gente — é isso que aparece antes de lançar
+  const nomeParty = new Map(parties.map((p) => [p.id, p.nome]));
+  const partiesPorPreset = Object.fromEntries(
+    presets.map((p) => [p.id, p.parties.map((v) => nomeParty.get(v.party_id)).filter((x): x is string => !!x)]),
   );
 
   return (
@@ -54,7 +55,7 @@ export default async function HubPage() {
           <Stat>{totais.lendarios} lendários</Stat>
         </div>
 
-        {canEdit && <Lancar presets={presets} funcoesPorPreset={funcoesPorPreset} />}
+        {canEdit && <Lancar presets={presets} partiesPorPreset={partiesPorPreset} />}
 
         {ativos.length > 0 && (
           <div style={{ border: `1px solid ${C.border2}`, borderRadius: 12, background: C.inputBg, padding: "10px 14px", marginBottom: 18 }}>

@@ -10,14 +10,14 @@ import type { Preset } from "@/lib/intencaoPreset";
  * o amarra ao preset, então a partir daqui o evento inteiro (escalação, presença, estatística)
  * fica pendurado nessa escolha.
  */
-export default function Lancar({ presets, funcoesPorPreset }: { presets: Preset[]; funcoesPorPreset: Record<number, string[]> }) {
+export default function Lancar({ presets, partiesPorPreset }: { presets: Preset[]; partiesPorPreset: Record<number, string[]> }) {
   const router = useRouter();
   const [sel, setSel] = useState<number | null>(presets[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
 
   const preset = presets.find((p) => p.id === sel) ?? null;
-  const funcoes = sel != null ? funcoesPorPreset[sel] ?? [] : [];
+  const pts = sel != null ? partiesPorPreset[sel] ?? [] : [];
 
   async function lancar() {
     if (!preset) return;
@@ -52,10 +52,12 @@ export default function Lancar({ presets, funcoesPorPreset }: { presets: Preset[
         {presets.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.tipo}</option>)}
       </select>
       <span style={{ color: C.mute, fontSize: 11.5 }}>
-        {funcoes.length ? funcoes.join(" · ") : <span style={{ color: C.amarelo }}>sem funções — configure antes</span>}
+        {pts.length
+          ? <>{pts.join(" · ")}{preset?.tamanho_max ? <span style={{ color: C.amarelo }}> · máx {preset.tamanho_max}</span> : null}</>
+          : <span style={{ color: C.amarelo }}>sem PTs — configure antes</span>}
       </span>
-      <button onClick={lancar} disabled={busy || !funcoes.length}
-        style={{ marginLeft: "auto", borderRadius: 8, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: funcoes.length ? "pointer" : "not-allowed", opacity: funcoes.length ? 1 : 0.5 }}>
+      <button onClick={lancar} disabled={busy || !pts.length}
+        style={{ marginLeft: "auto", borderRadius: 8, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: pts.length ? "pointer" : "not-allowed", opacity: pts.length ? 1 : 0.5 }}>
         {busy ? "postando…" : "📢 Postar no Discord"}
       </button>
       {msg && <span style={{ color: msg.k === "ok" ? C.verde : C.vermelho, fontSize: 12 }}>{msg.k === "ok" ? "✓" : "⚠"} {msg.t}</span>}

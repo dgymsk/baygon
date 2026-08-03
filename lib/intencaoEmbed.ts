@@ -13,7 +13,7 @@
 export type FuncaoI = { id: number; nome: string; emoji: string | null };
 export type MarcaI = { user_id: string; funcao_id: number };
 export type RespI = { user_id: string; familia: string | null; chave: string | null; resposta: "vai" | "nao" };
-export type MembroI = { chave: string; familia: string; funcao_id: number };
+export type MembroI = { chave: string; familia: string; funcao_id: number }; // player_funcao
 export type PerfilI = { guilda: string; classe: string | null; gs: number | null };
 export type EmojiMapI = { classes: Record<string, string>; guildas: Record<string, string> };
 
@@ -40,7 +40,7 @@ export type DadosIntencao = {
   funcoes: FuncaoI[];                 // já na ordem do preset
   marcas: MarcaI[];
   respostas: RespI[];
-  membros?: MembroI[];        // função de casa (intencao_membro) — vira a lista de não decididos
+  membros?: MembroI[];        // função do jogador (player_funcao) — vira a lista de não decididos
   nomePorUser?: Map<string, string>; // user_id → nome de família (exibição)
   perfil?: Map<string, PerfilI>;     // chaveNome → guilda/classe/GS
   emojis?: EmojiMapI;

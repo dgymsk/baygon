@@ -3,7 +3,7 @@ import { sql } from "@/lib/db";
 import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
-import { listPresets, criarPreset, atualizarPreset, excluirPreset, adicionarMembroFuncao, removerMembroFuncao } from "@/lib/intencaoPreset";
+import { listPresets, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
@@ -42,11 +42,11 @@ export async function POST(req: Request) {
     case "lendario": await setLendario(b.familia, !!b.valor); return NextResponse.json({ ok: true });
 
     // --- preset do bot ---
-    case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.funcoes)) ?? { error: "nome e tipo obrigatórios" });
-    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, funcoes: b.funcoes }); return NextResponse.json({ presets: await listPresets() });
+    case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.parties, b.tamanhoMax)) ?? { error: "nome e tipo obrigatórios" });
+    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax }); return NextResponse.json({ presets: await listPresets() });
     case "preset-excluir":  await excluirPreset(b.id); return NextResponse.json({ presets: await listPresets() });
-    case "membro-add":      await adicionarMembroFuncao(b.tipo, b.familia, b.funcaoId); return NextResponse.json({ ok: true });
-    case "membro-del":      await removerMembroFuncao(b.tipo, b.familia, b.funcaoId); return NextResponse.json({ ok: true });
+    case "membro-add":      await addPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
+    case "membro-del":      await delPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
     case "postar": {
       const id = Math.trunc(Number(b.id));
       if (!Number.isFinite(id)) return NextResponse.json({ error: "preset inválido" }, { status: 400 });
