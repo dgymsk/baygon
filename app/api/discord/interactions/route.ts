@@ -11,6 +11,8 @@ import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
 import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
 import { salvarEtapa1, finalizarGarmoth, finalizarManual, playerPorDiscord } from "@/lib/registro";
+import { alternarMarca, marcarNaoVou, postarIntencao } from "@/lib/intencao";
+import { listPresets } from "@/lib/intencaoPreset";
 
 // Endpoint público de Interações do Discord (liberado no middleware). A segurança é a
 // verificação de assinatura Ed25519 — sem ela, 401. Precisa do runtime Node (crypto).
@@ -138,6 +140,23 @@ export async function POST(req: Request) {
       return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero (followup via editarMensagem)
     }
 
+    // /intencao-* — bot NOVO (marca por PT, sem limite de vaga). Staff, igual ao antigo.
+    const mIntCmd = nome.match(/^intencao-(nodewar|siege)$/);
+    if (mIntCmd) {
+      if (!(await ehStaff(body.member?.roles))) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
+      const tokenInt = String(body.token ?? "");
+      const tipoInt = mIntCmd[1];
+      after(async () => {
+        try {
+          const preset = (await listPresets()).find((p) => p.tipo === tipoInt);
+          if (!preset) { await editarMensagem(tokenInt, { content: `⚠ Nenhum preset de **${tipoInt}**. Crie um em /intencao.` }); return; }
+          const r = await postarIntencao(preset.id);
+          await editarMensagem(tokenInt, { content: r.ok ? `✅ Intenção **${preset.nome}** postada.` : `⚠ Não deu: ${r.erro}` });
+        } catch (e) { console.error("slash intencao erro", e); }
+      });
+      return json({ type: 5, data: { flags: 64 } }); // DEFERRED efêmero
+    }
+
     const tipo = tipoDoComando(nome);
     if (!tipo) return efemero("Comando desconhecido.");
     if (!(await ehStaff(body.member?.roles))) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
@@ -193,6 +212,30 @@ export async function POST(req: Request) {
           await dispatchVotoHook(e, { userId, username, idx }); // efeito por contexto (ex.: espelha na participação)
           await editarMensagem(token, { components: montarComponents(e, idx) }); // realça a escolha
         } catch (err) { console.error("clique enquete erro", err); }
+      });
+      return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
+    }
+
+    // --- bot de INTENÇÃO (stack nova, tabelas intencao_*) — não encosta no fluxo part: abaixo ---
+    const mInt = String(body.data?.custom_id ?? "").match(/^int:(pt|nao):(\d+)(?::(\d+))?$/);
+    if (mInt) {
+      const acao = mInt[1] as "pt" | "nao";
+      const presetId = Number(mInt[2]);
+      const ptId = mInt[3] ? Number(mInt[3]) : null;
+      const messageId = String(body.message?.id ?? "");
+      const uInt = body.member?.user ?? body.user;
+      const userIdInt = String(uInt?.id ?? "");
+      const nickInt = body.member?.nick ?? uInt?.global_name ?? uInt?.username ?? "";
+      const tokenInt = String(body.token ?? "");
+      if (!messageId || !userIdInt) return efemero("Não consegui te identificar.");
+      after(async () => {
+        try {
+          const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));
+          const familia = (await playerPorDiscord(userIdInt)) ?? casarNome(familiaDoNick(nickInt) ?? String(nickInt), [], players).slice(0, 100);
+          const quem = { messageId, userId: userIdInt, username: String(nickInt).slice(0, 100), familia, chave: chaveNome(familia), presetId };
+          const payload = acao === "pt" && ptId != null ? await alternarMarca({ ...quem, ptId }) : await marcarNaoVou(quem);
+          if (payload) await editarMensagem(tokenInt, payload);
+        } catch (e) { console.error("clique intencao erro", e); }
       });
       return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
     }
