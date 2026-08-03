@@ -22,7 +22,7 @@ export type JogadorVM = {
 };
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
-type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number };
+type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string };
 
 export default function EventoBoard({
   evento, grupos, parties, escalados, canEdit, guildas,
@@ -33,6 +33,7 @@ export default function EventoBoard({
   const [sobre, setSobre] = useState<number | "pool" | null>(null);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [sincronizou, setSincronizou] = useState(false);
   const arrastando = useRef<string | null>(null);
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
 
@@ -71,6 +72,17 @@ export default function EventoBoard({
     if (!canEdit || !evento) return;
     try { await api({ acao: "presenca-manual", eventoId: evento.eventoId, familia: j.familia, participar: !j.confirmouIngame }); router.refresh(); }
     catch (e) { setErro((e as Error).message); }
+  }
+
+  /** Redesenha a mensagem do bot no canal com o estado atual — não muda dado, só reescreve. */
+  async function sincronizar() {
+    if (!evento) return;
+    setSalvando(true);
+    try {
+      await api({ acao: "sync", messageId: evento.messageId });
+      setErro(""); setSincronizou(true); setTimeout(() => setSincronizou(false), 2500);
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
   }
 
   async function limpar() {
@@ -143,6 +155,11 @@ export default function EventoBoard({
         </div>
         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           {salvando && <span style={{ color: C.mute, fontSize: 12 }}>salvando…</span>}
+          {sincronizou && <span style={{ color: C.verde, fontSize: 12 }}>✓ mensagem atualizada</span>}
+          <button onClick={sincronizar} disabled={salvando} title="redesenha a mensagem do bot no canal com o estado atual do banco"
+            style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+            🔄 Atualizar no Discord
+          </button>
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}
           <Link className="navlink" href="/hub">← Hub</Link>
           <Link className="navlink" href={`/eventos/${evento.uuid}`}>Resultado</Link>

@@ -11,7 +11,7 @@ import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
 import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
 import { salvarEtapa1, finalizarGarmoth, finalizarManual, playerPorDiscord } from "@/lib/registro";
-import { alternarMarca, marcarNaoVou, postarIntencao } from "@/lib/intencao";
+import { alternarMarca, marcarNaoVou, postarIntencao, montarPayload } from "@/lib/intencao";
 import { listPresets } from "@/lib/intencaoPreset";
 
 // Endpoint público de Interações do Discord (liberado no middleware). A segurança é a
@@ -229,9 +229,11 @@ export async function POST(req: Request) {
     }
 
     // --- bot de INTENÇÃO (stack nova, tabelas intencao_*) — não encosta no fluxo part: abaixo ---
-    const mInt = String(body.data?.custom_id ?? "").match(/^int:(pt|nao):(\d+)(?::(\d+))?$/);
+    // `pt` é o nome ANTIGO do botão de função. custom_id vive dentro da mensagem pra sempre, então
+    // mensagem já postada não pode morrer só porque o código renomeou — aceita os dois.
+    const mInt = String(body.data?.custom_id ?? "").match(/^int:(fn|pt|nao|sync):(\d+)(?::(\d+))?$/);
     if (mInt) {
-      const acao = mInt[1] as "fn" | "nao";
+      const acao = (mInt[1] === "pt" ? "fn" : mInt[1]) as "fn" | "nao" | "sync";
       const presetId = Number(mInt[2]);
       const funcaoId = mInt[3] ? Number(mInt[3]) : null;
       const messageId = String(body.message?.id ?? "");
@@ -248,7 +250,9 @@ export async function POST(req: Request) {
           const bruto = primeiroNomeUtil(body.member?.nick, uInt?.global_name, uInt?.username);
           const familia = (await playerPorDiscord(userIdInt)) ?? casarNome(bruto, [], players).slice(0, 100);
           const quem = { messageId, userId: userIdInt, username: String(nickInt).slice(0, 100), familia, chave: chaveNome(familia), presetId };
-          const payload = acao === "fn" && funcaoId != null ? await alternarMarca({ ...quem, funcaoId }) : await marcarNaoVou(quem);
+          const payload = acao === "sync" ? await montarPayload(messageId, presetId)
+            : acao === "fn" && funcaoId != null ? await alternarMarca({ ...quem, funcaoId })
+            : await marcarNaoVou(quem);
           if (payload) await editarMensagem(tokenInt, payload);
         } catch (e) { console.error("clique intencao erro", e); }
       });

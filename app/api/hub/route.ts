@@ -3,7 +3,7 @@ import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setReliquia } from "@/lib/party";
 import { listPresets, criarPreset, atualizarPreset, excluirPreset, adicionarMembroFuncao, removerMembroFuncao } from "@/lib/intencaoPreset";
-import { postarIntencao } from "@/lib/intencao";
+import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 
@@ -51,6 +51,14 @@ export async function POST(req: Request) {
       if (!Number.isFinite(id)) return NextResponse.json({ error: "preset inválido" }, { status: 400 });
       const r = await postarIntencao(id);
       return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
+    }
+
+    // --- redesenha a mensagem no Discord com o estado atual do banco ---
+    case "sync": {
+      const mid = typeof b.messageId === "string" ? b.messageId : "";
+      if (!mid) return NextResponse.json({ error: "mensagem inválida" }, { status: 400 });
+      const s = await sincronizarMensagem(mid);
+      return s.ok ? NextResponse.json(s) : NextResponse.json({ error: s.erro }, { status: 400 });
     }
 
     // --- evento: escalação e presença ---

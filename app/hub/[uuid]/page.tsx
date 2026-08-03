@@ -86,7 +86,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
 
   return (
     <EventoBoard
-      evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id }}
+      evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id }}
       grupos={grupos} parties={partiesVM} escalados={escalados}
       canEdit={canEdit && ev.status === "aberto"} guildas={meta.guildas}
     />

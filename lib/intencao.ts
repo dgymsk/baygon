@@ -111,6 +111,24 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
   return { ok: true, messageId: msg.id, eventoUuid: rows[0]?.uuid };
 }
 
+/**
+ * Reescreve a mensagem no canal com o estado atual do banco. Usado pelo botão 🔄 do site —
+ * o do Discord já se resolve pelo token da interação, sem precisar do bot token.
+ */
+export async function sincronizarMensagem(messageId: string): Promise<{ ok: boolean; erro?: string }> {
+  if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
+  const post = await getPostIntencao(messageId);
+  if (!post) return { ok: false, erro: "mensagem não encontrada" };
+  if (!post.preset_id) return { ok: false, erro: "rodada sem preset — não dá pra remontar" };
+  const payload = await montarPayload(messageId, post.preset_id);
+  if (!payload) return { ok: false, erro: "preset foi excluído" };
+  const res = await botFetch(`/channels/${post.channel_id}/messages/${messageId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ allowed_mentions: { parse: [] }, ...payload }), // nunca re-pinga ao editar
+  });
+  return res.ok ? { ok: true } : { ok: false, erro: `Discord ${res.status} ${(await res.text().catch(() => "")).slice(0, 140)}` };
+}
+
 type Quem = { messageId: string; userId: string; username: string; familia: string; chave: string; presetId: number };
 
 /** Evento travado/finalizado não aceita mais marcação (mesmo gate do bot antigo). */
