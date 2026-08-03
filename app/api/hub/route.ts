@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
-import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setReliquia } from "@/lib/party";
+import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
 import { listPresets, criarPreset, atualizarPreset, excluirPreset, adicionarMembroFuncao, removerMembroFuncao } from "@/lib/intencaoPreset";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 
-// Central do hub: funções, parties, relíquias, preset do bot, escalação e presença. Staff.
+// Central do hub: funções, parties, lendários, preset do bot, escalação e presença. Staff.
 // Uma rota só porque são todas ações curtas da mesma tela — o `acao` diz qual.
 
 export async function GET() {
@@ -37,8 +37,8 @@ export async function POST(req: Request) {
     case "party-excluir": await excluirParty(b.id); return NextResponse.json({ parties: await listParties() });
     case "party-ordenar": await ordenarParties(b.ids); return NextResponse.json({ parties: await listParties() });
 
-    // --- relíquia: propriedade da pessoa, NUNCA vai pro bot ---
-    case "reliquia": await setReliquia(b.familia, !!b.valor); return NextResponse.json({ ok: true });
+    // --- lendário: propriedade da pessoa, NUNCA vai pro bot ---
+    case "lendario": await setLendario(b.familia, !!b.valor); return NextResponse.json({ ok: true });
 
     // --- preset do bot ---
     case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.funcoes)) ?? { error: "nome e tipo obrigatórios" });

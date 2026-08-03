@@ -15,6 +15,7 @@ export type FunilEvento = {
   marcaram: number; escalados: number; confirmaram: number; jogaram: number;
   temWar: boolean;      // false → "presença oficial" ainda é desconhecida, não zero
   resultado: string | null;
+  presetId: number | null; presetNome: string | null; // qual chamada gerou este evento
 };
 
 /** Um card por evento que teve chamada de intenção, do mais recente pro mais antigo. */
@@ -27,8 +28,10 @@ export async function funilEventos(limite = 24): Promise<FunilEvento[]> {
       (SELECT count(*)::int FROM intencao_resp ir WHERE ir.message_id = p.message_id AND ir.resposta = 'vai') AS marcaram,
       (SELECT count(*)::int FROM evento_escalacao es WHERE es.evento_id = e.id AND es.party_id IS NOT NULL) AS escalados,
       (SELECT count(*)::int FROM evento_presenca ep WHERE ep.evento_id = e.id AND ep.participar) AS confirmaram,
-      COALESCE((SELECT count(DISTINCT d.nome_familia)::int FROM desempenho d WHERE d.war_id = r.war_id), 0) AS jogaram
+      COALESCE((SELECT count(DISTINCT d.nome_familia)::int FROM desempenho d WHERE d.war_id = r.war_id), 0) AS jogaram,
+      p.preset_id::int AS "presetId", pr.nome AS "presetNome"
     FROM intencao_post p
+    LEFT JOIN intencao_preset pr ON pr.id = p.preset_id
     JOIN evento e ON e.id = p.evento_id
     LEFT JOIN evento_resultado r ON r.evento_id = e.id
     ORDER BY e.data DESC, p.criado DESC
@@ -53,12 +56,12 @@ export async function resumoSerie(limite = 12): Promise<LinhaSerie[]> {
 }
 
 /** Totais do topo do hub. `avaliaveis` = eventos com estatística gravada (os que dão pra julgar). */
-export async function totaisHub(): Promise<{ eventos: number; avaliaveis: number; funcoes: number; parties: number; reliquias: number }> {
+export async function totaisHub(): Promise<{ eventos: number; avaliaveis: number; funcoes: number; parties: number; lendarios: number }> {
   const rows = (await sql`SELECT
     (SELECT count(*)::int FROM intencao_post) AS eventos,
     (SELECT count(*)::int FROM intencao_post p JOIN evento_resultado r ON r.evento_id = p.evento_id WHERE r.war_id IS NOT NULL) AS avaliaveis,
     (SELECT count(*)::int FROM funcao) AS funcoes,
     (SELECT count(*)::int FROM party) AS parties,
-    (SELECT count(*)::int FROM players WHERE reliquia) AS reliquias`) as { eventos: number; avaliaveis: number; funcoes: number; parties: number; reliquias: number }[];
+    (SELECT count(*)::int FROM players WHERE lendario) AS lendarios`) as { eventos: number; avaliaveis: number; funcoes: number; parties: number; lendarios: number }[];
   return rows[0];
 }

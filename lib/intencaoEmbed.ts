@@ -18,7 +18,7 @@ export type PerfilI = { guilda: string; classe: string | null; gs: number | null
 export type EmojiMapI = { classes: Record<string, string>; guildas: Record<string, string> };
 
 const COR = 0xcc0000; // carmesim (tema da aliança) — barra do embed
-const MAX_BOTOES = 23; // 5 linhas x 5 = 25, menos o ❌ e o 🔄
+const MAX_BOTOES = 24; // 5 linhas x 5 = 25, menos o ❌
 
 /** "<:nome:123>" / "<a:nome:123>" / "🏹" → objeto de emoji do Discord. Sem emoji → null. */
 export function emojiDiscord(raw: string | null): { id?: string; name: string; animated?: boolean } | null {
@@ -120,9 +120,8 @@ export function montarEmbedIntencao(d: DadosIntencao) {
     };
   });
   botoes.push({ type: 2, style: 4, custom_id: `int:nao:${d.presetId}`, label: "❌ Não vou" } as (typeof botoes)[number]);
-  // redesenha a mensagem a partir do banco — útil quando a staff mexe pelo site ou se uma edição
-  // se perdeu. Não altera nada: só relê e reescreve.
-  botoes.push({ type: 2, style: 2, custom_id: `int:sync:${d.presetId}`, label: "🔄" } as (typeof botoes)[number]);
+  // NÃO existe botão de refresh aqui: redesenhar é ação de administração e fica só no site.
+  // (O endpoint ainda atende `int:sync:`, exigindo staff, porque mensagens antigas têm o botão.)
 
   const components: { type: 1; components: typeof botoes }[] = [];
   for (let i = 0; i < botoes.length; i += 5) components.push({ type: 1, components: botoes.slice(i, i + 5) });

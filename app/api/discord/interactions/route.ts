@@ -242,6 +242,9 @@ export async function POST(req: Request) {
       const nickInt = body.member?.nick ?? uInt?.global_name ?? uInt?.username ?? "";
       const tokenInt = String(body.token ?? "");
       if (!messageId || !userIdInt) return efemero("Não consegui te identificar.");
+      // redesenhar é ação de administração — o botão saiu da mensagem, mas mensagens antigas
+      // ainda o têm, então o gate fica aqui e não só na ausência do botão.
+      if (acao === "sync" && !(await ehStaff(body.member?.roles))) return efemero("⛔ Só staff atualiza a mensagem.");
       after(async () => {
         try {
           const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));

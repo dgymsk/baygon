@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { funilEventos, resumoSerie, totaisHub } from "@/lib/hub";
 import { postsIntencaoAtivos } from "@/lib/intencao";
+import { listPresets } from "@/lib/intencaoPreset";
+import { listFuncoes } from "@/lib/funcao";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
+import Lancar from "./Lancar";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hub · BAYGON" };
@@ -11,9 +14,13 @@ const fmtData = (d: string) =>
   new Date(d).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
 
 export default async function HubPage() {
-  const [eventos, serie, totais, ativos, canEdit] = await Promise.all([
-    funilEventos(), resumoSerie(), totaisHub(), postsIntencaoAtivos(), canEditNow(),
+  const [eventos, serie, totais, ativos, presets, funcoes, canEdit] = await Promise.all([
+    funilEventos(), resumoSerie(), totaisHub(), postsIntencaoAtivos(), listPresets(), listFuncoes(), canEditNow(),
   ]);
+  const nomeFuncao = new Map(funcoes.map((f) => [f.id, f.nome]));
+  const funcoesPorPreset = Object.fromEntries(
+    presets.map((p) => [p.id, p.funcoes.map((v) => nomeFuncao.get(v.funcao_id)).filter((x): x is string => !!x)]),
+  );
 
   return (
     <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
@@ -44,8 +51,10 @@ export default async function HubPage() {
           <Stat>{totais.avaliaveis} com estatística</Stat>
           <Stat>{totais.funcoes} funções</Stat>
           <Stat>{totais.parties} parties</Stat>
-          <Stat>{totais.reliquias} relíquias</Stat>
+          <Stat>{totais.lendarios} lendários</Stat>
         </div>
+
+        {canEdit && <Lancar presets={presets} funcoesPorPreset={funcoesPorPreset} />}
 
         {ativos.length > 0 && (
           <div style={{ border: `1px solid ${C.border2}`, borderRadius: 12, background: C.inputBg, padding: "10px 14px", marginBottom: 18 }}>
@@ -86,6 +95,7 @@ export default async function HubPage() {
                 </div>
                 <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>{e.tipo}</span>
+                  {e.presetNome && <span style={{ color: C.borderSoft, fontSize: 11 }} title="chamada que gerou este evento">· {e.presetNome}</span>}
                   {e.status !== "aberto" && <span style={{ color: C.amarelo, fontSize: 11 }}>🔒 {e.status}</span>}
                   {e.resultado && <span style={{ color: e.resultado === "vitoria" ? C.verde : e.resultado === "derrota" ? C.vermelho : C.mute, fontSize: 11 }}>{e.resultado}</span>}
                 </div>

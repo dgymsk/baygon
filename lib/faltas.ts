@@ -22,6 +22,9 @@ export type Falta = {
   jogou: number;
   confirmou: number;  // confirmou in-game
   avaliados: number;  // eventos com estatística gravada (os únicos que contam)
+  // "faz N dias" — a contagem em guerras não diz se foi essa semana ou mês passado
+  diasSemJogar: number | null;  // desde a última war avaliada em que JOGOU (null = nunca jogou no período)
+  diasDesdeFalta: number | null; // desde a war mais recente em que marcou e não jogou
 };
 
 type EventoAval = { evento_id: number; message_id: string; war_id: number | null; data: string };
@@ -62,21 +65,30 @@ export async function faltasPorChave(limite = 12): Promise<Map<string, Falta>> {
   // todo mundo que apareceu em qualquer estágio do período
   const chaves = new Set<string>([...marcas.map((m) => m.chave), ...presencas.map((p) => p.chave), ...jogaram.map((d) => chaveNome(d.nome_familia))]);
 
+  const hoje = Date.now();
+  const diasAte = (d: string) => Math.max(0, Math.floor((hoje - new Date(d + "T00:00:00Z").getTime()) / 86400000));
+
   const out = new Map<string, Falta>();
   for (const chave of chaves) {
     let sequencia = 0, marcou = 0, jogou = 0, confirmou = 0, avaliados = 0;
     let seqViva = true; // a sequência para no primeiro evento em que a pessoa jogou (ou não marcou)
-    for (const ev of eventos) {
+    let dataUltimaJogada: string | null = null, dataUltimaFalta: string | null = null;
+    for (const ev of eventos) { // já vêm do mais recente pro mais antigo
       const m = marcouEm.has(`${ev.message_id}|${chave}`);
       if (m) marcou++;
       if (confirmouEm.has(`${ev.evento_id}|${chave}`)) confirmou++;
       if (ev.war_id == null) continue; // sem estatística: não dá pra julgar, nem conta nem quebra
       avaliados++;
       const j = jogouEm.has(`${ev.war_id}|${chave}`);
-      if (j) jogou++;
+      if (j) { jogou++; dataUltimaJogada ??= ev.data; }
+      else if (m) dataUltimaFalta ??= ev.data;
       if (seqViva) { if (m && !j) sequencia++; else seqViva = false; }
     }
-    out.set(chave, { sequencia, marcou, jogou, confirmou, avaliados });
+    out.set(chave, {
+      sequencia, marcou, jogou, confirmou, avaliados,
+      diasSemJogar: dataUltimaJogada ? diasAte(dataUltimaJogada) : null,
+      diasDesdeFalta: dataUltimaFalta ? diasAte(dataUltimaFalta) : null,
+    });
   }
   return out;
 }

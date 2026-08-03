@@ -15,9 +15,9 @@ import type { Preset, MembroInt } from "@/lib/intencaoPreset";
  *  FUNÇÃO  — o papel que vira BOTÃO no bot (Shai, Flanco, Ataque…). Uma função junta classes
  *            diferentes; o que importa é quem faz aquele papel.
  *  PARTY   — onde a pessoa fica de fato in-game. É o ALVO da escalação, nunca aparece no bot.
- *  RELÍQUIA— atributo fixo da pessoa. NUNCA aparece no bot; só destaca o card na escalação.
+ *  LENDÁRIO— atributo fixo da pessoa. NUNCA aparece no bot; só destaca o card na escalação.
  */
-type Jog = { nome: string; reliquia: boolean };
+type Jog = { nome: string; lendario: boolean };
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
@@ -34,7 +34,10 @@ export default function ConfigBoard({
   const [buscaRel, setBuscaRel] = useState("");
 
   const fById = useMemo(() => new Map(funcoes.map((f) => [f.id, f])), [funcoes]);
-  const preset = useMemo(() => presets.find((p) => p.tipo === tipo) ?? null, [presets, tipo]);
+  // vários presets por tipo (T1, T2, siege A…) — o selecionado é o que se edita
+  const doTipo = useMemo(() => presets.filter((p) => p.tipo === tipo), [presets, tipo]);
+  const [presetId, setPresetId] = useState<number | null>(null);
+  const preset = useMemo(() => doTipo.find((p) => p.id === presetId) ?? doTipo[0] ?? null, [doTipo, presetId]);
   const noPreset = useMemo(() => (preset?.funcoes ?? []).map((v) => v.funcao_id), [preset]);
   const membrosTipo = useMemo(() => membros.filter((m) => m.tipo === tipo), [membros, tipo]);
   const funcoesPorChave = useMemo(() => {
@@ -42,7 +45,7 @@ export default function ConfigBoard({
     for (const x of membrosTipo) { const a = m.get(x.chave) ?? []; a.push(x.funcao_id); m.set(x.chave, a); }
     return m;
   }, [membrosTipo]);
-  const reliquias = jogadores.filter((j) => j.reliquia);
+  const lendarios = jogadores.filter((j) => j.lendario);
 
   async function api(body: Record<string, unknown>, ok?: string) {
     setBusy(true);
@@ -52,7 +55,8 @@ export default function ConfigBoard({
       if (!res.ok || (d as { error?: string }).error) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
       if (ok) setMsg({ k: "ok", t: ok });
       router.refresh();
-    } catch (e) { setMsg({ k: "err", t: (e as Error).message }); }
+      return d as Record<string, unknown>;
+    } catch (e) { setMsg({ k: "err", t: (e as Error).message }); return null; }
     finally { setBusy(false); }
   }
 
@@ -135,25 +139,25 @@ export default function ConfigBoard({
           )}
         </div>
 
-        {/* RELÍQUIAS */}
+        {/* LENDÁRIOS */}
         <div style={card}>
-          <Titulo>Relíquias <Sub>destaque na escalação — <b style={{ color: C.amarelo }}>nunca</b> aparece no bot</Sub></Titulo>
+          <Titulo>Lendários <Sub>destaque na escalação — <b style={{ color: C.amarelo }}>nunca</b> aparece no bot</Sub></Titulo>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-            {reliquias.map((j) => (
+            {lendarios.map((j) => (
               <span key={j.nome} style={{ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, padding: "3px 6px 3px 10px", fontSize: 12.5, color: C.amarelo, background: "rgba(214,178,42,.12)", border: `1px solid ${C.amarelo}`, boxShadow: `0 0 8px rgba(214,178,42,.35)` }}>
                 ✦ {j.nome}
-                {canEdit && <button onClick={() => api({ acao: "reliquia", familia: j.nome, valor: false })} style={{ ...mini, color: C.mute }} title="tirar">✕</button>}
+                {canEdit && <button onClick={() => api({ acao: "lendario", familia: j.nome, valor: false })} style={{ ...mini, color: C.mute }} title="tirar">✕</button>}
               </span>
             ))}
-            {!reliquias.length && <Vazio>Ninguém marcado como relíquia.</Vazio>}
+            {!lendarios.length && <Vazio>Ninguém marcado como lendário.</Vazio>}
           </div>
           {canEdit && (
             <>
               <input value={buscaRel} onChange={(e) => setBuscaRel(e.target.value)} placeholder="buscar jogador p/ marcar…" style={{ ...input, minWidth: 220 }} />
               {buscaRel.trim() && (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {jogadores.filter((j) => !j.reliquia && j.nome.toLowerCase().includes(buscaRel.toLowerCase())).slice(0, 14).map((j) => (
-                    <button key={j.nome} onClick={() => { api({ acao: "reliquia", familia: j.nome, valor: true }, `${j.nome} virou relíquia`); setBuscaRel(""); }} style={chip(false)}>+ {j.nome}</button>
+                  {jogadores.filter((j) => !j.lendario && j.nome.toLowerCase().includes(buscaRel.toLowerCase())).slice(0, 14).map((j) => (
+                    <button key={j.nome} onClick={() => { api({ acao: "lendario", familia: j.nome, valor: true }, `${j.nome} virou lendário`); setBuscaRel(""); }} style={chip(false)}>+ {j.nome}</button>
                   ))}
                 </div>
               )}
@@ -168,16 +172,30 @@ export default function ConfigBoard({
             {TIPOS.map((t) => <button key={t} onClick={() => setTipo(t)} style={{ ...chip(tipo === t), cursor: "pointer", textTransform: "capitalize" }}>{t}</button>)}
           </div>
 
+          {/* dá pra ter várias chamadas do mesmo tipo (T1, T2…) — escolha qual editar */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+            {doTipo.map((p) => (
+              <button key={p.id} onClick={() => setPresetId(p.id)} style={chip(preset?.id === p.id)}>{p.nome}</button>
+            ))}
+            {canEdit && (
+              <>
+                <input value={npreset} onChange={(e) => setNpreset(e.target.value)} placeholder={`nova chamada de ${tipo}`}
+                  style={{ ...input, minWidth: 170, padding: "5px 9px", fontSize: 12.5 }} />
+                <button disabled={busy || !npreset.trim()} onClick={async () => { const d = await api({ acao: "preset-criar", nome: npreset, tipo, funcoes: [] }, "chamada criada"); const nid = (d as { id?: number } | null)?.id; if (nid) setPresetId(nid); setNpreset(""); }} style={btn(C.verde)}>+ Criar</button>
+              </>
+            )}
+          </div>
+
           {!preset ? (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input value={npreset} onChange={(e) => setNpreset(e.target.value)} placeholder={`Nome da chamada de ${tipo}`} disabled={!canEdit} style={{ ...input, minWidth: 220 }} />
-              <button disabled={!canEdit || busy || !npreset.trim()} onClick={() => { api({ acao: "preset-criar", nome: npreset, tipo, funcoes: [] }, "chamada criada"); setNpreset(""); }} style={btn(C.verde)}>Criar</button>
-            </div>
+            <Vazio>Nenhuma chamada de {tipo} ainda — crie uma acima.</Vazio>
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
                 <span style={{ fontSize: 13 }}><b style={{ color: C.amarelo }}>{preset.nome}</b> — {noPreset.length} função(ões)</span>
-                {canEdit && <button disabled={busy || !noPreset.length} onClick={() => api({ acao: "postar", id: preset.id }, "chamada postada no Discord")} style={{ ...btn(C.verde), background: C.verdeTint }}>📢 Postar chamada</button>}
+                <span style={{ display: "flex", gap: 8 }}>
+                  {canEdit && <button disabled={busy} onClick={() => confirm(`Excluir a chamada ${preset.nome}?`) && api({ acao: "preset-excluir", id: preset.id }, "chamada excluída")} style={btn(C.vermelho)}>Excluir</button>}
+                  {canEdit && <button disabled={busy || !noPreset.length} onClick={() => api({ acao: "postar", id: preset.id }, "chamada postada no Discord")} style={{ ...btn(C.verde), background: C.verdeTint }}>📢 Postar chamada</button>}
+                </span>
               </div>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
                 {funcoes.map((f) => {

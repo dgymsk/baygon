@@ -11,15 +11,32 @@ import { iconeUrl, type GuildEntry } from "@/lib/guild";
  * pessoa marcou no bot — uma por rodada), à direita uma coluna por PARTY IN-GAME. Arrastar move
  * da função pra party; a party é onde ela joga de fato.
  *
- * Sinais no card: borda VERDE = confirmou in-game; brilho DOURADO = relíquia (marcação que nunca
+ * Sinais no card: borda VERDE = confirmou in-game; brilho DOURADO = lendário (marcação que nunca
  * chega ao bot); ⚠ N = guerras seguidas marcando e não jogando.
  */
 export type JogadorVM = {
   chave: string; familia: string; userId: string;
   guilda: string | null; classe: string | null; gs: number | null;
-  reliquia: boolean; confirmouIngame: boolean; jogou: boolean | null;
-  escaladoEm: number | null; faltas: number | null;
+  ap: number | null; aap: number | null; dp: number | null; nWars: number | null;
+  lendario: boolean; confirmouIngame: boolean; jogou: boolean | null;
+  escaladoEm: number | null;
+  faltas: number | null;          // guerras seguidas marcando e não jogando
+  diasSemJogar: number | null;    // "faz N dias" é mais concreto que "N guerras"
+  diasDesdeFalta: number | null;
+  funcaoNome: string | null;      // a que ele marcou no bot (útil depois de escalado)
 };
+
+/** Pokébola — só no site, nunca no bot. SVG inline pra não depender de emoji nem de CDN. */
+function Pokebola({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" style={{ flexShrink: 0, verticalAlign: "-2px" }} aria-label="lendário">
+      <circle cx="16" cy="16" r="15" fill="#f2f2f2" stroke="#111" strokeWidth="2" />
+      <path d="M1 16a15 15 0 0 1 30 0z" fill="#e0322e" stroke="#111" strokeWidth="2" />
+      <line x1="1" y1="16" x2="31" y2="16" stroke="#111" strokeWidth="3" />
+      <circle cx="16" cy="16" r="5" fill="#f2f2f2" stroke="#111" strokeWidth="2.5" />
+    </svg>
+  );
+}
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
 type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string };
@@ -101,35 +118,83 @@ export default function EventoBoard({
       : <span style={{ fontSize: 10, color: C.mute }}>{g.tag}</span>;
   };
 
-  const Card = ({ j }: { j: JogadorVM }) => (
-    <div
-      draggable={canEdit}
-      onDragStart={() => { arrastando.current = j.chave; }}
-      onDragEnd={() => { arrastando.current = null; setSobre(null); }}
-      title={[j.reliquia ? "RELÍQUIA" : "", j.faltas ? `${j.faltas} guerras marcando e não jogando` : ""].filter(Boolean).join(" · ") || undefined}
-      style={{
-        // relíquia manda no visual (brilho dourado); confirmou in-game vem em seguida (verde)
-        border: `1px solid ${j.reliquia ? C.amarelo : j.confirmouIngame ? C.verde : C.border2}`,
-        boxShadow: j.reliquia ? "0 0 9px rgba(214,178,42,.45)" : "none",
-        background: j.confirmouIngame ? C.verdeTint : C.inputBg,
-        borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
-        display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, flexWrap: "wrap",
-      }}
-    >
-      {j.reliquia && <span style={{ color: C.amarelo, fontSize: 12 }} title="relíquia">✦</span>}
-      <GuildIcon id={j.guilda} />
-      <span style={{ color: C.texto, fontWeight: 600 }}>{j.familia}</span>
-      {j.classe && <span style={{ color: C.mute, fontSize: 11 }}>{j.classe}</span>}
-      {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
-      {j.faltas != null && j.faltas > 0 && <span style={{ color: j.faltas >= 3 ? C.vermelho : C.laranja, fontSize: 10.5, fontWeight: 700 }}>⚠ {j.faltas}</span>}
-      {canEdit && (
-        <button onClick={() => togglePresenca(j)} title={j.confirmouIngame ? "desmarcar confirmação in-game" : "marcar confirmado in-game"}
-          style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: j.confirmouIngame ? C.verde : C.borderSoft, fontSize: 12, padding: "0 2px" }}>
-          {j.confirmouIngame ? "✅" : "◻"}
-        </button>
-      )}
+  /** Mini-card do jogador, aberto ao passar o mouse no nome. Resume o que decide a escalação. */
+  const MiniCard = ({ j }: { j: JogadorVM }) => (
+    <div style={{
+      position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 60, minWidth: 210,
+      border: `1px solid ${j.lendario ? C.amarelo : C.border2}`, borderRadius: 10, background: C.bg0,
+      boxShadow: "0 8px 26px rgba(0,0,0,.7)", padding: "9px 11px", cursor: "default",
+      display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: C.mute,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.texto, fontSize: 13, fontWeight: 700 }}>
+        {j.lendario && <Pokebola size={14} />}{j.familia}
+      </div>
+      <Linha k="Classe" v={j.classe ?? "—"} />
+      <Linha k="GS" v={j.gs != null ? String(j.gs) : "—"} />
+      {(j.ap != null || j.aap != null || j.dp != null) && <Linha k="AP / AAP / DP" v={`${j.ap ?? "—"} / ${j.aap ?? "—"} / ${j.dp ?? "—"}`} />}
+      {j.funcaoNome && <Linha k="Marcou" v={j.funcaoNome} />}
+      <Linha k="Wars com stat" v={j.nWars != null ? String(j.nWars) : "—"} />
+      <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 2, paddingTop: 4 }}>
+        {j.diasSemJogar != null
+          ? <Linha k="Sem jogar" v={`${j.diasSemJogar} dia(s)`} cor={j.diasSemJogar >= 14 ? C.vermelho : j.diasSemJogar >= 7 ? C.laranja : C.verde} />
+          : <Linha k="Sem jogar" v="nunca jogou no período" cor={C.mute} />}
+        {j.faltas != null && j.faltas > 0 && <Linha k="Marcou e faltou" v={`${j.faltas} war(s) seguidas`} cor={j.faltas >= 3 ? C.vermelho : C.laranja} />}
+        {j.diasDesdeFalta != null && <Linha k="Última falta" v={`há ${j.diasDesdeFalta} dia(s)`} />}
+      </div>
     </div>
   );
+
+  const Card = ({ j }: { j: JogadorVM }) => {
+    const [hover, setHover] = useState(false);
+    return (
+      <div
+        draggable={canEdit}
+        onDragStart={() => { arrastando.current = j.chave; }}
+        onDragEnd={() => { arrastando.current = null; setSobre(null); }}
+        style={{
+          position: "relative",
+          // lendário manda no visual (contorno + brilho); confirmou in-game vem em seguida (verde)
+          border: `1px solid ${j.lendario ? C.amarelo : j.confirmouIngame ? C.verde : C.border2}`,
+          boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
+          background: j.confirmouIngame ? C.verdeTint : C.inputBg,
+          borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
+          display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
+        }}
+      >
+        {j.lendario && <Pokebola />}
+        <GuildIcon id={j.guilda} />
+        <span onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+          style={{ color: C.texto, fontWeight: 600, cursor: "help", whiteSpace: "nowrap" }}>
+          {j.familia}
+        </span>
+        {j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
+        {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
+
+        {/* indicadores à direita: "faz N dias" pesa mais do que a contagem crua de guerras */}
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          {j.diasSemJogar != null && j.diasSemJogar >= 7 && (
+            <span title={`Não joga há ${j.diasSemJogar} dias`}
+              style={{ fontSize: 10, fontWeight: 700, color: j.diasSemJogar >= 14 ? C.vermelho : C.laranja }}>
+              {j.diasSemJogar}d
+            </span>
+          )}
+          {j.faltas != null && j.faltas > 0 && (
+            <span title={`Marcou e não jogou nas ${j.faltas} últimas wars`}
+              style={{ fontSize: 10, fontWeight: 700, color: j.faltas >= 3 ? C.vermelho : C.laranja }}>
+              ⚠{j.faltas}
+            </span>
+          )}
+          {canEdit && (
+            <button onClick={() => togglePresenca(j)} title={j.confirmouIngame ? "desmarcar confirmação in-game" : "marcar confirmado in-game"}
+              style={{ background: "none", border: "none", cursor: "pointer", color: j.confirmouIngame ? C.verde : C.borderSoft, fontSize: 12, padding: "0 2px" }}>
+              {j.confirmouIngame ? "✅" : "◻"}
+            </button>
+          )}
+        </span>
+        {hover && <MiniCard j={j} />}
+      </div>
+    );
+  };
 
   const alvo = (id: number | "pool") => ({
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); setSobre(id); },
@@ -178,7 +243,7 @@ export default function EventoBoard({
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram ·
-            <span style={{ color: C.amarelo }}> ✦ relíquia</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
           </div>
@@ -257,7 +322,7 @@ export default function EventoBoard({
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
             <thead>
               <tr style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
-                <Th>Jogador</Th><Th>Escalado</Th><Th>In-game</Th><Th>Jogou</Th><Th>Seq. faltas</Th>
+                <Th>Jogador</Th><Th>Escalado</Th><Th>In-game</Th><Th>Jogou</Th><Th>Seq. faltas</Th><Th>Sem jogar</Th>
               </tr>
             </thead>
             <tbody>
@@ -265,11 +330,12 @@ export default function EventoBoard({
                 const p = partyDe(j);
                 return (
                   <tr key={j.chave} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
-                    <Td>{j.reliquia && <span style={{ color: C.amarelo }}>✦ </span>}<span style={{ color: C.texto }}>{j.familia}</span></Td>
+                    <Td><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{j.lendario && <Pokebola size={12} />}<span style={{ color: C.texto }}>{j.familia}</span></span></Td>
                     <Td>{p != null ? <span style={{ color: C.verde }}>{parties.find((x) => x.id === p)?.nome ?? "sim"}</span> : "—"}</Td>
                     <Td>{j.confirmouIngame ? <span style={{ color: C.verde }}>✅</span> : "—"}</Td>
                     <Td>{j.jogou == null ? <span style={{ color: C.borderSoft }}>?</span> : j.jogou ? <span style={{ color: C.verde }}>sim</span> : <span style={{ color: C.vermelho }}>não</span>}</Td>
                     <Td>{j.faltas == null ? <span style={{ color: C.borderSoft }}>—</span> : <span style={{ color: j.faltas >= 3 ? C.vermelho : j.faltas > 0 ? C.laranja : C.mute }}>{j.faltas}</span>}</Td>
+                    <Td>{j.diasSemJogar == null ? <span style={{ color: C.borderSoft }}>—</span> : <span style={{ color: j.diasSemJogar >= 14 ? C.vermelho : j.diasSemJogar >= 7 ? C.laranja : C.mute }}>{j.diasSemJogar}d</span>}</Td>
                   </tr>
                 );
               })}
@@ -290,6 +356,11 @@ function Casca({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+const Linha = ({ k, v, cor }: { k: string; v: string; cor?: string }) => (
+  <span style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+    <span style={{ color: "#8f8f8f" }}>{k}</span><span style={{ color: cor ?? "#e5e5e5" }}>{v}</span>
+  </span>
+);
 const Th = ({ children }: { children: React.ReactNode }) => <th style={{ textAlign: "left", padding: "7px 11px", fontWeight: 600 }}>{children}</th>;
 const Td = ({ children }: { children: React.ReactNode }) => <td style={{ padding: "6px 11px", color: C.mute }}>{children}</td>;
 

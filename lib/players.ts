@@ -30,7 +30,7 @@ export type PlayerRow = {
   saida_tipo: SaidaTipo | null;
   saida_data: string | null;
   registro: boolean;                 // concluiu a jornada de registro (manual/estatística = false)
-  reliquia: boolean;                 // destaque na escalação; NUNCA aparece no bot
+  lendario: boolean;                 // destaque na escalação; NUNCA aparece no bot
   n_wars: number;
   garmoth_id: string | null;         // config (id da build do Garmoth)
   garmoth: GarmothCache | null;      // cache da API (worker); null se nunca buscado
@@ -41,7 +41,7 @@ type PlayerRaw = Omit<PlayerRow, "garmoth"> & { g_ap: number | null; g_aap: numb
 export async function listPlayers(): Promise<PlayerRow[]> {
   const rows = (await sql`
     SELECT p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida,
-           p.saida_tipo, p.saida_data::text AS saida_data, p.registro, p.reliquia, p.garmoth_id,
+           p.saida_tipo, p.saida_data::text AS saida_data, p.registro, p.lendario, p.garmoth_id,
            count(DISTINCT d.war_id)::int AS n_wars,
            gb.ap AS g_ap, gb.aap AS g_aap, gb.dp AS g_dp, gb.acc AS g_acc, gb.char_name AS g_char_name,
            gb.spec AS g_spec, gb.atualizado::text AS g_atualizado, gb.garmoth_id AS g_src_id

@@ -43,23 +43,33 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const ordem = preset?.funcoes.map((v) => v.funcao_id) ?? [...new Set(marcas.map((m) => m.funcao_id))];
   const presencaPorChave = new Map(presenca.map((p) => [p.chave, p.participar]));
   const escalaPorChave = new Map(escalacao.map((e) => [e.chave, e.party_id]));
-  const reliquiaPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.reliquia]));
+  const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
   const jogaram = ev.war_id
     ? new Set(((await sql`SELECT DISTINCT nome_familia FROM desempenho WHERE war_id = ${ev.war_id}`) as { nome_familia: string }[]).map((d) => chaveNome(d.nome_familia)))
     : null;
+
+  // gear e nº de wars pro mini-card do hover
+  const rowPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), p]));
+  const funcaoPorUser = new Map(marcas.map((m) => [m.user_id, fById.get(m.funcao_id)?.nome ?? null]));
 
   const vm = (userId: string, familia: string | null, chaveRaw: string | null): JogadorVM => {
     const chave = chaveRaw ?? chaveNome(familia ?? "");
     const p = perfil.get(chave);
     const f = faltas.get(chave);
+    const row = rowPorChave.get(chave);
     return {
       chave, familia: familia ?? userId, userId,
       guilda: p?.guilda ?? null, classe: p?.classe ?? null, gs: p?.gs ?? null,
-      reliquia: reliquiaPorChave.get(chave) === true,
+      ap: row?.garmoth?.ap ?? null, aap: row?.garmoth?.aap ?? null, dp: row?.garmoth?.dp ?? null,
+      nWars: row?.n_wars ?? null,
+      lendario: lendarioPorChave.get(chave) === true,
       confirmouIngame: presencaPorChave.get(chave) === true,
       jogou: jogaram ? jogaram.has(chave) : null,
       escaladoEm: escalaPorChave.get(chave) ?? null,
       faltas: f && f.avaliados > 0 ? f.sequencia : null,
+      diasSemJogar: f && f.avaliados > 0 ? f.diasSemJogar : null,
+      diasDesdeFalta: f && f.avaliados > 0 ? f.diasDesdeFalta : null,
+      funcaoNome: funcaoPorUser.get(userId) ?? null,
     };
   };
 

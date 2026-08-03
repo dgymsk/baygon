@@ -48,14 +48,14 @@ export async function ordenarParties(ids: unknown): Promise<void> {
   for (let i = 0; i < arr.length; i++) await sql`UPDATE party SET ordem = ${i} WHERE id = ${arr[i]}`;
 }
 
-/** Marcação de RELÍQUIA — propriedade da pessoa, NUNCA exibida no bot; só destaca na escalação. */
-export async function setReliquia(nomeFamilia: unknown, valor: boolean): Promise<void> {
+/** Marcação de LENDÁRIO — propriedade da pessoa, NUNCA exibida no bot; só destaca na escalação. */
+export async function setLendario(nomeFamilia: unknown, valor: boolean): Promise<void> {
   const n = typeof nomeFamilia === "string" ? nomeFamilia.trim().slice(0, 80) : "";
   if (!n) return;
-  await sql`UPDATE players SET reliquia = ${valor} WHERE nome_familia = ${n}`;
+  await sql`UPDATE players SET lendario = ${valor} WHERE nome_familia = ${n}`;
 }
 
-export async function listReliquias(): Promise<string[]> {
-  const rows = (await sql`SELECT nome_familia FROM players WHERE reliquia ORDER BY nome_familia`) as { nome_familia: string }[];
+export async function listLendarios(): Promise<string[]> {
+  const rows = (await sql`SELECT nome_familia FROM players WHERE lendario ORDER BY nome_familia`) as { nome_familia: string }[];
   return rows.map((r) => r.nome_familia);
 }

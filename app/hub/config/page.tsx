@@ -12,6 +12,6 @@ export default async function HubConfigPage() {
   const [funcoes, parties, presets, membros, players, canEdit] = await Promise.all([
     listFuncoes(), listParties(), listPresets(), listMembrosInt(), listPlayers(), canEditNow(),
   ]);
-  const jogadores = players.map((p) => ({ nome: p.nome_familia, reliquia: !!p.reliquia }));
+  const jogadores = players.map((p) => ({ nome: p.nome_familia, lendario: !!p.lendario }));
   return <ConfigBoard funcoes={funcoes} parties={parties} presets={presets} membros={membros} jogadores={jogadores} canEdit={canEdit} />;
 }
