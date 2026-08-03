@@ -47,6 +47,18 @@ export default function ConfigBoard({
   }, [membrosTipo]);
   const lendarios = jogadores.filter((j) => j.lendario);
 
+  // lista de jogadores em ORDEM ALFABÉTICA (localeCompare pra acento não ir pro fim) e filtrada.
+  // Sem busca corta no TETO — 111 nomes × N botões é lento de renderizar e pior de ler; com busca
+  // não corta, senão o que você procurou pode cair fora do corte.
+  const TETO = 60;
+  const listaJogadores = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    const orden = [...jogadores].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    const filtrados = q ? orden.filter((j) => j.nome.toLowerCase().includes(q)) : orden;
+    return q ? filtrados : filtrados.slice(0, TETO);
+  }, [jogadores, busca]);
+  const comFuncao = useMemo(() => new Set(membros.map((m) => m.chave)).size, [membros]);
+
   async function api(body: Record<string, unknown>, ok?: string) {
     setBusy(true);
     try {
@@ -156,7 +168,8 @@ export default function ConfigBoard({
               <input value={buscaRel} onChange={(e) => setBuscaRel(e.target.value)} placeholder="buscar jogador p/ marcar…" style={{ ...input, minWidth: 220 }} />
               {buscaRel.trim() && (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {jogadores.filter((j) => !j.lendario && j.nome.toLowerCase().includes(buscaRel.toLowerCase())).slice(0, 14).map((j) => (
+                  {jogadores.filter((j) => !j.lendario && j.nome.toLowerCase().includes(buscaRel.toLowerCase()))
+                    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).slice(0, 14).map((j) => (
                     <button key={j.nome} onClick={() => { api({ acao: "lendario", familia: j.nome, valor: true }, `${j.nome} virou lendário`); setBuscaRel(""); }} style={chip(false)}>+ {j.nome}</button>
                   ))}
                 </div>
@@ -219,35 +232,47 @@ export default function ConfigBoard({
               </div>
               {!!noPreset.length && <div style={{ color: C.borderSoft, fontSize: 11.5, marginBottom: 12 }}>Colunas da escalação: {noPreset.map((id) => parties.find((x) => x.id === id)?.nome ?? id).join(" → ")}</div>}
 
-              <div style={{ borderTop: `1px solid ${C.borderSoft}`, paddingTop: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                  <span style={{ color: C.verde, fontWeight: 700, fontSize: 13 }}>Função do jogador <Sub>o que ele sabe fazer — vale em todo preset, várias por pessoa</Sub></span>
-                  <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="filtrar jogador…" style={{ ...input, minWidth: 170, padding: "5px 9px", fontSize: 12.5 }} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: "5px 14px", marginTop: 10 }}>
-                  {jogadores.filter((j) => !busca || j.nome.toLowerCase().includes(busca.toLowerCase())).slice(0, 100).map((j) => {
-                    const meus = funcoesPorChave.get(chaveNome(j.nome)) ?? [];
-                    return (
-                      <div key={j.nome} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, flexWrap: "wrap" }}>
-                        <span style={{ color: meus.length ? C.texto : C.mute, minWidth: 100 }}>{j.nome}</span>
-                        {funcoes.map((f) => {
-                          const id = f.id;
-                          const on = meus.includes(id);
-                          return (
-                            <button key={id} disabled={!canEdit} title={f.nome}
-                              onClick={() => api({ acao: on ? "membro-del" : "membro-add", tipo, familia: j.nome, funcaoId: id })}
-                              style={{ cursor: canEdit ? "pointer" : "default", borderRadius: 6, border: `1px solid ${on ? C.verde : C.borderSoft}`, background: on ? C.verdeTint : "transparent", padding: "1px 5px", fontSize: 12, opacity: on ? 1 : 0.5 }}>
-                              {f.emoji ? <Icone raw={f.emoji} /> : f.nome.slice(0, 3)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-                {!funcoes.length && <div style={{ color: C.amarelo, fontSize: 12.5, marginTop: 8 }}>Crie ao menos uma função lá em cima pra poder atribuir.</div>}
-              </div>
             </>
+          )}
+        </div>
+
+        {/* FUNÇÃO DO JOGADOR — card próprio: é atributo da pessoa, não depende de preset nem de
+            tipo. Ficava aninhado no bloco do preset, então sumia quando não havia preset de siege. */}
+        <div style={card}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+            <Titulo>Função do jogador <Sub>o que ele sabe fazer — vale em todo preset, várias por pessoa</Sub></Titulo>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar jogador…" autoComplete="off"
+              style={{ ...input, minWidth: 200, padding: "6px 10px", fontSize: 12.5 }} />
+          </div>
+          <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 10 }}>
+            {comFuncao} de {jogadores.length} jogadores com função atribuída
+            {busca && ` · ${listaJogadores.length} no filtro`}
+            {!busca && jogadores.length > TETO && ` · mostrando os ${TETO} primeiros, use a busca`}
+          </div>
+          {!funcoes.length ? (
+            <div style={{ color: C.amarelo, fontSize: 12.5 }}>Crie ao menos uma função lá em cima pra poder atribuir.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: "5px 16px" }}>
+              {listaJogadores.map((j) => {
+                const meus = funcoesPorChave.get(chaveNome(j.nome)) ?? [];
+                return (
+                  <div key={j.nome} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, flexWrap: "wrap" }}>
+                    <span style={{ color: meus.length ? C.texto : C.mute, minWidth: 108 }}>{j.nome}</span>
+                    {funcoes.map((f) => {
+                      const on = meus.includes(f.id);
+                      return (
+                        <button key={f.id} disabled={!canEdit} title={`${f.nome}${on ? " (marcado)" : ""}`}
+                          onClick={() => api({ acao: on ? "membro-del" : "membro-add", familia: j.nome, funcaoId: f.id })}
+                          style={{ cursor: canEdit ? "pointer" : "default", borderRadius: 6, border: `1px solid ${on ? C.verde : C.borderSoft}`, background: on ? C.verdeTint : "transparent", padding: "1px 5px", fontSize: 12, opacity: on ? 1 : 0.45 }}>
+                          {f.emoji ? <Icone raw={f.emoji} /> : f.nome.slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              {!listaJogadores.length && <Vazio>Nenhum jogador com “{busca}”.</Vazio>}
+            </div>
           )}
         </div>
       </div>
