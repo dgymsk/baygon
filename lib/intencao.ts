@@ -2,18 +2,20 @@ import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { rotuloTipo, type Tipo } from "@/lib/participacaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
-import { listPts } from "@/lib/participacaoPt";
+import { listFuncoes } from "@/lib/funcao";
 import { getPreset, listMembrosInt } from "@/lib/intencaoPreset";
-import { montarEmbedIntencao, type PtI, type MarcaI, type RespI } from "@/lib/intencaoEmbed";
+import { montarEmbedIntencao, type FuncaoI, type MarcaI, type RespI } from "@/lib/intencaoEmbed";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
 
 /**
- * Bot de INTENÇÃO — rodadas em que a pessoa marca EM QUAIS PTs pretende jogar (várias),
- * sem limite de vaga. Roda lado a lado com o bot de participação antigo, em tabelas próprias
- * (intencao_*); a única coisa reaproveitada é o catálogo de PTs e a config de canal/mensagem
- * da tela /participacao, ambos só de leitura.
+ * Bot de INTENÇÃO — rodadas em que a pessoa marca EM QUAIS FUNÇÕES pretende jogar (várias),
+ * sem limite de vaga. As funções vêm de lib/funcao.ts; onde a pessoa fica de fato in-game é
+ * a PARTY, decidida depois na escalação.
+ *
+ * Roda lado a lado com o bot de participação antigo, em tabelas próprias (intencao_*). Da stack
+ * antiga só reaproveita a config de canal/mensagem da tela /participacao, de leitura.
  */
 export type PostIntencao = { message_id: string; tipo: string; channel_id: string; titulo: string | null; preset_id: number | null; evento_id: number | null; evento_uuid: string | null; evento_status: string | null; criado: string };
 
@@ -37,27 +39,27 @@ export async function getPostIntencao(messageId: string): Promise<PostIntencao |
 }
 
 export async function getMarcas(messageId: string): Promise<(MarcaI & { chave: string | null; familia: string | null })[]> {
-  return (await sql`SELECT user_id, pt_id::int AS pt_id, chave, familia FROM intencao_marca WHERE message_id = ${messageId}`) as (MarcaI & { chave: string | null; familia: string | null })[];
+  return (await sql`SELECT user_id, funcao_id::int AS funcao_id, chave, familia FROM intencao_marca WHERE message_id = ${messageId}`) as (MarcaI & { chave: string | null; familia: string | null })[];
 }
 export async function getRespostasInt(messageId: string): Promise<RespI[]> {
   return (await sql`SELECT user_id, familia, chave, resposta FROM intencao_resp WHERE message_id = ${messageId} ORDER BY atualizado`) as RespI[];
 }
 
-/** PTs do preset, na ordem dele, resolvidas contra o catálogo. */
-async function ptsDoPreset(presetId: number): Promise<{ pts: PtI[]; nome: string; tipo: string } | null> {
-  const [preset, cat] = await Promise.all([getPreset(presetId), listPts()]);
+/** Funções do preset, na ordem dele, resolvidas contra o catálogo de funções. */
+async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string } | null> {
+  const [preset, cat] = await Promise.all([getPreset(presetId), listFuncoes()]);
   if (!preset) return null;
   const byId = new Map(cat.map((p) => [p.id, p]));
-  const pts: PtI[] = preset.pts
-    .map((v) => byId.get(v.pt_id))
+  const funcoes: FuncaoI[] = preset.funcoes
+    .map((v) => byId.get(v.funcao_id))
     .filter((p): p is NonNullable<typeof p> => !!p)
     .map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
-  return { pts, nome: preset.nome, tipo: preset.tipo };
+  return { funcoes, nome: preset.nome, tipo: preset.tipo };
 }
 
 /** Reconstrói o payload da mensagem a partir do estado atual. Null se o preset sumiu. */
 export async function montarPayload(messageId: string, presetId: number): Promise<Record<string, unknown> | null> {
-  const info = await ptsDoPreset(presetId);
+  const info = await funcoesDoPreset(presetId);
   if (!info) return null;
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   const [marcas, respostas, membros, perfil, emojis, meta] = await Promise.all([
@@ -66,7 +68,7 @@ export async function montarPayload(messageId: string, presetId: number): Promis
   ]);
   return montarEmbedIntencao({
     presetId, presetNome: info.nome, mensagem: cfg.mensagem, imagem: cfg.imagem,
-    pts: info.pts, marcas, respostas, membros, perfil, emojis,
+    funcoes: info.funcoes, marcas, respostas, membros, perfil, emojis,
     tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
   }) as unknown as Record<string, unknown>;
 }
@@ -74,16 +76,16 @@ export async function montarPayload(messageId: string, presetId: number): Promis
 /** Posta uma rodada nova a partir do preset. Cria o EVENTO ligado (mesma CTE = sem evento órfão). */
 export async function postarIntencao(presetId: number): Promise<{ ok: boolean; erro?: string; messageId?: string; eventoUuid?: string }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
-  const info = await ptsDoPreset(presetId);
+  const info = await funcoesDoPreset(presetId);
   if (!info) return { ok: false, erro: "preset não encontrado" };
-  if (!info.pts.length) return { ok: false, erro: "preset sem nenhuma PT — nada pra marcar" };
+  if (!info.funcoes.length) return { ok: false, erro: "preset sem nenhuma função — nada pra marcar" };
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   if (!cfg.channelId) return { ok: false, erro: `canal do ${rotuloTipo(info.tipo as Tipo)} não configurado` };
 
   const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listMembrosInt(info.tipo)]);
   const payload = montarEmbedIntencao({
     presetId, presetNome: info.nome, mensagem: cfg.mensagem, imagem: cfg.imagem,
-    pts: info.pts, marcas: [], respostas: [], membros, perfil, emojis,
+    funcoes: info.funcoes, marcas: [], respostas: [], membros, perfil, emojis,
     tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
   });
   const res = await botFetch(`/channels/${cfg.channelId}/messages`, {
@@ -119,16 +121,16 @@ async function eventoAberto(messageId: string): Promise<boolean> {
 }
 
 /**
- * Alterna a marca da pessoa numa PT. Marcar qualquer PT ⇒ resposta 'vai'. Desmarcar a última
- * PT APAGA a resposta — volta a "não respondeu", que é o estado que a estatística de falta
+ * Alterna a marca da pessoa numa FUNÇÃO. Marcar qualquer função ⇒ resposta 'vai'. Desmarcar a
+ * última APAGA a resposta — volta a "não respondeu", que é o estado que a estatística de falta
  * precisa distinguir de "recusou".
  */
-export async function alternarMarca(o: Quem & { ptId: number }): Promise<Record<string, unknown> | null> {
+export async function alternarMarca(o: Quem & { funcaoId: number }): Promise<Record<string, unknown> | null> {
   if (!(await eventoAberto(o.messageId))) return null;
-  const ja = (await sql`SELECT 1 FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId} AND pt_id = ${o.ptId}`) as unknown[];
-  if (ja.length) await sql`DELETE FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId} AND pt_id = ${o.ptId}`;
-  else await sql`INSERT INTO intencao_marca (message_id, user_id, pt_id, chave, familia) VALUES (${o.messageId}, ${o.userId}, ${o.ptId}, ${o.chave}, ${o.familia})
-    ON CONFLICT (message_id, user_id, pt_id) DO NOTHING`;
+  const ja = (await sql`SELECT 1 FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId} AND funcao_id = ${o.funcaoId}`) as unknown[];
+  if (ja.length) await sql`DELETE FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId} AND funcao_id = ${o.funcaoId}`;
+  else await sql`INSERT INTO intencao_marca (message_id, user_id, funcao_id, chave, familia) VALUES (${o.messageId}, ${o.userId}, ${o.funcaoId}, ${o.chave}, ${o.familia})
+    ON CONFLICT (message_id, user_id, funcao_id) DO NOTHING`;
 
   const restantes = (await sql`SELECT count(*)::int AS n FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`) as { n: number }[];
   if (restantes[0]?.n) {

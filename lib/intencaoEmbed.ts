@@ -9,10 +9,10 @@
  *    tenta dizer nada. O ❌ é vermelho por ser ação de outra natureza, não uma PT.
  */
 
-export type PtI = { id: number; nome: string; emoji: string | null };
-export type MarcaI = { user_id: string; pt_id: number };
+export type FuncaoI = { id: number; nome: string; emoji: string | null };
+export type MarcaI = { user_id: string; funcao_id: number };
 export type RespI = { user_id: string; familia: string | null; chave: string | null; resposta: "vai" | "nao" };
-export type MembroI = { chave: string; familia: string; pt_id: number };
+export type MembroI = { chave: string; familia: string; funcao_id: number };
 export type PerfilI = { guilda: string; classe: string | null; gs: number | null };
 export type EmojiMapI = { classes: Record<string, string>; guildas: Record<string, string> };
 
@@ -36,7 +36,7 @@ export type DadosIntencao = {
   presetNome: string;
   mensagem?: string;
   imagem?: string;
-  pts: PtI[];                 // já na ordem do preset
+  funcoes: FuncaoI[];                 // já na ordem do preset
   marcas: MarcaI[];
   respostas: RespI[];
   membros?: MembroI[];        // "PT de casa" (intencao_membro) — vira a lista de não decididos
@@ -48,8 +48,8 @@ export type DadosIntencao = {
 
 export function montarEmbedIntencao(d: DadosIntencao) {
   const tags = d.tags ?? {};
-  const marcasPorPt = new Map<number, string[]>();
-  for (const m of d.marcas) { const a = marcasPorPt.get(m.pt_id) ?? []; a.push(m.user_id); marcasPorPt.set(m.pt_id, a); }
+  const marcasPorFuncao = new Map<number, string[]>();
+  for (const m of d.marcas) { const a = marcasPorFuncao.get(m.funcao_id) ?? []; a.push(m.user_id); marcasPorFuncao.set(m.funcao_id, a); }
   const respPorUser = new Map(d.respostas.map((r) => [r.user_id, r]));
 
   // linha de uma pessoa: {emoji guilda} · Nome(clicável) · GS · {emoji classe}. Emoji FORA do link
@@ -66,8 +66,8 @@ export function montarEmbedIntencao(d: DadosIntencao) {
   const moldura = (ids: string[]) => "> " + ids.map(linha).join("\n> ");
 
   const secoes: string[] = [];
-  for (const pt of d.pts) {
-    const ids = marcasPorPt.get(pt.id) ?? [];
+  for (const pt of d.funcoes) {
+    const ids = marcasPorFuncao.get(pt.id) ?? [];
     const gss = ids.map((u) => { const r = respPorUser.get(u); return r?.chave ? d.perfil?.get(r.chave)?.gs : null; })
       .filter((x): x is number => x != null);
     const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
@@ -109,13 +109,13 @@ export function montarEmbedIntencao(d: DadosIntencao) {
   };
 
   // botões: um por PT (neutro, ícone + contagem) + ❌. Sem emoji → cai pro nome curto.
-  const botoes = d.pts.slice(0, MAX_BOTOES).map((pt) => {
+  const botoes = d.funcoes.slice(0, MAX_BOTOES).map((pt) => {
     const e = emojiDiscord(pt.emoji);
     return {
       type: 2, style: 2,
-      custom_id: `int:pt:${d.presetId}:${pt.id}`,
+      custom_id: `int:fn:${d.presetId}:${pt.id}`,
       ...(e ? { emoji: e } : {}),
-      label: e ? String((marcasPorPt.get(pt.id) ?? []).length) : `${pt.nome.slice(0, 10)} ${(marcasPorPt.get(pt.id) ?? []).length}`,
+      label: e ? String((marcasPorFuncao.get(pt.id) ?? []).length) : `${pt.nome.slice(0, 10)} ${(marcasPorFuncao.get(pt.id) ?? []).length}`,
     };
   });
   botoes.push({ type: 2, style: 4, custom_id: `int:nao:${d.presetId}`, label: "❌ Não vou" } as (typeof botoes)[number]);

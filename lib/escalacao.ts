@@ -9,32 +9,32 @@ import { chaveNome } from "@/lib/nomes";
  * Gravação por DELTA (uma op por linha), como em lib/remocaoStatus.ts: duas pessoas montando a
  * escalação ao mesmo tempo não sobrescrevem o trabalho uma da outra.
  */
-export type EscalacaoRow = { chave: string; familia: string; pt_id: number | null };
-export type EscalacaoOp = { familia: string; ptId?: number | null };
+export type EscalacaoRow = { chave: string; familia: string; party_id: number | null };
+export type EscalacaoOp = { familia: string; partyId?: number | null };
 
 export async function getEscalacao(eventoId: number): Promise<EscalacaoRow[]> {
-  return (await sql`SELECT chave, familia, pt_id::int AS pt_id FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY familia`) as EscalacaoRow[];
+  return (await sql`SELECT chave, familia, party_id::int AS party_id FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY familia`) as EscalacaoRow[];
 }
 
 /**
- * Aplica um lote de deltas. `ptId` numérico = escala naquela PT (move, se já estava em outra);
+ * Aplica um lote de deltas. `partyId` numérico = escala naquela PT (move, se já estava em outra);
  * `null`/ausente = tira da escalação. Ignora linha sem família válida.
  */
 export async function aplicarEscalacao(eventoId: number, ops: unknown): Promise<EscalacaoRow[]> {
   const lista = Array.isArray(ops) ? ops : [];
   for (const o of lista) {
-    const r = (o ?? {}) as { familia?: unknown; ptId?: unknown };
+    const r = (o ?? {}) as { familia?: unknown; partyId?: unknown };
     const familia = typeof r.familia === "string" ? r.familia.replace(/\s+/g, " ").trim().slice(0, 80) : "";
     const chave = chaveNome(familia);
     if (!chave) continue;
-    const pid = r.ptId === null || r.ptId === undefined || r.ptId === "" ? null : Math.trunc(Number(r.ptId));
+    const pid = r.partyId === null || r.partyId === undefined || r.partyId === "" ? null : Math.trunc(Number(r.partyId));
     if (pid == null || !Number.isFinite(pid)) {
       await sql`DELETE FROM evento_escalacao WHERE evento_id = ${eventoId} AND chave = ${chave}`;
       continue;
     }
-    await sql`INSERT INTO evento_escalacao (evento_id, chave, familia, pt_id, atualizado)
+    await sql`INSERT INTO evento_escalacao (evento_id, chave, familia, party_id, atualizado)
       VALUES (${eventoId}, ${chave}, ${familia}, ${pid}, now())
-      ON CONFLICT (evento_id, chave) DO UPDATE SET familia = EXCLUDED.familia, pt_id = EXCLUDED.pt_id, atualizado = now()`;
+      ON CONFLICT (evento_id, chave) DO UPDATE SET familia = EXCLUDED.familia, party_id = EXCLUDED.party_id, atualizado = now()`;
   }
   return getEscalacao(eventoId);
 }

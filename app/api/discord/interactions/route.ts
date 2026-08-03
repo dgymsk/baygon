@@ -219,9 +219,9 @@ export async function POST(req: Request) {
     // --- bot de INTENÇÃO (stack nova, tabelas intencao_*) — não encosta no fluxo part: abaixo ---
     const mInt = String(body.data?.custom_id ?? "").match(/^int:(pt|nao):(\d+)(?::(\d+))?$/);
     if (mInt) {
-      const acao = mInt[1] as "pt" | "nao";
+      const acao = mInt[1] as "fn" | "nao";
       const presetId = Number(mInt[2]);
-      const ptId = mInt[3] ? Number(mInt[3]) : null;
+      const funcaoId = mInt[3] ? Number(mInt[3]) : null;
       const messageId = String(body.message?.id ?? "");
       const uInt = body.member?.user ?? body.user;
       const userIdInt = String(uInt?.id ?? "");
@@ -233,7 +233,7 @@ export async function POST(req: Request) {
           const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));
           const familia = (await playerPorDiscord(userIdInt)) ?? casarNome(familiaDoNick(nickInt) ?? String(nickInt), [], players).slice(0, 100);
           const quem = { messageId, userId: userIdInt, username: String(nickInt).slice(0, 100), familia, chave: chaveNome(familia), presetId };
-          const payload = acao === "pt" && ptId != null ? await alternarMarca({ ...quem, ptId }) : await marcarNaoVou(quem);
+          const payload = acao === "fn" && funcaoId != null ? await alternarMarca({ ...quem, funcaoId }) : await marcarNaoVou(quem);
           if (payload) await editarMensagem(tokenInt, payload);
         } catch (e) { console.error("clique intencao erro", e); }
       });
