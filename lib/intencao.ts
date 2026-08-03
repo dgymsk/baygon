@@ -10,8 +10,8 @@ import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
 
 /**
- * Bot de INTENÇÃO — rodadas em que a pessoa marca EM QUAIS FUNÇÕES pretende jogar (várias),
- * sem limite de vaga. As funções vêm de lib/funcao.ts; onde a pessoa fica de fato in-game é
+ * Bot de INTENÇÃO — rodadas em que a pessoa marca EM QUAL FUNÇÃO pretende jogar (uma; marcar
+ * outra troca), sem limite de vaga. As funções vêm de lib/funcao.ts; onde a pessoa fica de fato in-game é
  * a PARTY, decidida depois na escalação.
  *
  * Roda lado a lado com o bot de participação antigo, em tabelas próprias (intencao_*). Da stack
@@ -121,16 +121,24 @@ async function eventoAberto(messageId: string): Promise<boolean> {
 }
 
 /**
- * Alterna a marca da pessoa numa FUNÇÃO. Marcar qualquer função ⇒ resposta 'vai'. Desmarcar a
- * última APAGA a resposta — volta a "não respondeu", que é o estado que a estatística de falta
- * precisa distinguir de "recusou".
+ * Marca a pessoa numa FUNÇÃO — UMA por rodada. Clicar noutra função TROCA (não acumula): numa
+ * war você joga numa posição só. Clicar na mesma desmarca e APAGA a resposta, voltando a "não
+ * respondeu" — estado que a estatística de falta precisa distinguir de "recusou".
+ *
+ * Isto não conflita com a função de casa (intencao_membro), que segue múltipla: lá é a
+ * capacidade (quais papéis a pessoa sabe fazer), aqui é a intenção desta war.
  */
 export async function alternarMarca(o: Quem & { funcaoId: number }): Promise<Record<string, unknown> | null> {
   if (!(await eventoAberto(o.messageId))) return null;
-  const ja = (await sql`SELECT 1 FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId} AND funcao_id = ${o.funcaoId}`) as unknown[];
-  if (ja.length) await sql`DELETE FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId} AND funcao_id = ${o.funcaoId}`;
-  else await sql`INSERT INTO intencao_marca (message_id, user_id, funcao_id, chave, familia) VALUES (${o.messageId}, ${o.userId}, ${o.funcaoId}, ${o.chave}, ${o.familia})
-    ON CONFLICT (message_id, user_id, funcao_id) DO NOTHING`;
+  const ja = (await sql`SELECT funcao_id::int AS funcao_id FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`) as { funcao_id: number }[];
+  const mesma = ja.some((m) => m.funcao_id === o.funcaoId);
+  // troca = apaga a anterior e grava a nova, na mesma transação (nunca fica sem marca no meio)
+  if (mesma) await sql`DELETE FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`;
+  else await sql.transaction([
+    sql`DELETE FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`,
+    sql`INSERT INTO intencao_marca (message_id, user_id, funcao_id, chave, familia)
+        VALUES (${o.messageId}, ${o.userId}, ${o.funcaoId}, ${o.chave}, ${o.familia})`,
+  ]);
 
   const restantes = (await sql`SELECT count(*)::int AS n FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`) as { n: number }[];
   if (restantes[0]?.n) {

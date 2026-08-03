@@ -69,6 +69,18 @@ function familiaDoNick(nick?: string | null): string | null {
   const s = nick.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
   return s || null;
 }
+/**
+ * Primeiro candidato que sobra alguma letra/número depois de tirar tags e emoji.
+ * Nick só de emoji (ex.: "⚔️") vinha virando nome de família e não casava com player nenhum —
+ * por isso cai pro global_name e, no fim, pro username, que sempre tem caracteres utilizáveis.
+ */
+function primeiroNomeUtil(...cands: (string | null | undefined)[]): string {
+  for (const c of cands) {
+    const limpo = familiaDoNick(c) ?? "";
+    if (/[\p{L}\p{N}]/u.test(limpo)) return limpo;
+  }
+  return String(cands.find(Boolean) ?? "");
+}
 function tipoDoComando(nome: string): Tipo | null {
   if (nome.endsWith("siege")) return "siege";
   if (nome.endsWith("nodewar")) return "nodewar";
@@ -231,7 +243,10 @@ export async function POST(req: Request) {
       after(async () => {
         try {
           const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));
-          const familia = (await playerPorDiscord(userIdInt)) ?? casarNome(familiaDoNick(nickInt) ?? String(nickInt), [], players).slice(0, 100);
+          // registrado → identidade pelo discord_id; senão casa pelo nick, caindo pro global_name
+          // e pro username quando o apelido não tem nada aproveitável (ex.: nick só de emoji).
+          const bruto = primeiroNomeUtil(body.member?.nick, uInt?.global_name, uInt?.username);
+          const familia = (await playerPorDiscord(userIdInt)) ?? casarNome(bruto, [], players).slice(0, 100);
           const quem = { messageId, userId: userIdInt, username: String(nickInt).slice(0, 100), familia, chave: chaveNome(familia), presetId };
           const payload = acao === "fn" && funcaoId != null ? await alternarMarca({ ...quem, funcaoId }) : await marcarNaoVou(quem);
           if (payload) await editarMensagem(tokenInt, payload);

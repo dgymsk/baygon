@@ -7,9 +7,9 @@ import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 
 /**
- * Tela do evento. A escalação é o coração: à esquerda o pool AGRUPADO POR FUNÇÃO (o que a pessoa
- * marcou no bot — quem marcou 3 aparece nas 3), à direita uma coluna por PARTY IN-GAME. Arrastar
- * tira a pessoa de todos os grupos de uma vez, porque a party é decisão única.
+ * Tela do evento. A escalação é o coração: à esquerda o pool AGRUPADO POR FUNÇÃO (a função que a
+ * pessoa marcou no bot — uma por rodada), à direita uma coluna por PARTY IN-GAME. Arrastar move
+ * da função pra party; a party é onde ela joga de fato.
  *
  * Sinais no card: borda VERDE = confirmou in-game; brilho DOURADO = relíquia (marcação que nunca
  * chega ao bot); ⚠ N = guerras seguidas marcando e não jogando.

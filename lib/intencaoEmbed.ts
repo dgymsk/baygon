@@ -2,9 +2,10 @@
  * Mensagem do bot de INTENÇÃO — PURO, sem I/O (nem banco, nem Discord), pra poder ser testado.
  *
  * Diferenças pro bot de participação antigo (lib/participacaoEmbed.ts, que continua rodando):
- *  - a pessoa marca EM QUAIS PTs pretende jogar, podendo marcar VÁRIAS (um botão por PT);
+ *  - a pessoa marca em QUAL função pretende jogar (um botão por função); marcar outra TROCA,
+ *    porque numa war se joga numa posição só;
  *  - NÃO existe limite de vaga: aqui não há confirmado/espera, só quem marcou o quê;
- *  - os botões de PT são NEUTROS (style 2). O Discord só tem 4 cores de botão e elas não podem
+ *  - os botões de função são NEUTROS (style 2). O Discord só tem 4 cores de botão e elas não podem
  *    variar por pessoa numa mensagem de canal — então a identidade fica no ícone, e a cor não
  *    tenta dizer nada. O ❌ é vermelho por ser ação de outra natureza, não uma PT.
  */
@@ -39,7 +40,7 @@ export type DadosIntencao = {
   funcoes: FuncaoI[];                 // já na ordem do preset
   marcas: MarcaI[];
   respostas: RespI[];
-  membros?: MembroI[];        // "PT de casa" (intencao_membro) — vira a lista de não decididos
+  membros?: MembroI[];        // função de casa (intencao_membro) — vira a lista de não decididos
   nomePorUser?: Map<string, string>; // user_id → nome de família (exibição)
   perfil?: Map<string, PerfilI>;     // chaveNome → guilda/classe/GS
   emojis?: EmojiMapI;
@@ -78,20 +79,20 @@ export function montarEmbedIntencao(d: DadosIntencao) {
   const naoVao = d.respostas.filter((r) => r.resposta === "nao");
   if (naoVao.length) secoes.push(`**❌ Não vão — ${naoVao.length}**\n${naoVao.map((r) => `<@${r.user_id}>`).join(", ")}`);
 
-  // não decididos = quem tem PT de casa e não respondeu nada (nem marca, nem ❌)
+  // não decididos = quem tem função de casa e não respondeu nada (nem marca, nem ❌)
   if (d.membros?.length) {
     const respondeuChave = new Set(d.respostas.map((r) => r.chave).filter(Boolean) as string[]);
     const vistos = new Set<string>();
     const pendentes: string[] = [];
     for (const m of d.membros) {
-      if (vistos.has(m.chave) || respondeuChave.has(m.chave)) continue; // membro aparece 1x por PT
+      if (vistos.has(m.chave) || respondeuChave.has(m.chave)) continue; // membro aparece 1x por função
       vistos.add(m.chave);
       pendentes.push(m.familia);
     }
     if (pendentes.length) secoes.push(`**⬜ Não decididos — ${pendentes.length}**\n${pendentes.join(", ")}`);
   }
 
-  // quantas PESSOAS distintas marcaram ao menos uma PT (≠ soma das marcas, que conta repetido)
+  // pessoas distintas que marcaram (com marca única por rodada, = total de marcas)
   const pessoas = new Set(d.marcas.map((m) => m.user_id)).size;
   const topo = d.mensagem ? d.mensagem.trim().slice(0, 1500) + "\n\n" : "";
   let corpo = "", cortou = false;
@@ -108,7 +109,7 @@ export function montarEmbedIntencao(d: DadosIntencao) {
     ...(d.imagem ? { image: { url: d.imagem } } : {}),
   };
 
-  // botões: um por PT (neutro, ícone + contagem) + ❌. Sem emoji → cai pro nome curto.
+  // botões: um por função (neutro, ícone + contagem) + ❌. Sem emoji → cai pro nome curto.
   const botoes = d.funcoes.slice(0, MAX_BOTOES).map((pt) => {
     const e = emojiDiscord(pt.emoji);
     return {

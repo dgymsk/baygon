@@ -66,7 +66,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const respVai = respostas.filter((r) => r.resposta === "vai");
   const porUser = new Map(respVai.map((r) => [r.user_id, vm(r.user_id, r.familia, r.chave)]));
 
-  // pool agrupado por FUNÇÃO: quem marcou 3 funções aparece nas 3
+  // pool agrupado por FUNÇÃO — cada pessoa aparece em UMA (a marca é única por rodada)
   const grupos: GrupoVM[] = ordem.map((id) => {
     const f = fById.get(id);
     const ids = marcas.filter((m) => m.funcao_id === id).map((m) => m.user_id);
