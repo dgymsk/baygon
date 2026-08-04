@@ -284,7 +284,7 @@ export default function EventoBoard({
         ))}
       </div>
 
-      {aba === "escalacao" && (
+      <div style={{ display: aba === "escalacao" ? "block" : "none" }}>{(
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram ·
@@ -341,16 +341,16 @@ export default function EventoBoard({
             </div>
           )}
         </>
-      )}
+      )}</div>
 
-      {aba === "presenca" && (
-        <ConfirmacaoBoard eventoId={evento.eventoId} canEdit={canEdit} playersNomes={playersNomes} guildas={guildas}
+      <div style={{ display: aba === "presenca" ? "block" : "none" }}>{(
+        <ConfirmacaoBoard eventoId={evento.eventoId} canEdit={canEdit} playersNomes={playersNomes} guildas={guildas} ativo={aba === "presenca"}
           alvos={[...todos.values()].sort((a, b) => a.familia.localeCompare(b.familia, "pt-BR")).map((j) => ({
             chave: j.chave, familia: j.familia, guilda: j.guilda, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
           }))} />
-      )}
+      )}</div>
 
-      {aba === "stats" && (
+      <div style={{ display: aba === "stats" ? "block" : "none" }}>{(
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 14 }}>
           {!evento.temWar && (
             <div style={{ color: C.amarelo, fontSize: 12.5, marginBottom: 12 }}>
@@ -386,7 +386,7 @@ export default function EventoBoard({
               warIdInicial={evento.warId} statsIniciais={statsIniciais} />
           </div>
         </div>
-      )}
+      )}</div>
     </Casca>
   );
 }

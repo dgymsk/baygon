@@ -27,8 +27,8 @@ const fileToBase64 = (f: File) =>
   });
 
 export default function ConfirmacaoBoard({
-  eventoId, alvos, playersNomes, guildas, canEdit,
-}: { eventoId: number; alvos: Alvo[]; playersNomes: string[]; guildas: GuildEntry[]; canEdit: boolean }) {
+  eventoId, alvos, playersNomes, guildas, canEdit, ativo = true,
+}: { eventoId: number; alvos: Alvo[]; playersNomes: string[]; guildas: GuildEntry[]; canEdit: boolean; ativo?: boolean }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [lidos, setLidos] = useState<Lido[] | null>(null);
@@ -120,10 +120,12 @@ export default function ConfirmacaoBoard({
 
   // Ctrl+V com print no clipboard (Windows: Shift+Win+S → Ctrl+V). Ouve no documento porque o
   // usuário cola sem ter clicado em campo nenhum. Ref pro listener não capturar closure velha.
+  // Só escuta com a aba VISÍVEL: as abas ficam montadas (pra não perder a leitura ao trocar), e
+  // sem isso colar o print do resultado da war na aba de estatísticas cairia aqui por engano.
   const enfileirarRef = useRef(enfileirar);
   enfileirarRef.current = enfileirar;
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canEdit || !ativo) return;
     const onPaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -136,7 +138,7 @@ export default function ConfirmacaoBoard({
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [canEdit]);
+  }, [canEdit, ativo]);
 
   async function gravar() {
     if (!conc || !canEdit) return;
