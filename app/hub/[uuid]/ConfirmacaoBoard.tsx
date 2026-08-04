@@ -38,6 +38,7 @@ export default function ConfirmacaoBoard({
   const [falhas, setFalhas] = useState<{ nome: string; erro: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [copiado, setCopiado] = useState("");
+  const [salvandoNome, setSalvandoNome] = useState<string | null>(null);
 
   const porChave = useMemo(() => new Map(alvos.map((a) => [a.chave, a])), [alvos]);
   const rosterCand: Cand[] = useMemo(() => alvos.map((a) => ({ chave: a.chave, nome: a.familia })), [alvos]);
@@ -86,13 +87,14 @@ export default function ConfirmacaoBoard({
       if (!presente(a) && a.confirmouIngame) return `${a.familia} ✖`;  // o print vai desmarcar
       return a.familia;
     };
+    const item = (a: Alvo) => ({ label: marca(a), familia: a.familia, ligado: a.confirmouIngame });
     const extras = conc
-      ? [...conc.finais.entries()].filter(([k]) => !porChave.has(k)).map(([, n]) => n) // nem marcou no bot
+      ? [...conc.finais.entries()].filter(([k]) => !porChave.has(k)).map(([, n]) => ({ label: `${n} ✚`, familia: n, ligado: false })) // nem marcou no bot
       : [];
     return {
-      certo: alvos.filter((a) => a.escalado && presente(a)).map(marca),
-      faltando: alvos.filter((a) => a.escalado && !presente(a)).map(marca),
-      semVaga: [...alvos.filter((a) => !a.escalado && presente(a)).map(marca), ...extras],
+      certo: alvos.filter((a) => a.escalado && presente(a)).map(item),
+      faltando: alvos.filter((a) => a.escalado && !presente(a)).map(item),
+      semVaga: [...alvos.filter((a) => !a.escalado && presente(a)).map(item), ...extras],
       mudancas: conc ? alvos.filter((a) => presente(a) !== a.confirmouIngame).length + extras.length : 0,
     };
   }, [conc, alvos, porChave]);
@@ -175,22 +177,43 @@ export default function ConfirmacaoBoard({
     finally { setBusy(false); }
   }
 
-  async function toggle(a: Alvo) {
+  /**
+   * Grava a presença de UMA pessoa na hora, sem depender do botão de gravar. Cada linha é
+   * independente no banco (PK evento_id+chave), então editar o Azly não mexe em mais ninguém e
+   * o que já foi decidido não se perde se a página cair no meio.
+   */
+  async function marcarUm(familia: string, participar: boolean) {
     if (!canEdit) return;
-    await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "presenca-manual", eventoId, familia: a.familia, participar: !a.confirmouIngame }) });
-    router.refresh();
+    setSalvandoNome(familia);
+    try {
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "presenca-manual", eventoId, familia, participar }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
+      setErro(""); router.refresh();
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvandoNome(null); }
   }
 
-  const Col = ({ titulo, cor, nomes, hint, id }: { titulo: string; cor: string; nomes: string[]; hint?: string; id: string }) => (
+  type Item = { label: string; familia: string; ligado: boolean };
+  /** Cada nome é clicável e grava NA HORA (uma linha por pessoa) — não depende do botão de gravar. */
+  const Col = ({ titulo, cor, itens, hint, id }: { titulo: string; cor: string; itens: Item[]; hint?: string; id: string }) => (
     <div style={{ flex: "1 1 240px", minWidth: 240, border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ color: cor, fontWeight: 700, fontSize: 13.5 }}>{titulo} <span style={{ color: C.mute }}>({nomes.length})</span></span>
-        {nomes.length > 0 && <button onClick={() => copiar(nomes, id)} title="copiar nomes" style={{ background: "none", border: "none", color: copiado === id ? C.verde : C.mute, cursor: "pointer", fontSize: 12 }}>{copiado === id ? "✓ copiado" : "⧉ copiar"}</button>}
+        <span style={{ color: cor, fontWeight: 700, fontSize: 13.5 }}>{titulo} <span style={{ color: C.mute }}>({itens.length})</span></span>
+        {itens.length > 0 && <button onClick={() => copiar(itens.map((i) => i.familia), id)} title="copiar nomes" style={{ background: "none", border: "none", color: copiado === id ? C.verde : C.mute, cursor: "pointer", fontSize: 12 }}>{copiado === id ? "✓ copiado" : "⧉ copiar"}</button>}
       </div>
       {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
-        {nomes.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
-          : nomes.map((nm) => <span key={nm} style={{ fontSize: 12.5, color: C.texto }}>{nm}</span>)}
+        {itens.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
+          : itens.map((it) => (
+            <button key={it.familia} disabled={!canEdit || salvandoNome === it.familia}
+              onClick={() => marcarUm(it.familia, !it.ligado)}
+              title={canEdit ? (it.ligado ? "clique p/ desmarcar (grava na hora)" : "clique p/ marcar (grava na hora)") : undefined}
+              style={{ background: "none", border: "none", padding: 0, fontFamily: "inherit", fontSize: 12.5, cursor: canEdit ? "pointer" : "default", color: salvandoNome === it.familia ? C.mute : C.texto, textDecoration: canEdit ? "underline dotted transparent" : "none" }}
+              onMouseEnter={(e) => { if (canEdit) e.currentTarget.style.textDecoration = "underline dotted"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "underline dotted transparent"; }}>
+              {it.label}
+            </button>
+          ))}
       </div>
     </div>
   );
@@ -279,9 +302,9 @@ export default function ConfirmacaoBoard({
           </span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-          <Col id="certo" titulo="✅ Certo" cor={C.verde} nomes={colunas.certo} hint="Escalado e confirmado in-game" />
-          <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} nomes={colunas.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" />
-          <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} nomes={colunas.semVaga} hint="Confirmado fora da escalação → decidir se entra ou retira" />
+          <Col id="certo" titulo="✅ Certo" cor={C.verde} itens={colunas.certo} hint="Escalado e confirmado in-game" />
+          <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} itens={colunas.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" />
+          <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} itens={colunas.semVaga} hint="Confirmado fora da escalação → decidir se entra ou retira" />
         </div>
         <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
           {conc
@@ -300,7 +323,7 @@ export default function ConfirmacaoBoard({
         <div style={{ color: C.mute, fontSize: 11, marginBottom: 10 }}>{canEdit ? "Clique num nome pra ligar/desligar a confirmação na mão." : "Só staff edita."}</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {alvos.map((a) => (
-            <button key={a.chave} onClick={() => toggle(a)} disabled={!canEdit}
+            <button key={a.chave} onClick={() => marcarUm(a.familia, !a.confirmouIngame)} disabled={!canEdit}
               style={{
                 cursor: canEdit ? "pointer" : "default", fontFamily: "inherit",
                 border: `1px solid ${a.confirmouIngame ? C.verde : a.escalado ? C.laranja : C.border2}`,
