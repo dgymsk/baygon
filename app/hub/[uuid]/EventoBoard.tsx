@@ -18,7 +18,8 @@ import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/Result
  * São DUAS confirmações, com sinais distintos:
  *   FUNDO verde + ✔  = aceitou a escalação na DM (recusar tira da PT sozinho);
  *   BORDA verde       = apareceu in-game (o checkbox final);
- *   ⏳                = convocado e ainda sem resposta.
+ *   ⏳                = DM enviada, aguardando resposta;
+ *   ✉                = escalado mas ainda NÃO convocado.
  * Brilho DOURADO = lendário (nunca chega ao bot); ⚠ N = guerras seguidas marcando e não jogando.
  */
 export type JogadorVM = {
@@ -28,6 +29,7 @@ export type JogadorVM = {
   lendario: boolean; confirmouIngame: boolean; jogou: boolean | null;
   escaladoEm: number | null;
   confirmouEscalacao: boolean | null; // resposta da DM: null = não respondeu, false = recusou
+  convidado: boolean;                 // a DM já saiu? separa "não chamado" de "chamado e calado"
   faltas: number | null;          // guerras seguidas marcando e não jogando
   diasSemJogar: number | null;    // "faz N dias" é mais concreto que "N guerras"
   diasDesdeFalta: number | null;
@@ -99,7 +101,8 @@ export default function EventoBoard({
   const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id);
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
-  const nPendentes = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null).length;
+  const nAguardando = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.convidado).length;
+  const nSemConvocar = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && !j.convidado).length;
 
   async function api(body: Record<string, unknown>) {
     const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -229,7 +232,9 @@ export default function EventoBoard({
       >
         {j.lendario && <Pokebola />}
         {j.confirmouEscalacao === true && <span style={{ color: C.verde, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
-        {j.escaladoEm != null && j.confirmouEscalacao == null && <span style={{ color: C.borderSoft, fontSize: 11 }} title="convocado, ainda não respondeu">⏳</span>}
+        {partyDe(j) != null && j.confirmouEscalacao == null && (j.convidado
+          ? <span style={{ color: C.amarelo, fontSize: 11 }} title="DM enviada — aguardando resposta">⏳</span>
+          : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
         <GuildIcon id={j.guilda} />
         <span onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
           style={{ color: C.texto, fontWeight: 600, cursor: "help", whiteSpace: "nowrap" }}>
@@ -297,7 +302,7 @@ export default function EventoBoard({
             <button onClick={() => convocar(true)} disabled={salvando} title="manda DM pros escalados que ainda não responderam; segure Shift pra reenviar a todos"
               onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); convocar(false); } }}
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-              📨 Convocar escalados
+              📨 Convocar {nSemConvocar + nAguardando > 0 ? `(${nSemConvocar + nAguardando})` : "escalados"}
             </button>
           )}
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}
@@ -344,8 +349,8 @@ export default function EventoBoard({
       <div style={{ display: aba === "escalacao" ? "block" : "none" }}>{(
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
-            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.mute }}>{nPendentes}</b> sem responder ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde = aceitou a convocação</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
+            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.borderSoft }}>✉ ainda não convocado</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
           </div>

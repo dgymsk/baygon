@@ -9,11 +9,11 @@ import { chaveNome } from "@/lib/nomes";
  * Gravação por DELTA (uma op por linha), como em lib/remocaoStatus.ts: duas pessoas montando a
  * escalação ao mesmo tempo não sobrescrevem o trabalho uma da outra.
  */
-export type EscalacaoRow = { chave: string; familia: string; party_id: number | null; confirmou: boolean | null };
+export type EscalacaoRow = { chave: string; familia: string; party_id: number | null; confirmou: boolean | null; convidado_em: string | null };
 export type EscalacaoOp = { familia: string; partyId?: number | null };
 
 export async function getEscalacao(eventoId: number): Promise<EscalacaoRow[]> {
-  return (await sql`SELECT chave, familia, party_id::int AS party_id, confirmou FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY familia`) as EscalacaoRow[];
+  return (await sql`SELECT chave, familia, party_id::int AS party_id, confirmou, convidado_em::text AS convidado_em FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY familia`) as EscalacaoRow[];
 }
 
 /**

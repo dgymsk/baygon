@@ -52,6 +52,8 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const escalaPorChave = new Map(escalacao.map((e) => [e.chave, e.party_id]));
   // confirmou a ESCALAÇÃO (DM): null = não respondeu, true = aceitou, false = recusou
   const confEscPorChave = new Map(escalacao.map((e) => [e.chave, e.confirmou]));
+  // convidado_em separa "ainda não foi chamado" de "chamado e sem responder"
+  const convidadoPorChave = new Map(escalacao.map((e) => [e.chave, e.convidado_em]));
   const recusaram = escalacao.filter((e) => e.confirmou === false);
   const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
   const jogaram = ev.war_id
@@ -77,6 +79,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       jogou: jogaram ? jogaram.has(chave) : null,
       escaladoEm: escalaPorChave.get(chave) ?? null,
       confirmouEscalacao: confEscPorChave.get(chave) ?? null,
+      convidado: !!convidadoPorChave.get(chave),
       faltas: f && f.avaliados > 0 ? f.sequencia : null,
       diasSemJogar: f && f.avaliados > 0 ? f.diasSemJogar : null,
       diasDesdeFalta: f && f.avaliados > 0 ? f.diasDesdeFalta : null,
