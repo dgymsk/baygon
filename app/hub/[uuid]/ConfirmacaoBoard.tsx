@@ -44,6 +44,12 @@ export default function ConfirmacaoBoard({
   const playersCand: Cand[] = useMemo(() => playersNomes.map((n) => ({ chave: chaveNome(n), nome: n })), [playersNomes]);
   const opcoes = useMemo(() => [...playersNomes].sort((a, b) => a.localeCompare(b, "pt-BR")), [playersNomes]);
 
+  /**
+   * As colunas mostram SEMPRE o estado. Sem print lido, valem a presença já gravada — antes elas
+   * ficavam vazias mesmo com gente confirmada, o que dava a impressão de que nada tinha sido
+   * salvo. Com print lido, valem a leitura, e cada nome ganha marcador do que MUDA em relação ao
+   * gravado (✚ entra, ✖ sai), que é o que interessa antes de clicar em gravar.
+   */
   const conc = useMemo(() => {
     if (!lidos) return null;
     const vieram = lidos.filter((l) => l.participar);
@@ -68,11 +74,28 @@ export default function ConfirmacaoBoard({
     return {
       correcoes: correcoes.filter((c) => !manual[chaveNome(c.de)]),
       pendentes, finais, conta, totalEscalado,
-      certo: alvos.filter((a) => a.escalado && finais.has(a.chave)).map((a) => a.familia),
-      faltando: alvos.filter((a) => a.escalado && !finais.has(a.chave)).map((a) => a.familia),
-      semVaga: [...finais.entries()].filter(([k]) => !porChave.get(k)?.escalado).map(([, n]) => n),
     };
-  }, [lidos, manual, alvos, rosterCand, playersCand, porChave, guildas]);
+  }, [lidos, manual, alvos, rosterCand, playersCand, guildas]);
+
+  /** Nomes das três colunas + o delta contra o gravado. Sem leitura, é o próprio gravado. */
+  const colunas = useMemo(() => {
+    const presente = (a: Alvo) => (conc ? conc.finais.has(a.chave) : a.confirmouIngame);
+    const marca = (a: Alvo): string => {
+      if (!conc) return a.familia;
+      if (presente(a) && !a.confirmouIngame) return `${a.familia} ✚`;  // o print vai marcar
+      if (!presente(a) && a.confirmouIngame) return `${a.familia} ✖`;  // o print vai desmarcar
+      return a.familia;
+    };
+    const extras = conc
+      ? [...conc.finais.entries()].filter(([k]) => !porChave.has(k)).map(([, n]) => n) // nem marcou no bot
+      : [];
+    return {
+      certo: alvos.filter((a) => a.escalado && presente(a)).map(marca),
+      faltando: alvos.filter((a) => a.escalado && !presente(a)).map(marca),
+      semVaga: [...alvos.filter((a) => !a.escalado && presente(a)).map(marca), ...extras],
+      mudancas: conc ? alvos.filter((a) => presente(a) !== a.confirmouIngame).length + extras.length : 0,
+    };
+  }, [conc, alvos, porChave]);
 
   const copiar = (nomes: string[], id: string) => {
     navigator.clipboard?.writeText(nomes.join("\n")).then(() => { setCopiado(id); setTimeout(() => setCopiado(""), 1500); }).catch(() => {});
@@ -232,32 +255,39 @@ export default function ConfirmacaoBoard({
           </div>
         )}
 
-        {!conc ? (
-          <div style={{ color: C.mute, fontSize: 13, marginTop: 10 }}>Nenhum print lido ainda{canEdit ? " — suba um print pra conferir." : "."}</div>
-        ) : (
-          <>
-            <div style={{ color: C.mute, fontSize: 12, margin: "10px 0", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 10px" }}>
-              <span><b style={{ color: C.texto }}>{lidos?.length ?? 0}</b> nomes no print; <b style={{ color: C.texto }}>{conc.finais.size}</b> resolvidos.</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 10 }}>
-                <span style={{ color: C.verde, fontWeight: 700 }} title="confirmaram in-game / escalados, por guilda">Confirmados:</span>
-                {guildas.map((g) => { const u = iconeUrl(g.icone); return (
-                  <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}>
-                    {u ? <img src={u} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> : <span>{g.icone || g.tag}</span>}
-                    <b>{conc.conta[g.tag] ?? 0}</b><span style={{ color: C.mute }}>/{conc.totalEscalado[g.tag] ?? 0}</span>
-                  </span>
-                ); })}
+        <div style={{ color: C.mute, fontSize: 12, margin: "10px 0", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 10px" }}>
+          {conc
+            ? <span><b style={{ color: C.texto }}>{lidos?.length ?? 0}</b> nomes no print; <b style={{ color: C.texto }}>{conc.finais.size}</b> resolvidos
+                {colunas.mudancas > 0
+                  ? <> · <b style={{ color: C.amarelo }}>{colunas.mudancas}</b> mudança(s) em relação ao gravado</>
+                  : <span style={{ color: C.verde }}> · igual ao que já está gravado</span>}
               </span>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <Col id="certo" titulo="✅ Certo" cor={C.verde} nomes={conc.certo} hint="Escalado e apareceu in-game" />
-              <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} nomes={conc.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" />
-              <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} nomes={conc.semVaga} hint="Apareceu in-game fora da escalação → decidir se entra ou retira" />
-            </div>
-            <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
-              Cruzamento por nome de família. Se o nome no jogo diferir do nome no bot, aparece como divergência — confira esses casos.
-            </div>
-          </>
-        )}
+            : <span>Mostrando a <b style={{ color: C.texto }}>presença já gravada</b>{canEdit ? " — cole um print pra conferir contra o jogo." : "."}</span>}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 10 }}>
+            <span style={{ color: C.verde, fontWeight: 700 }} title="confirmados / escalados, por guilda">Confirmados:</span>
+            {guildas.map((g) => {
+              const u = iconeUrl(g.icone);
+              const escal = alvos.filter((a) => a.escalado && a.guilda === g.id).length;
+              const conf = conc ? (conc.conta[g.tag] ?? 0) : alvos.filter((a) => a.confirmouIngame && a.guilda === g.id).length;
+              return (
+                <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}>
+                  {u ? <img src={u} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> : <span>{g.icone || g.tag}</span>}
+                  <b>{conf}</b><span style={{ color: C.mute }}>/{escal}</span>
+                </span>
+              );
+            })}
+          </span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          <Col id="certo" titulo="✅ Certo" cor={C.verde} nomes={colunas.certo} hint="Escalado e confirmado in-game" />
+          <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} nomes={colunas.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" />
+          <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} nomes={colunas.semVaga} hint="Confirmado fora da escalação → decidir se entra ou retira" />
+        </div>
+        <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
+          {conc
+            ? <><b style={{ color: C.verde }}>✚</b> entra e <b style={{ color: C.vermelho }}>✖</b> sai quando você gravar. Cruzamento por nome de família — se o nome no jogo diferir do nome no bot, aparece como divergência.</>
+            : "Estado atual gravado. Nada muda até você ler um print ou clicar num nome abaixo."}
+        </div>
       </div>
 
       <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "14px 16px" }}>
