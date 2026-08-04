@@ -8,6 +8,7 @@ import { chaveNome } from "@/lib/nomes";
 import type { Funcao } from "@/lib/funcao";
 import type { Party } from "@/lib/party";
 import type { Preset, PlayerFuncao } from "@/lib/intencaoPreset";
+import type { IntencaoConfig } from "@/lib/intencaoConfig";
 
 /**
  * Central de definições — cria num lugar só e vale em todo lugar. Três eixos que NÃO se misturam:
@@ -21,8 +22,8 @@ type Jog = { nome: string; lendario: boolean };
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, canEdit,
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,6 +78,16 @@ export default function ConfigBoard({
   const btn = (cor: string) => ({ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: cor, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" } as const);
   const chip = (on: boolean) => ({ cursor: canEdit ? "pointer" : "default", borderRadius: 999, border: `1px solid ${on ? C.verde : C.border2}`, background: on ? C.verdeTint : C.inputBg, color: on ? C.verde : C.mute, padding: "4px 11px", fontSize: 12.5, fontWeight: 600, fontFamily: "inherit" } as const);
 
+  /** Salva um canal sozinho — mescla no que já existe pra não zerar o outro campo. */
+  const salvarCanal = (tipo: string, campo: string, valor: string) => {
+    if (!canEdit) return;
+    const novo = JSON.parse(JSON.stringify(canais)) as Record<string, Record<string, string>>;
+    if (!novo[tipo]) novo[tipo] = { canalChamada: "", canalLista: "" };
+    if (novo[tipo][campo] === valor.replace(/[^0-9]/g, "")) return; // nada mudou
+    novo[tipo][campo] = valor;
+    api({ acao: "canais", canais: novo }, "canal salvo");
+  };
+
   const mover = (lista: { id: number }[], id: number, dir: -1 | 1, acao: string) => {
     const ids = lista.map((x) => x.id);
     const i = ids.indexOf(id), j = i + dir;
@@ -124,6 +135,29 @@ export default function ConfigBoard({
               <button disabled={busy || !nf.nome.trim()} onClick={() => { api({ acao: "funcao-criar", nome: nf.nome, emoji: nf.emoji }, "função criada"); setNf({ nome: "", emoji: "" }); }} style={btn(C.verde)}>+ Função</button>
             </div>
           )}
+        </div>
+
+        {/* CANAIS — dois, de propósito: a chamada é pra todo mundo responder, a lista é o resultado */}
+        <div style={card}>
+          <Titulo>Canais do Discord <Sub>onde sai o convite e onde sai a escalação pronta</Sub></Titulo>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12 }}>
+            {TIPOS.map((t) => (
+              <div key={t} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 12px", background: C.inputBg }}>
+                <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, textTransform: "capitalize", marginBottom: 8 }}>{t}</div>
+                {([["canalChamada", "Chamada (marcar função)"], ["canalLista", "Lista (escalação pronta)"]] as const).map(([k, rot]) => (
+                  <div key={k} style={{ marginBottom: 7 }}>
+                    <label style={{ color: C.mute, fontSize: 11, display: "block", marginBottom: 3 }}>{rot}</label>
+                    <input defaultValue={canais?.[t]?.[k] ?? ""} disabled={!canEdit} placeholder="ID do canal"
+                      onBlur={(e) => salvarCanal(t, k, e.target.value)}
+                      style={{ ...input, width: "100%", padding: "5px 9px", fontSize: 12.5 }} />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 6 }}>
+            Lista vazia → cai no canal da chamada. Chamada vazia → cai no canal da tela <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.
+          </div>
         </div>
 
         {/* PARTIES */}

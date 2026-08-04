@@ -8,6 +8,7 @@ import { montarEmbedIntencao, type FuncaoI, type MarcaI, type RespI } from "@/li
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
+import { getIntencaoConfig } from "@/lib/intencaoConfig";
 
 /**
  * Bot de INTENÇÃO — rodadas em que a pessoa marca EM QUAL FUNÇÃO pretende jogar (uma; marcar
@@ -77,7 +78,9 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
   if (!info) return { ok: false, erro: "preset não encontrado" };
   if (!info.funcoes.length) return { ok: false, erro: "nenhuma função cadastrada — crie ao menos uma em Definições" };
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
-  if (!cfg.channelId) return { ok: false, erro: `canal do ${rotuloTipo(info.tipo as Tipo)} não configurado` };
+  // canal da CHAMADA vem da config do hub; cai no da tela /participacao pra não quebrar o legado
+  const canal = (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
+  if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloTipo(info.tipo as Tipo)} não configurado` };
 
   const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listPlayerFuncoes()]);
   const payload = montarEmbedIntencao({
@@ -85,7 +88,7 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
     funcoes: info.funcoes, marcas: [], respostas: [], membros, perfil, emojis,
     tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
   });
-  const res = await botFetch(`/channels/${cfg.channelId}/messages`, {
+  const res = await botFetch(`/channels/${canal}/messages`, {
     method: "POST",
     body: JSON.stringify({
       content: cfg.pingRoleId ? `<@&${cfg.pingRoleId}>` : undefined,
@@ -101,7 +104,7 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
       INSERT INTO evento (tipo, titulo, template_id) VALUES (${info.tipo}, ${info.nome}, NULL) RETURNING id, uuid
     ), p AS (
       INSERT INTO intencao_post (message_id, tipo, channel_id, titulo, preset_id, evento_id, criado)
-      SELECT ${msg.id}, ${info.tipo}, ${cfg.channelId}, ${info.nome}, ${presetId}, ev.id, now() FROM ev
+      SELECT ${msg.id}, ${info.tipo}, ${canal}, ${info.nome}, ${presetId}, ev.id, now() FROM ev
       ON CONFLICT (message_id) DO NOTHING
     )
     SELECT uuid FROM ev`) as { uuid: string }[];

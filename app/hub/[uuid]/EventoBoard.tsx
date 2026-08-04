@@ -161,6 +161,20 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
 
+  /** Publica a escalação no canal da lista. É uma mensagem só por evento, editada a cada vez. */
+  async function publicar() {
+    if (!canEdit || !evento) return;
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "publicar-lista", eventoId: evento.eventoId }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      setConvocacao((d as { editou?: boolean }).editou ? "📋 lista atualizada no canal" : "📋 lista publicada no canal");
+      setErro("");
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   /** Troca a chamada que rege o evento — muda o agrupamento do pool por função. */
   async function trocarPreset(presetId: number) {
     if (!canEdit || !evento || !Number.isFinite(presetId)) return;
@@ -303,6 +317,12 @@ export default function EventoBoard({
               onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); convocar(false); } }}
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               📨 Convocar {nSemConvocar + nAguardando > 0 ? `(${nSemConvocar + nAguardando})` : "escalados"}
+            </button>
+          )}
+          {canEdit && nEscalados > 0 && (
+            <button onClick={publicar} disabled={salvando} title="posta/atualiza a escalação no canal da lista (uma mensagem só, editada)"
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              📋 Publicar lista
             </button>
           )}
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}

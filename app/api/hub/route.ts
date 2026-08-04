@@ -8,6 +8,8 @@ import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { convocar } from "@/lib/convocacao";
+import { publicarLista } from "@/lib/publicarLista";
+import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 
 // Central do hub: funções, parties, lendários, preset do bot, escalação e presença. Staff.
 // Uma rota só porque são todas ações curtas da mesma tela — o `acao` diz qual.
@@ -15,8 +17,8 @@ import { convocar } from "@/lib/convocacao";
 export async function GET() {
   const unauth = await requireEditor();
   if (unauth) return unauth;
-  const [funcoes, parties, presets] = await Promise.all([listFuncoes(), listParties(), listPresets()]);
-  return NextResponse.json({ funcoes, parties, presets });
+  const [funcoes, parties, presets, canais] = await Promise.all([listFuncoes(), listParties(), listPresets(), getIntencaoConfig()]);
+  return NextResponse.json({ funcoes, parties, presets, canais });
 }
 
 export async function POST(req: Request) {
@@ -62,6 +64,16 @@ export async function POST(req: Request) {
       if (!mid || !Number.isFinite(pid)) return NextResponse.json({ error: "dados inválidos" }, { status: 400 });
       await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE message_id = ${mid}`;
       return NextResponse.json({ ok: true });
+    }
+
+    // --- canais do bot de intenção (chamada e lista) ---
+    case "canais": return NextResponse.json(await setIntencaoConfig(b.canais));
+
+    // --- publica/atualiza a lista da escalação no canal dela ---
+    case "publicar-lista": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const r = await publicarLista(eid());
+      return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
     }
 
     // --- dispara a DM de confirmação da escalação ---
