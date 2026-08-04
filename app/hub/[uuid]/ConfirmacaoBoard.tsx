@@ -5,95 +5,98 @@ import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { chaveNome } from "@/lib/nomes";
 import { canonicalizarNomes, type Cand } from "@/lib/casarNome";
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 
 /**
- * Confirmação in-game do evento — a MESMA conciliação do /confirmados, no contexto do hub.
+ * Confirmação in-game do evento — mesma conferência do /confirmados (mesmo canonicalizarNomes,
+ * mesmas três colunas), com o contexto do hub: "tem vaga" aqui significa ESTAR ESCALADO.
  *
- * A leitura por visão erra nome com frequência, então o print não vira presença direto:
- *   1. cada nome lido passa pelo casamento com PRIORIDADE pro roster da war (quem marcou) sobre
- *      a tabela players — senão um typo histórico rouba o match de quem está de fato na war;
- *   2. o que ele corrigiu sozinho aparece na tela ("li X, entendi Y") pra você poder discordar;
- *   3. o que não bateu com ninguém fica pendente, com um seletor pra apontar o player certo —
- *      antes esses nomes sumiam calados, que é a pior falha possível aqui;
- *   4. só depois disso é que grava.
+ * A leitura por visão erra nome com frequência, então o print não vira presença direto: o que a
+ * heurística corrigiu sozinha fica à mostra, e o que não bateu com ninguém vira pendência com
+ * seletor — nome perdido em silêncio viraria falta em cima de quem compareceu.
  */
 type Alvo = { chave: string; familia: string; guilda: string | null; escalado: boolean; confirmouIngame: boolean };
 type Lido = { familia: string; participar: boolean };
-type Guilda = { id: string; tag: string; nome: string };
 
 const fileToBase64 = (f: File) =>
   new Promise<{ mediaType: string; data: string }>((res, rej) => {
     const r = new FileReader();
-    r.onerror = () => rej(new Error("não consegui ler o arquivo"));
+    r.onerror = () => rej(new Error("falha ao ler arquivo"));
     r.onload = () => { const s = String(r.result); const c = s.indexOf(","); res({ mediaType: f.type || "image/png", data: c >= 0 ? s.slice(c + 1) : s }); };
     r.readAsDataURL(f);
   });
 
 export default function ConfirmacaoBoard({
   eventoId, alvos, playersNomes, guildas, canEdit,
-}: { eventoId: number; alvos: Alvo[]; playersNomes: string[]; guildas: Guilda[]; canEdit: boolean }) {
+}: { eventoId: number; alvos: Alvo[]; playersNomes: string[]; guildas: GuildEntry[]; canEdit: boolean }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [lidos, setLidos] = useState<Lido[] | null>(null);
-  const [manual, setManual] = useState<Record<string, string>>({}); // nome lido → player escolhido à mão
+  const [manual, setManual] = useState<Record<string, string>>({});
   const [prog, setProg] = useState("");
   const [erro, setErro] = useState("");
+  const [falhas, setFalhas] = useState<{ nome: string; erro: string }[]>([]);
   const [busy, setBusy] = useState(false);
+  const [copiado, setCopiado] = useState("");
 
   const porChave = useMemo(() => new Map(alvos.map((a) => [a.chave, a])), [alvos]);
-  const tagPorId = useMemo(() => new Map(guildas.map((g) => [g.id, g.tag])), [guildas]);
-  // roster da war primeiro: quem marcou tem prioridade sobre a tabela inteira de players
   const rosterCand: Cand[] = useMemo(() => alvos.map((a) => ({ chave: a.chave, nome: a.familia })), [alvos]);
   const playersCand: Cand[] = useMemo(() => playersNomes.map((n) => ({ chave: chaveNome(n), nome: n })), [playersNomes]);
+  const opcoes = useMemo(() => [...playersNomes].sort((a, b) => a.localeCompare(b, "pt-BR")), [playersNomes]);
 
   const conc = useMemo(() => {
     if (!lidos) return null;
     const vieram = lidos.filter((l) => l.participar);
     const { mapa, correcoes, naoEncontrados } = canonicalizarNomes(vieram.map((l) => l.familia), rosterCand, playersCand);
-    // a escolha manual sobrepõe o que a heurística decidiu
-    const resolvido = (lido: string) => manual[chaveNome(lido)] ?? mapa.get(chaveNome(lido)) ?? lido;
     const pendentes = naoEncontrados.filter((n) => !manual[chaveNome(n)]);
-    const finais = new Map<string, string>(); // chave final → nome
+    const pendChaves = new Set(pendentes.map((p) => chaveNome(p)));
+    const finais = new Map<string, string>();
     for (const l of vieram) {
-      const nome = resolvido(l.familia);
-      if (pendentes.some((p) => chaveNome(p) === chaveNome(l.familia))) continue; // não resolvido não entra
+      const k = chaveNome(l.familia);
+      if (pendChaves.has(k)) continue; // não resolvido não entra
+      const nome = manual[k] ?? mapa.get(k) ?? l.familia;
       finais.set(chaveNome(nome), nome);
     }
-    const porGuilda: Record<string, number> = {};
-    for (const g of guildas) porGuilda[g.tag] = 0;
-    for (const k of finais.keys()) {
-      const t = porChave.get(k)?.guilda;
-      const tag = t ? tagPorId.get(t) : undefined;
-      if (tag && tag in porGuilda) porGuilda[tag]++;
+    const conta: Record<string, number> = {}, totalEscalado: Record<string, number> = {};
+    for (const g of guildas) { conta[g.tag] = 0; totalEscalado[g.tag] = 0; }
+    for (const a of alvos) {
+      const tag = guildas.find((g) => g.id === a.guilda)?.tag;
+      if (!tag || !(tag in conta)) continue;
+      if (a.escalado) totalEscalado[tag]++;
+      if (finais.has(a.chave)) conta[tag]++;
     }
     return {
       correcoes: correcoes.filter((c) => !manual[chaveNome(c.de)]),
-      pendentes,
-      finais,
-      porGuilda,
-      confirmam: alvos.filter((a) => finais.has(a.chave)),
-      faltaram: alvos.filter((a) => a.escalado && !finais.has(a.chave)),
-      foraDaLista: [...finais.entries()].filter(([k]) => !porChave.has(k)).map(([, n]) => n),
+      pendentes, finais, conta, totalEscalado,
+      certo: alvos.filter((a) => a.escalado && finais.has(a.chave)).map((a) => a.familia),
+      faltando: alvos.filter((a) => a.escalado && !finais.has(a.chave)).map((a) => a.familia),
+      semVaga: [...finais.entries()].filter(([k]) => !porChave.get(k)?.escalado).map(([, n]) => n),
     };
-  }, [lidos, manual, alvos, rosterCand, playersCand, porChave, guildas, tagPorId]);
+  }, [lidos, manual, alvos, rosterCand, playersCand, porChave, guildas]);
+
+  const copiar = (nomes: string[], id: string) => {
+    navigator.clipboard?.writeText(nomes.join("\n")).then(() => { setCopiado(id); setTimeout(() => setCopiado(""), 1500); }).catch(() => {});
+  };
 
   async function lerPrints(files: FileList | null) {
     if (!files?.length || !canEdit) return;
-    setBusy(true); setErro("");
+    setBusy(true); setErro(""); setFalhas([]);
     const acc = new Map<string, Lido>(lidos?.map((l) => [chaveNome(l.familia), l]) ?? []);
-    try {
-      for (let i = 0; i < files.length; i++) {
-        setProg(`lendo print ${i + 1}/${files.length}…`);
+    const ruins: { nome: string; erro: string }[] = [];
+    for (let i = 0; i < files.length; i++) {
+      setProg(`lendo print ${i + 1}/${files.length}…`);
+      try {
         const image = await fileToBase64(files[i]);
         const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
-        for (const m of ((d as { membros?: Lido[] }).membros ?? [])) acc.set(chaveNome(m.familia), m); // último print vence
-      }
-      setLidos([...acc.values()]);
-      setProg(`${acc.size} nome(s) no total`);
-    } catch (e) { setErro((e as Error).message); setProg(""); }
-    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ""; }
+        for (const m of ((d as { membros?: Lido[] }).membros ?? [])) acc.set(chaveNome(m.familia), m); // último vence
+      } catch (e) { ruins.push({ nome: files[i].name, erro: (e as Error).message }); } // um print ruim não derruba os outros
+    }
+    setLidos([...acc.values()]); setFalhas(ruins);
+    setProg(`${acc.size} nome(s) no total`);
+    setBusy(false);
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   async function gravar() {
@@ -101,10 +104,7 @@ export default function ConfirmacaoBoard({
     setBusy(true);
     try {
       const membros = [...conc.finais.values()].map((familia) => ({ familia, participar: true }));
-      const res = await fetch("/api/hub", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ acao: "presenca-print", eventoId, membros }),
-      });
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "presenca-print", eventoId, membros }) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
       setProg("presença gravada ✓"); setLidos(null); setManual({}); router.refresh();
     } catch (e) { setErro((e as Error).message); }
@@ -113,122 +113,135 @@ export default function ConfirmacaoBoard({
 
   async function toggle(a: Alvo) {
     if (!canEdit) return;
-    await fetch("/api/hub", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ acao: "presenca-manual", eventoId, familia: a.familia, participar: !a.confirmouIngame }),
-    });
+    await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "presenca-manual", eventoId, familia: a.familia, participar: !a.confirmouIngame }) });
     router.refresh();
   }
 
-  const jaConfirmados = alvos.filter((a) => a.confirmouIngame).length;
-  const escaladosSem = alvos.filter((a) => a.escalado && !a.confirmouIngame).length;
-  const opcoes = useMemo(() => [...playersNomes].sort((a, b) => a.localeCompare(b, "pt-BR")), [playersNomes]);
+  const Col = ({ titulo, cor, nomes, hint, id }: { titulo: string; cor: string; nomes: string[]; hint?: string; id: string }) => (
+    <div style={{ flex: "1 1 240px", minWidth: 240, border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <span style={{ color: cor, fontWeight: 700, fontSize: 13.5 }}>{titulo} <span style={{ color: C.mute }}>({nomes.length})</span></span>
+        {nomes.length > 0 && <button onClick={() => copiar(nomes, id)} title="copiar nomes" style={{ background: "none", border: "none", color: copiado === id ? C.verde : C.mute, cursor: "pointer", fontSize: 12 }}>{copiado === id ? "✓ copiado" : "⧉ copiar"}</button>}
+      </div>
+      {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
+        {nomes.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
+          : nomes.map((nm) => <span key={nm} style={{ fontSize: 12.5, color: C.texto }}>{nm}</span>)}
+      </div>
+    </div>
+  );
+
+  const aviso = (cor: string) => ({ color: cor, fontSize: 12.5, marginTop: 6, marginBottom: 10, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "8px 11px", background: C.inputBg } as const);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={caixa}>
-        <div style={{ color: C.mute, fontSize: 12, marginBottom: 10 }}>
-          Manda o print da tela de <b style={{ color: C.texto }}>participação in-game</b> — mesma leitura do
-          /confirmados. Isso registra quem <b style={{ color: C.verde }}>vai jogar</b>; a presença <b>oficial</b> só
-          entra com as estatísticas de combate. Pode mandar vários prints, o último vence por nome.
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+          <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Conferir “Participar” (in-game)</div>
+          {canEdit && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy} onChange={(e) => lerPrints(e.target.files)} style={{ color: C.mute, fontSize: 12 }} />
+              {lidos && <button onClick={() => { setLidos(null); setManual({}); setProg(""); setFalhas([]); }} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12 }}>descartar</button>}
+              {conc && <button onClick={gravar} disabled={busy || !!conc.pendentes.length} title={conc.pendentes.length ? "resolva os nomes pendentes primeiro" : undefined}
+                style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: conc.pendentes.length ? "transparent" : C.verdeTint, color: conc.pendentes.length ? C.mute : C.verde, padding: "5px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Gravar presença</button>}
+            </div>
+          )}
         </div>
-        {canEdit && (
-          <div style={{ display: "flex", gap: 9, alignItems: "center", flexWrap: "wrap" }}>
-            <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy} onChange={(e) => lerPrints(e.target.files)} style={{ color: C.mute, fontSize: 12 }} />
-            {prog && <span style={{ color: C.mute, fontSize: 12 }}>{prog}</span>}
-            {lidos && <button onClick={() => { setLidos(null); setManual({}); setProg(""); }} style={btnCinza}>descartar leitura</button>}
-            {erro && <span style={{ color: C.vermelho, fontSize: 12 }}>⚠ {erro}</span>}
+        <div style={{ color: C.mute, fontSize: 11.5 }}>
+          Print da tela de participação in-game. Registra quem <b style={{ color: C.verde }}>vai jogar</b>; a presença
+          oficial só entra com as estatísticas de combate. Vários prints acumulam — o último vence por nome.
+        </div>
+        {prog && <div style={{ color: C.mute, fontSize: 12, marginTop: 6 }}>{prog}</div>}
+        {erro && <div style={{ color: C.vermelho, fontSize: 13, marginTop: 6 }}>⚠ {erro}</div>}
+
+        {falhas.length > 0 && (
+          <div style={aviso(C.amarelo)}>
+            <b>⚠ {falhas.length} print(s) falharam</b> — os outros foram lidos; re-suba só estes:
+            <ul style={{ margin: "5px 0 0", paddingLeft: 18 }}>
+              {falhas.map((f, i) => <li key={i} style={{ color: C.mute }}><b style={{ color: C.texto }}>{f.nome}</b> — {f.erro}</li>)}
+            </ul>
           </div>
+        )}
+        {conc && conc.correcoes.length > 0 && (
+          <div style={aviso(C.verde)}>
+            <b>✏ {conc.correcoes.length} nome(s) corrigido(s) por similaridade</b> — confira se bateu certo:
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", marginTop: 4 }}>
+              {conc.correcoes.map((c, i) => <span key={i} style={{ color: C.mute }}>{c.de} → <b style={{ color: C.texto }}>{c.para}</b></span>)}
+            </div>
+          </div>
+        )}
+        {conc && conc.pendentes.length > 0 && (
+          <div style={aviso(C.amarelo)}>
+            <b>⚠ {conc.pendentes.length} nome(s) não bateram com ninguém</b> — leitura da IA pode estar errada, ou é gente de fora. Aponte o player:
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 6, marginTop: 6 }}>
+              {conc.pendentes.map((n) => (
+                <div key={n} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: C.texto, minWidth: 92 }} title="como a visão leu">{n}</span>
+                  <span style={{ color: C.mute }}>→</span>
+                  <select defaultValue="" disabled={!canEdit} onChange={(e) => e.target.value && setManual((m) => ({ ...m, [chaveNome(n)]: e.target.value }))}
+                    style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 7, padding: "3px 7px", fontSize: 12, fontFamily: "inherit", flex: 1 }}>
+                    <option value="">escolher player…</option>
+                    {opcoes.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!conc ? (
+          <div style={{ color: C.mute, fontSize: 13, marginTop: 10 }}>Nenhum print lido ainda{canEdit ? " — suba um print pra conferir." : "."}</div>
+        ) : (
+          <>
+            <div style={{ color: C.mute, fontSize: 12, margin: "10px 0", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "2px 10px" }}>
+              <span><b style={{ color: C.texto }}>{lidos?.length ?? 0}</b> nomes no print; <b style={{ color: C.texto }}>{conc.finais.size}</b> resolvidos.</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, borderLeft: `1px solid ${C.borderSoft}`, paddingLeft: 10 }}>
+                <span style={{ color: C.verde, fontWeight: 700 }} title="confirmaram in-game / escalados, por guilda">Confirmados:</span>
+                {guildas.map((g) => { const u = iconeUrl(g.icone); return (
+                  <span key={g.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, color: C.texto }}>
+                    {u ? <img src={u} alt="" width={14} height={14} style={{ borderRadius: 3 }} /> : <span>{g.icone || g.tag}</span>}
+                    <b>{conc.conta[g.tag] ?? 0}</b><span style={{ color: C.mute }}>/{conc.totalEscalado[g.tag] ?? 0}</span>
+                  </span>
+                ); })}
+              </span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <Col id="certo" titulo="✅ Certo" cor={C.verde} nomes={conc.certo} hint="Escalado e apareceu in-game" />
+              <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} nomes={conc.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" />
+              <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} nomes={conc.semVaga} hint="Apareceu in-game fora da escalação → decidir se entra ou retira" />
+            </div>
+            <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
+              Cruzamento por nome de família. Se o nome no jogo diferir do nome no bot, aparece como divergência — confira esses casos.
+            </div>
+          </>
         )}
       </div>
 
-      {conc && (
-        <div style={caixa}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-            <span style={{ color: C.amarelo, fontWeight: 700, fontSize: 13.5 }}>
-              Conferência — {conc.finais.size} resolvidos
-              {guildas.map((g) => conc.porGuilda[g.tag] ? <span key={g.id} style={{ color: C.mute, fontWeight: 400, fontSize: 12 }}> · {g.tag} {conc.porGuilda[g.tag]}</span> : null)}
-            </span>
-            {canEdit && (
-              <button onClick={gravar} disabled={busy || !!conc.pendentes.length} style={conc.pendentes.length ? btnCinza : btnVerde}
-                title={conc.pendentes.length ? "resolva os nomes pendentes primeiro" : undefined}>
-                Gravar presença
-              </button>
-            )}
-          </div>
-
-          {/* pendentes primeiro: são o que pode se perder calado */}
-          {conc.pendentes.length > 0 && (
-            <div style={{ border: `1px solid ${C.vermelho}`, borderRadius: 10, padding: "9px 11px", marginBottom: 11 }}>
-              <div style={{ color: C.vermelho, fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-                {conc.pendentes.length} nome(s) que não bateram com ninguém — aponte o player ou eles ficam de fora
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
-                {conc.pendentes.map((n) => (
-                  <div key={n} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
-                    <span style={{ color: C.texto, minWidth: 96 }} title="como a visão leu">{n}</span>
-                    <span style={{ color: C.mute }}>→</span>
-                    <select defaultValue="" disabled={!canEdit} onChange={(e) => e.target.value && setManual((m) => ({ ...m, [chaveNome(n)]: e.target.value }))}
-                      style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 7, padding: "3px 7px", fontSize: 12, fontFamily: "inherit", flex: 1 }}>
-                      <option value="">escolher player…</option>
-                      {opcoes.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {conc.correcoes.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ color: C.laranja, fontSize: 12, fontWeight: 700, marginBottom: 3 }}>Corrigidos automaticamente ({conc.correcoes.length})</div>
-              <div style={{ color: C.mute, fontSize: 12 }}>{conc.correcoes.map((c) => `${c.de} → ${c.para}`).join("  ·  ")}</div>
-            </div>
-          )}
-
-          <Bloco titulo={`Confirmaram (${conc.confirmam.length})`} cor={C.verde} nomes={conc.confirmam.map((a) => a.familia)} />
-          <Bloco titulo={`Escalados que NÃO apareceram (${conc.faltaram.length})`} cor={C.vermelho} nomes={conc.faltaram.map((a) => a.familia)} />
-          <Bloco titulo={`No print mas fora da chamada (${conc.foraDaLista.length})`} cor={C.laranja} nomes={conc.foraDaLista} />
+      <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+          <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Situação gravada</div>
+          <span style={{ color: C.mute, fontSize: 11.5 }}>
+            {alvos.filter((a) => a.confirmouIngame).length} confirmado(s) · {alvos.filter((a) => a.escalado && !a.confirmouIngame).length} escalado(s) sem confirmar
+          </span>
         </div>
-      )}
-
-      <div style={caixa}>
-        <div style={{ color: C.verde, fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>Situação gravada</div>
-        <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 10 }}>
-          {jaConfirmados} confirmado(s) · {escaladosSem} escalado(s) sem confirmar{canEdit && " · clique pra corrigir na mão"}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 5 }}>
+        <div style={{ color: C.mute, fontSize: 11, marginBottom: 10 }}>{canEdit ? "Clique num nome pra ligar/desligar a confirmação na mão." : "Só staff edita."}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {alvos.map((a) => (
             <button key={a.chave} onClick={() => toggle(a)} disabled={!canEdit}
               style={{
-                textAlign: "left", cursor: canEdit ? "pointer" : "default", fontFamily: "inherit",
+                cursor: canEdit ? "pointer" : "default", fontFamily: "inherit",
                 border: `1px solid ${a.confirmouIngame ? C.verde : a.escalado ? C.laranja : C.border2}`,
                 background: a.confirmouIngame ? C.verdeTint : C.inputBg,
-                borderRadius: 8, padding: "5px 9px", fontSize: 12.5, color: C.texto,
-                display: "flex", alignItems: "center", gap: 6,
+                borderRadius: 999, padding: "4px 11px", fontSize: 12.5, color: C.texto,
+                display: "inline-flex", alignItems: "center", gap: 5,
               }}>
               <span style={{ color: a.confirmouIngame ? C.verde : C.borderSoft }}>{a.confirmouIngame ? "✅" : "◻"}</span>
               {a.familia}
-              {a.escalado && <span style={{ marginLeft: "auto", color: C.mute, fontSize: 10 }}>escalado</span>}
             </button>
           ))}
           {!alvos.length && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>Ninguém marcou nesta chamada.</span>}
         </div>
       </div>
-    </div>
-  );
-}
-
-const caixa = { border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 14 } as const;
-const btnVerde = { borderRadius: 8, border: `1px solid ${C.border2}`, background: C.verdeTint, color: C.verde, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" } as const;
-const btnCinza = { borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" } as const;
-
-function Bloco({ titulo, cor, nomes }: { titulo: string; cor: string; nomes: string[] }) {
-  if (!nomes.length) return null;
-  return (
-    <div style={{ marginBottom: 9 }}>
-      <div style={{ color: cor, fontSize: 12, fontWeight: 700, marginBottom: 3 }}>{titulo}</div>
-      <div style={{ color: C.mute, fontSize: 12 }}>{nomes.join(", ")}</div>
     </div>
   );
 }
