@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
+import AutoSync from "@/app/confirmados/AutoSync";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
 import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
 
@@ -80,8 +81,25 @@ export default function EventoBoard({
   }, [grupos, escalados]);
 
   const partyDe = (j: JogadorVM) => (j.chave in local ? local[j.chave] : j.escaladoEm);
+
+  /**
+   * Solta o estado otimista assim que o servidor concorda. Sem isso o override do arrastar seria
+   * eterno e passaria por cima do que chega do auto-refresh — a recusa de alguém na DM, ou o
+   * remanejo de outra pessoa da staff, nunca apareceriam nesta aba.
+   */
+  const sigServidor = useMemo(() => [...todos.values()].map((j) => `${j.chave}:${j.escaladoEm}`).join("|"), [todos]);
+  useEffect(() => {
+    setLocal((s) => {
+      let mudou = false;
+      const n = { ...s };
+      for (const j of todos.values()) if (j.chave in n && n[j.chave] === j.escaladoEm) { delete n[j.chave]; mudou = true; }
+      return mudou ? n : s;
+    });
+  }, [sigServidor, todos]);
   const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id);
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
+  const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
+  const nPendentes = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null).length;
 
   async function api(body: Record<string, unknown>) {
     const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -311,6 +329,9 @@ export default function EventoBoard({
         )}
       </div>
 
+      {/* releitura periódica: as respostas da DM chegam pelo Discord, não por esta aba */}
+      {evento.status === "aberto" && <AutoSync ms={20000} />}
+
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
       {convocacao && <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", background: C.inputBg }}>📨 {convocacao}</div>}
 
@@ -323,7 +344,7 @@ export default function EventoBoard({
       <div style={{ display: aba === "escalacao" ? "block" : "none" }}>{(
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
-            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram ·
+            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.mute }}>{nPendentes}</b> sem responder ·
             <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde = aceitou a convocação</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
