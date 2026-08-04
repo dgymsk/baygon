@@ -7,6 +7,7 @@ import { listPresets, criarPreset, atualizarPreset, excluirPreset, addPlayerFunc
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
+import { convocar } from "@/lib/convocacao";
 
 // Central do hub: funções, parties, lendários, preset do bot, escalação e presença. Staff.
 // Uma rota só porque são todas ações curtas da mesma tela — o `acao` diz qual.
@@ -61,6 +62,13 @@ export async function POST(req: Request) {
       if (!mid || !Number.isFinite(pid)) return NextResponse.json({ error: "dados inválidos" }, { status: 400 });
       await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE message_id = ${mid}`;
       return NextResponse.json({ ok: true });
+    }
+
+    // --- dispara a DM de confirmação da escalação ---
+    case "convocar": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const c = await convocar(eid(), typeof b.titulo === "string" ? b.titulo : "Node War", b.soNovos !== false);
+      return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
     }
 
     // --- redesenha a mensagem no Discord com o estado atual do banco ---

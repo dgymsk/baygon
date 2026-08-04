@@ -50,6 +50,9 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const ordemFuncoes = funcoes.map((f) => f.id); // pool agrupa por TODAS as funções do catálogo
   const presencaPorChave = new Map(presenca.map((p) => [p.chave, p.participar]));
   const escalaPorChave = new Map(escalacao.map((e) => [e.chave, e.party_id]));
+  // confirmou a ESCALAÇÃO (DM): null = não respondeu, true = aceitou, false = recusou
+  const confEscPorChave = new Map(escalacao.map((e) => [e.chave, e.confirmou]));
+  const recusaram = escalacao.filter((e) => e.confirmou === false);
   const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
   const jogaram = ev.war_id
     ? new Set(((await sql`SELECT DISTINCT nome_familia FROM desempenho WHERE war_id = ${ev.war_id}`) as { nome_familia: string }[]).map((d) => chaveNome(d.nome_familia)))
@@ -73,6 +76,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       confirmouIngame: presencaPorChave.get(chave) === true,
       jogou: jogaram ? jogaram.has(chave) : null,
       escaladoEm: escalaPorChave.get(chave) ?? null,
+      confirmouEscalacao: confEscPorChave.get(chave) ?? null,
       faltas: f && f.avaliados > 0 ? f.sequencia : null,
       diasSemJogar: f && f.avaliados > 0 ? f.diasSemJogar : null,
       diasDesdeFalta: f && f.avaliados > 0 ? f.diasDesdeFalta : null,
@@ -108,6 +112,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} escalados={escalados}
       canEdit={canEdit && ev.status === "aberto"} guildas={meta.guildas}
+      recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
       playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais}
     />

@@ -13,6 +13,7 @@ import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
 import { salvarEtapa1, finalizarGarmoth, finalizarManual, playerPorDiscord } from "@/lib/registro";
 import { alternarMarca, marcarNaoVou, postarIntencao, montarPayload } from "@/lib/intencao";
 import { listPresets } from "@/lib/intencaoPreset";
+import { responderConvocacao } from "@/lib/convocacao";
 
 // Endpoint público de Interações do Discord (liberado no middleware). A segurança é a
 // verificação de assinatura Ed25519 — sem ela, 401. Precisa do runtime Node (crypto).
@@ -229,6 +230,31 @@ export async function POST(req: Request) {
     }
 
     // --- bot de INTENÇÃO (stack nova, tabelas intencao_*) — não encosta no fluxo part: abaixo ---
+    // --- CONVOCAÇÃO: resposta da DM de quem foi escalado (aceita/recusa) ---
+    const mEsc = String(body.data?.custom_id ?? "").match(/^int:esc:(\d+):(sim|nao)$/);
+    if (mEsc) {
+      const eventoIdEsc = Number(mEsc[1]);
+      const aceita = mEsc[2] === "sim";
+      const uEsc = body.member?.user ?? body.user; // em DM não há member
+      const userIdEsc = String(uEsc?.id ?? "");
+      if (!userIdEsc) return efemero("Não consegui te identificar.");
+      const r = await responderConvocacao(eventoIdEsc, userIdEsc, aceita);
+      if (!r.ok) return efemero("Não achei sua escalação nesse evento — fale com a staff.");
+      // edita a própria DM: some com os botões e deixa a resposta registrada à vista
+      return json({
+        type: 7, // UPDATE_MESSAGE
+        data: {
+          embeds: [{
+            description: aceita
+              ? "✅ **Confirmado.** Te esperamos na war."
+              : "❌ **Anotado, você não vai.** Sua vaga foi liberada pra staff remanejar.",
+            color: aceita ? 0x2e7d32 : 0x8f8f8f,
+          }],
+          components: [],
+        },
+      });
+    }
+
     // `pt` é o nome ANTIGO do botão de função. custom_id vive dentro da mensagem pra sempre, então
     // mensagem já postada não pode morrer só porque o código renomeou — aceita os dois.
     const mInt = String(body.data?.custom_id ?? "").match(/^int:(fn|pt|nao|sync):(\d+)(?::(\d+))?$/);

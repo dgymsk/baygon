@@ -14,8 +14,11 @@ import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/Result
  * pessoa marcou no bot — uma por rodada), à direita uma coluna por PARTY IN-GAME. Arrastar move
  * da função pra party; a party é onde ela joga de fato.
  *
- * Sinais no card: borda VERDE = confirmou in-game; brilho DOURADO = lendário (marcação que nunca
- * chega ao bot); ⚠ N = guerras seguidas marcando e não jogando.
+ * São DUAS confirmações, com sinais distintos:
+ *   FUNDO verde + ✔  = aceitou a escalação na DM (recusar tira da PT sozinho);
+ *   BORDA verde       = apareceu in-game (o checkbox final);
+ *   ⏳                = convocado e ainda sem resposta.
+ * Brilho DOURADO = lendário (nunca chega ao bot); ⚠ N = guerras seguidas marcando e não jogando.
  */
 export type JogadorVM = {
   chave: string; familia: string; userId: string;
@@ -23,6 +26,7 @@ export type JogadorVM = {
   ap: number | null; aap: number | null; dp: number | null; nWars: number | null;
   lendario: boolean; confirmouIngame: boolean; jogou: boolean | null;
   escaladoEm: number | null;
+  confirmouEscalacao: boolean | null; // resposta da DM: null = não respondeu, false = recusou
   faltas: number | null;          // guerras seguidas marcando e não jogando
   diasSemJogar: number | null;    // "faz N dias" é mais concreto que "N guerras"
   diasDesdeFalta: number | null;
@@ -48,10 +52,10 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
   evento, grupos, parties, escalados, canEdit, guildas,
-  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [],
+  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], recusaram = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; escalados: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
-  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[];
+  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; recusaram?: string[];
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats">("escalacao");
@@ -60,6 +64,7 @@ export default function EventoBoard({
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [sincronizou, setSincronizou] = useState(false);
+  const [convocacao, setConvocacao] = useState("");
   const arrastando = useRef<string | null>(null);
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
@@ -111,6 +116,26 @@ export default function EventoBoard({
     try {
       await api({ acao: "sync", messageId: evento.messageId });
       setErro(""); setSincronizou(true); setTimeout(() => setSincronizou(false), 2500);
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
+  /**
+   * Manda a DM de convocação pros escalados. Por padrão só pra quem ainda não respondeu, pra
+   * reenviar não incomodar quem já confirmou.
+   */
+  async function convocar(soNovos: boolean) {
+    if (!canEdit || !evento) return;
+    const alvo = soNovos ? "quem ainda não respondeu" : "TODOS os escalados (inclusive quem já respondeu)";
+    if (!confirm(`Enviar DM de confirmação para ${alvo}?`)) return;
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "convocar", eventoId: evento.eventoId, titulo: evento.titulo, soNovos }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
+      setConvocacao(`${enviados} DM(s) enviada(s)${falhas.length ? ` · ${falhas.length} falharam: ${falhas.map((f) => `${f.familia} (${f.motivo})`).join(", ")}` : ""}`);
+      setErro(""); router.refresh();
     } catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
   }
@@ -175,15 +200,18 @@ export default function EventoBoard({
         onDragEnd={() => { arrastando.current = null; setSobre(null); }}
         style={{
           position: "relative",
-          // lendário manda no visual (contorno + brilho); confirmou in-game vem em seguida (verde)
+          // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
+          // apareceu in-game. Lendário manda no contorno (dourado + brilho) por ser atributo fixo.
           border: `1px solid ${j.lendario ? C.amarelo : j.confirmouIngame ? C.verde : C.border2}`,
           boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
-          background: j.confirmouIngame ? C.verdeTint : C.inputBg,
+          background: j.confirmouEscalacao === true ? "rgba(46,125,50,.30)" : j.confirmouIngame ? C.verdeTint : C.inputBg,
           borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
           display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
         }}
       >
         {j.lendario && <Pokebola />}
+        {j.confirmouEscalacao === true && <span style={{ color: C.verde, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
+        {j.escaladoEm != null && j.confirmouEscalacao == null && <span style={{ color: C.borderSoft, fontSize: 11 }} title="convocado, ainda não respondeu">⏳</span>}
         <GuildIcon id={j.guilda} />
         <span onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
           style={{ color: C.texto, fontWeight: 600, cursor: "help", whiteSpace: "nowrap" }}>
@@ -247,6 +275,13 @@ export default function EventoBoard({
             style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
             🔄 Atualizar no Discord
           </button>
+          {canEdit && nEscalados > 0 && (
+            <button onClick={() => convocar(true)} disabled={salvando} title="manda DM pros escalados que ainda não responderam; segure Shift pra reenviar a todos"
+              onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); convocar(false); } }}
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              📨 Convocar escalados
+            </button>
+          )}
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}
           <Link className="navlink" href="/hub">← Hub</Link>
         </div>
@@ -277,6 +312,7 @@ export default function EventoBoard({
       </div>
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
+      {convocacao && <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", background: C.inputBg }}>📨 {convocacao}</div>}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Confirmação"], ["stats", "📊 Estatísticas"]] as const).map(([k, t]) => (
@@ -288,7 +324,7 @@ export default function EventoBoard({
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde = aceitou a convocação</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
           </div>
@@ -316,6 +352,20 @@ export default function EventoBoard({
                   );
                 })}
                 {!grupos.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>Ninguém marcou ainda.</span>}
+
+                {/* quem recusou a convocação: já saiu da PT, mas fica à vista pra você saber que
+                    avisou (≠ de quem sumiu) e não reescalar sem querer */}
+                {recusaram.length > 0 && (
+                  <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 10, paddingTop: 9 }}>
+                    <div style={{ color: C.vermelho, fontSize: 12, fontWeight: 700, marginBottom: 5 }}>
+                      ❌ Recusaram a convocação — {recusaram.length}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
+                      {recusaram.map((n) => <span key={n} style={{ fontSize: 12.5, color: C.mute, textDecoration: "line-through" }}>{n}</span>)}
+                    </div>
+                    <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 4 }}>Já saíram da PT. Pra reescalar, arraste de volta.</div>
+                  </div>
+                )}
               </div>
 
               {/* colunas = PARTIES IN-GAME */}
