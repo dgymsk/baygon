@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { chaveNome } from "@/lib/nomes";
@@ -78,26 +78,65 @@ export default function ConfirmacaoBoard({
     navigator.clipboard?.writeText(nomes.join("\n")).then(() => { setCopiado(id); setTimeout(() => setCopiado(""), 1500); }).catch(() => {});
   };
 
-  async function lerPrints(files: FileList | null) {
+  /**
+   * Fila de prints. Colar (Ctrl+V) e escolher arquivo caem aqui do mesmo jeito; se chegar print
+   * novo enquanto um está sendo lido, ele entra na fila em vez de disparar leitura concorrente.
+   */
+  const filaRef = useRef<File[]>([]);
+  const lendoRef = useRef(false);
+  const lidosRef = useRef<Lido[] | null>(null);
+  lidosRef.current = lidos;
+
+  async function enfileirar(files: ArrayLike<File> | null) {
     if (!files?.length || !canEdit) return;
-    setBusy(true); setErro(""); setFalhas([]);
-    const acc = new Map<string, Lido>(lidos?.map((l) => [chaveNome(l.familia), l]) ?? []);
+    filaRef.current.push(...Array.from(files));
+    if (lendoRef.current) { setProg(`${filaRef.current.length} print(s) na fila…`); return; }
+
+    lendoRef.current = true; setBusy(true); setErro("");
+    const acc = new Map<string, Lido>(lidosRef.current?.map((l) => [chaveNome(l.familia), l]) ?? []);
     const ruins: { nome: string; erro: string }[] = [];
-    for (let i = 0; i < files.length; i++) {
-      setProg(`lendo print ${i + 1}/${files.length}…`);
-      try {
-        const image = await fileToBase64(files[i]);
-        const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
-        for (const m of ((d as { membros?: Lido[] }).membros ?? [])) acc.set(chaveNome(m.familia), m); // último vence
-      } catch (e) { ruins.push({ nome: files[i].name, erro: (e as Error).message }); } // um print ruim não derruba os outros
+    let n = 0;
+    try {
+      while (filaRef.current.length) {
+        const f = filaRef.current.shift()!;
+        n++;
+        setProg(`lendo print ${n}${filaRef.current.length ? ` · ${filaRef.current.length} na fila` : ""}…`);
+        try {
+          const image = await fileToBase64(f);
+          const res = await fetch("/api/participar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
+          const d = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+          for (const m of ((d as { membros?: Lido[] }).membros ?? [])) acc.set(chaveNome(m.familia), m); // último vence
+        } catch (e) { ruins.push({ nome: f.name || "colado", erro: (e as Error).message }); } // um print ruim não derruba os outros
+        setLidos([...acc.values()]); // mostra o parcial a cada print, não só no fim
+      }
+      setFalhas(ruins);
+      setProg(`${acc.size} nome(s) no total`);
+    } finally {
+      lendoRef.current = false; setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
     }
-    setLidos([...acc.values()]); setFalhas(ruins);
-    setProg(`${acc.size} nome(s) no total`);
-    setBusy(false);
-    if (inputRef.current) inputRef.current.value = "";
   }
+
+  // Ctrl+V com print no clipboard (Windows: Shift+Win+S → Ctrl+V). Ouve no documento porque o
+  // usuário cola sem ter clicado em campo nenhum. Ref pro listener não capturar closure velha.
+  const enfileirarRef = useRef(enfileirar);
+  enfileirarRef.current = enfileirar;
+  useEffect(() => {
+    if (!canEdit) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imgs: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) imgs.push(f); }
+      }
+      if (imgs.length) { e.preventDefault(); enfileirarRef.current(imgs); }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [canEdit]);
 
   async function gravar() {
     if (!conc || !canEdit) return;
@@ -140,7 +179,7 @@ export default function ConfirmacaoBoard({
           <div style={{ color: C.verde, fontWeight: 700, fontSize: 14 }}>Conferir “Participar” (in-game)</div>
           {canEdit && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy} onChange={(e) => lerPrints(e.target.files)} style={{ color: C.mute, fontSize: 12 }} />
+              <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy} onChange={(e) => enfileirar(e.target.files)} style={{ color: C.mute, fontSize: 12 }} />
               {lidos && <button onClick={() => { setLidos(null); setManual({}); setProg(""); setFalhas([]); }} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12 }}>descartar</button>}
               {conc && <button onClick={gravar} disabled={busy || !!conc.pendentes.length} title={conc.pendentes.length ? "resolva os nomes pendentes primeiro" : undefined}
                 style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: conc.pendentes.length ? "transparent" : C.verdeTint, color: conc.pendentes.length ? C.mute : C.verde, padding: "5px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Gravar presença</button>}
@@ -148,8 +187,10 @@ export default function ConfirmacaoBoard({
           )}
         </div>
         <div style={{ color: C.mute, fontSize: 11.5 }}>
-          Print da tela de participação in-game. Registra quem <b style={{ color: C.verde }}>vai jogar</b>; a presença
-          oficial só entra com as estatísticas de combate. Vários prints acumulam — o último vence por nome.
+          {canEdit && <><b style={{ color: C.texto }}>Cole o print com Ctrl+V</b> em qualquer lugar da página (Shift+Win+S
+          pra recortar), ou escolha o arquivo. </>}
+          Registra quem <b style={{ color: C.verde }}>vai jogar</b>; a presença oficial só entra com as estatísticas de
+          combate. Vários prints acumulam — o último vence por nome.
         </div>
         {prog && <div style={{ color: C.mute, fontSize: 12, marginTop: 6 }}>{prog}</div>}
         {erro && <div style={{ color: C.vermelho, fontSize: 13, marginTop: 6 }}>⚠ {erro}</div>}
