@@ -9,6 +9,8 @@ import type { Funcao } from "@/lib/funcao";
 import type { Party } from "@/lib/party";
 import type { Preset, PlayerFuncao } from "@/lib/intencaoPreset";
 import type { IntencaoConfig } from "@/lib/intencaoConfig";
+import type { AgendaVM } from "@/lib/agenda";
+import AgendaBoard from "./AgendaBoard";
 
 /**
  * Central de definições — cria num lugar só e vale em todo lugar. Três eixos que NÃO se misturam:
@@ -22,8 +24,8 @@ type Jog = { nome: string; lendario: boolean };
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, agendas, canEdit,
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; agendas: AgendaVM[]; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -257,11 +259,16 @@ export default function ConfigBoard({
                 })}
                 {!parties.length && <Vazio>Nenhuma party criada ainda — crie acima.</Vazio>}
                 <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ color: C.mute, fontSize: 11.5 }}>máx. na guerra:</span>
+                  <span style={{ color: C.mute, fontSize: 11.5 }}>canal:</span>
+                  <input defaultValue={preset.canal_id ?? ""} disabled={!canEdit} placeholder="do tipo"
+                    onBlur={(e) => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, canalId: e.target.value }, "canal do preset salvo")}
+                    title="canal desta chamada específica; vazio = usa o canal do tipo"
+                    style={{ ...input, width: 150, padding: "5px 8px", fontSize: 12.5 }} />
+                  <span style={{ color: C.mute, fontSize: 11.5 }}>máx:</span>
                   <input type="number" min={1} max={500} defaultValue={preset.tamanho_max ?? ""} disabled={!canEdit} placeholder="—"
                     onBlur={(e) => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, tamanhoMax: e.target.value || null }, "teto salvo")}
                     title="quantas pessoas cabem nesta guerra — referência da escalação, o bot não corta ninguém"
-                    style={{ ...input, width: 74, padding: "5px 8px", fontSize: 12.5 }} />
+                    style={{ ...input, width: 70, padding: "5px 8px", fontSize: 12.5 }} />
                 </span>
               </div>
               {!!noPreset.length && <div style={{ color: C.borderSoft, fontSize: 11.5, marginBottom: 12 }}>Colunas da escalação: {noPreset.map((id) => parties.find((x) => x.id === id)?.nome ?? id).join(" → ")}</div>}
@@ -269,6 +276,8 @@ export default function ConfigBoard({
             </>
           )}
         </div>
+
+        <AgendaBoard agendas={agendas} presets={presets} canEdit={canEdit} />
 
         {/* FUNÇÃO DO JOGADOR — card próprio: é atributo da pessoa, não depende de preset nem de
             tipo. Ficava aninhado no bloco do preset, então sumia quando não havia preset de siege. */}

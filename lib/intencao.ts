@@ -48,11 +48,11 @@ export async function getRespostasInt(messageId: string): Promise<RespI[]> {
 
 /** O bot mostra TODAS as funções do catálogo (o preset não as filtra — ele define PTs e teto).
  *  Do preset vêm só o nome da rodada e o tipo. */
-async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string } | null> {
+async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string; canalId: string | null } | null> {
   const [preset, cat] = await Promise.all([getPreset(presetId), listFuncoes()]);
   if (!preset) return null;
   const funcoes: FuncaoI[] = cat.map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
-  return { funcoes, nome: preset.nome, tipo: preset.tipo };
+  return { funcoes, nome: preset.nome, tipo: preset.tipo, canalId: preset.canal_id ?? null };
 }
 
 /** Reconstrói o payload da mensagem a partir do estado atual. Null se o preset sumiu. */
@@ -79,7 +79,8 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
   if (!info.funcoes.length) return { ok: false, erro: "nenhuma função cadastrada — crie ao menos uma em Definições" };
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   // canal da CHAMADA vem da config do hub; cai no da tela /participacao pra não quebrar o legado
-  const canal = (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
+  // prioridade: canal do PRESET → canal da chamada do tipo → canal antigo de /participacao
+  const canal = info.canalId || (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
   if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloTipo(info.tipo as Tipo)} não configurado` };
 
   const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listPlayerFuncoes()]);

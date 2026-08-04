@@ -14,7 +14,7 @@ export default auth((req) => {
 // senão /api/x.png burlava o gate). Libera: auth, _next, /login e os assets
 // públicos da tela de login. TAMBÉM libera do gate de sessão os endpoints chamados
 // por serviços externos: api/discord (webhook de Interações, protegido por assinatura
-// Ed25519) e api/participacao/cron (Vercel Cron, protegido por CRON_SECRET). Todo o
+// Ed25519) e api/participacao/cron|api/intencao/cron (Vercel Cron, protegido por CRON_SECRET). Todo o
 // resto — incluindo as demais /api de escrita/leitura — passa pelo gate.
 export const config = {
   matcher: ["/((?!api/auth|api/discord/interactions|api/participacao/cron|api/garmoth/refresh(?:/|$)|api/img|_next|login|guilds/|mascot\\.png|favicon\\.ico).*)"],

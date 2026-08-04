@@ -114,9 +114,23 @@ async function atualizarGarmoth() {
     clearTimeout(t);
   }
 }
+async function dispararAgenda() {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 30000);
+  try {
+    const res = await fetch(`${BAYGON_URL}/api/intencao/cron`, { method: "POST", headers: { authorization: `Bearer ${CRON_SECRET}` }, signal: ac.signal });
+    const d = await res.json().catch(() => ({}));
+    if (d?.devidas) console.log("[agenda]", JSON.stringify(d.feitos ?? []));
+  } catch (e) { console.warn("[agenda] falhou:", e.message); }
+  finally { clearTimeout(t); }
+}
+
 if (BAYGON_URL && CRON_SECRET) {
   setTimeout(atualizarGarmoth, 15000);                 // 1ª rodada ~15s após subir
   setInterval(atualizarGarmoth, 2 * 60 * 60 * 1000);   // a cada 2h
+  // a chamada precisa sair na hora marcada; o Vercel Hobby não faz cron sub-diário, então quem
+  // acorda o disparo é este worker. 5 min casa com a tolerância de 6 min da agenda.
+  setInterval(dispararAgenda, 5 * 60 * 1000);
   console.log("[garmoth] polling ligado (a cada 2h)");
 } else {
   console.warn("[garmoth] polling DESLIGADO — defina BAYGON_URL e CRON_SECRET p/ ligar");

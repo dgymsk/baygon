@@ -10,6 +10,7 @@ import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { convocar } from "@/lib/convocacao";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
+import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
 
 // Central do hub: funções, parties, lendários, preset do bot, escalação e presença. Staff.
 // Uma rota só porque são todas ações curtas da mesma tela — o `acao` diz qual.
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
 
     // --- preset do bot ---
     case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.parties, b.tamanhoMax)) ?? { error: "nome e tipo obrigatórios" });
-    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax }); return NextResponse.json({ presets: await listPresets() });
+    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId }); return NextResponse.json({ presets: await listPresets() });
     case "preset-excluir":  await excluirPreset(b.id); return NextResponse.json({ presets: await listPresets() });
     case "membro-add":      await addPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
     case "membro-del":      await delPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
@@ -65,6 +66,11 @@ export async function POST(req: Request) {
       await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE message_id = ${mid}`;
       return NextResponse.json({ ok: true });
     }
+
+    // --- agenda de disparo (quem bate no cron é o worker, não o Vercel) ---
+    case "agenda-criar":  return NextResponse.json((await criarAgenda(b.presetId, b.dias, b.hora)) ?? { error: "preset, dias e hora são obrigatórios" });
+    case "agenda-editar": await atualizarAgenda(b.id, { dias: b.dias, hora: b.hora, ativo: b.ativo }); return NextResponse.json({ agendas: await listAgendas() });
+    case "agenda-excluir": await excluirAgenda(b.id); return NextResponse.json({ agendas: await listAgendas() });
 
     // --- canais do bot de intenção (chamada e lista) ---
     case "canais": return NextResponse.json(await setIntencaoConfig(b.canais));
