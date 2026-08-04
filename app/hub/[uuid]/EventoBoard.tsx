@@ -344,9 +344,9 @@ export default function EventoBoard({
       )}
 
       {aba === "presenca" && (
-        <ConfirmacaoBoard eventoId={evento.eventoId} canEdit={canEdit}
-          alvos={[...todos.values()].sort((a, b) => a.familia.localeCompare(b.familia)).map((j) => ({
-            chave: j.chave, familia: j.familia, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
+        <ConfirmacaoBoard eventoId={evento.eventoId} canEdit={canEdit} playersNomes={playersNomes} guildas={guildas}
+          alvos={[...todos.values()].sort((a, b) => a.familia.localeCompare(b.familia, "pt-BR")).map((j) => ({
+            chave: j.chave, familia: j.familia, guilda: j.guilda, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
           }))} />
       )}
 
