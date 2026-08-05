@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { classeGarmoth } from "@/lib/garmothClasses";
 
 /** Leituras do gear do Garmoth p/ a página /gear (ranking atual + evolução no tempo). */
 
@@ -24,21 +25,28 @@ export async function gearRanking(): Promise<GearAtual[]> {
     .sort((a, b) => (b.gs ?? -1) - (a.gs ?? -1) || a.nome_familia.localeCompare(b.nome_familia, "pt-BR"));
 }
 
-export type PontoGear = { capturado: string; ap: number | null; aap: number | null; dp: number | null; gs: number | null };
+export type PontoGear = { capturado: string; ap: number | null; aap: number | null; dp: number | null; gs: number | null;
+  // quem a pessoa ERA nesse ponto: sem isso a curva atravessa um reroll como se fosse o mesmo
+  // personagem progredindo, com a classe de HOJE estampada sobre a série inteira
+  classe: string | null; spec: string | null; charName: string | null; motivo: string | null };
 
-/** Série de gear de um player no tempo (1 ponto por captura em que ap/aap/dp mudaram). */
+/** Série de gear de um player no tempo — 1 ponto por captura em que o gear OU a classe mudou. */
 export async function evolucaoGearPlayer(nome: string, from?: string, to?: string): Promise<PontoGear[]> {
   const de = from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : null;
   const ate = to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : null;
   // binning por DIA no fuso da guilda (America/Sao_Paulo), igual ao resto do app — senão captura noturna cai no dia UTC seguinte
   const rows = (await sql`
-    SELECT (capturado AT TIME ZONE 'America/Sao_Paulo')::text AS capturado, ap, aap, dp FROM garmoth_gear_hist
+    SELECT (capturado AT TIME ZONE 'America/Sao_Paulo')::text AS capturado, ap, aap, dp,
+           char_class, spec, char_name, motivo FROM garmoth_gear_hist
     WHERE nome_familia = ${nome}
       AND (${de}::date IS NULL OR (capturado AT TIME ZONE 'America/Sao_Paulo') >= ${de}::date)
       AND (${ate}::date IS NULL OR (capturado AT TIME ZONE 'America/Sao_Paulo') < (${ate}::date + 1))
     ORDER BY capturado
-  `) as { capturado: string; ap: number | null; aap: number | null; dp: number | null }[];
-  return rows.map((r) => ({ ...r, gs: gsDe(r.ap, r.aap, r.dp) }));
+  `) as { capturado: string; ap: number | null; aap: number | null; dp: number | null; char_class: number | null; spec: string | null; char_name: string | null; motivo: string | null }[];
+  return rows.map((r) => ({
+    capturado: r.capturado, ap: r.ap, aap: r.aap, dp: r.dp, gs: gsDe(r.ap, r.aap, r.dp),
+    classe: classeGarmoth(r.char_class), spec: r.spec, charName: r.char_name, motivo: r.motivo,
+  }));
 }
 
 /** Intervalo de datas disponível no histórico (p/ os inputs de data). */

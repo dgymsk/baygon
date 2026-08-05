@@ -43,6 +43,27 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
   const atual = ranking.find((r) => r.nome_familia === player) ?? null;
   const comGs = serie.filter((p) => p.gs != null);
   const delta = comGs.length >= 2 ? (comGs[comGs.length - 1].gs as number) - (comGs[0].gs as number) : null;
+
+  /** Onde a classe mudou entre dois pontos consecutivos. Pontos sem classe (anteriores à
+   *  instrumentação, ou de garmoth_id compartilhado) não geram troca falsa. */
+  const trocas = useMemo(() => {
+    const out: { quando: string; de: string | null; para: string | null; personagem: string | null }[] = [];
+    let ant: string | null = null, viuAlgum = false;
+    for (const p of serie) {
+      if (!p.classe) continue;
+      if (viuAlgum && p.classe !== ant) out.push({ quando: p.capturado, de: ant, para: p.classe, personagem: p.charName });
+      ant = p.classe; viuAlgum = true;
+    }
+    return out;
+  }, [serie]);
+
+  /** Garmoth parado há muito tempo = a classe exibida pode não ser a que a pessoa joga. 21 dias é
+   *  o corte: menos que isso pega quem só não trocou nada, e é ruído. */
+  const desatualizado = useMemo(() => {
+    if (!atual?.atualizado) return null;
+    const dias = Math.floor((Date.now() - new Date(atual.atualizado).getTime()) / 86400000);
+    return dias >= 21 ? dias : null;
+  }, [atual]);
   const maxGs = Math.max(1, ...ranking.map((r) => r.gs ?? 0));
 
   const box = { background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", fontFamily: "inherit", fontSize: 13.5, outline: "none" } as const;
@@ -118,6 +139,37 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
                   <div><b style={{ color: C.texto }}>{atual.char_name || player}</b> {atual.classe_bdo ? `· ${atual.classe_bdo}` : ""} {atual.spec ? `· ${ESPEC(atual.spec)}` : ""} {atual.level ? `· nv ${atual.level}` : ""}</div>
                   <div>{delta != null && <span style={{ color: delta >= 0 ? C.verde : C.vermelho }}>{delta >= 0 ? "▲" : "▼"} {Math.abs(delta)} GS no período</span>} {atual.atualizado ? <span suppressHydrationWarning style={{ color: C.borderSoft, marginLeft: delta != null ? 8 : 0 }}>atualizado {haQuanto(atual.atualizado)}</span> : null}</div>
                 </div>
+              </div>
+            )}
+
+            {/* TROCAS DE CLASSE — os marcos que a curva sozinha esconde. No BDO o gear é da
+                família: quem rerolla leva o mesmo equipamento, então a linha de GS atravessa a
+                troca lisa, como se fosse a mesma pessoa progredindo. */}
+            {trocas.length > 0 && (
+              <div style={{ border: `1px solid ${C.border2}`, borderRadius: 12, background: C.inputBg, padding: "9px 12px", marginBottom: 10 }}>
+                <div style={{ color: C.amarelo, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Trocas de classe no período</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {trocas.map((t, i) => (
+                    <div key={i} style={{ fontSize: 12.5, color: C.mute }}>
+                      <span style={{ color: C.borderSoft, fontFamily: "'Share Tech Mono', monospace" }}>{t.quando.slice(0, 10)}</span>
+                      {" · "}<b style={{ color: C.mute }}>{t.de ?? "—"}</b>
+                      <span style={{ color: C.amarelo }}> → </span>
+                      <b style={{ color: C.texto }}>{t.para ?? "—"}</b>
+                      {t.personagem && <span style={{ color: C.borderSoft }}> · {t.personagem}</span>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 5 }}>
+                  Comparar gear/desempenho atravessando uma troca é comparar duas pessoas diferentes.
+                </div>
+              </div>
+            )}
+
+            {/* o Garmoth é a fonte da classe; se ele está velho, a classe exibida pode não ser a
+                que a pessoa está jogando — que é o risco do reroll não percebido */}
+            {desatualizado != null && (
+              <div style={{ border: `1px solid ${C.laranja}`, borderRadius: 12, background: C.inputBg, padding: "8px 12px", marginBottom: 10, fontSize: 12.5, color: C.laranja }}>
+                ⚠ O Garmoth de <b>{player}</b> não é atualizado há <b>{desatualizado} dias</b> — a classe e o gear aqui podem não ser os que ele está jogando. Peça pra atualizar a build.
               </div>
             )}
 
