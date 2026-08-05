@@ -51,19 +51,19 @@ export async function discrepanciaPorWar(warId: number): Promise<DiscrepanciaRow
     SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'core_grupo' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100
-                           ELSE NULLIF(b.media,0) / NULLIF(s.valor,0) * 100 END)::float8 AS pct
+                           ELSE (b.media + 1) / (s.valor + 1) * 100 END)::float8 AS pct
     FROM scoped s JOIN bench_core b ON b.grupo = s.grupo AND b.metrica = s.metrica
     UNION ALL
     SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'grupo' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100
-                           ELSE NULLIF(b.media,0) / NULLIF(s.valor,0) * 100 END)::float8 AS pct
+                           ELSE (b.media + 1) / (s.valor + 1) * 100 END)::float8 AS pct
     FROM scoped s JOIN bench_grupo b ON b.grupo = s.grupo AND b.metrica = s.metrica
     UNION ALL
     SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'guilda' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100
-                           ELSE NULLIF(b.media,0) / NULLIF(s.valor,0) * 100 END)::float8 AS pct
+                           ELSE (b.media + 1) / (s.valor + 1) * 100 END)::float8 AS pct
     FROM scoped s JOIN bench_guilda b ON b.metrica = s.metrica
     ORDER BY nome_familia, metrica, populacao
   `;

@@ -54,11 +54,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     for (const [metrica, v] of Object.entries(l.valores ?? {})) {
       if (!METRICAS_OK.has(metrica)) continue;
       const valor = typeof v === "number" ? v : Number(v);
-      if (!Number.isFinite(valor) || valor === 0) continue; // 0 = ausência (a visão omite; mantemos coerente p/ os benchmarks não mentirem)
+      // zero é DADO, não ausência: quem tem linha esteve na war. Descartá-lo fazia o jogador de
+      // 0 kills sumir do ranking em vez de ficar em último, inflava a média de quem pontuou, e
+      // apagava o melhor resultado possível das métricas menor_melhor (0 morte, 0 tempo morto).
+      // Ausência de verdade é a chave não vir na linha.
+      if (!Number.isFinite(valor)) continue;
       tuplas.set(`${canonical}|${metrica}`, { nome: canonical, metrica, valor });
     }
   }
-  if (tuplas.size === 0) return NextResponse.json({ error: "nenhum dado válido (nomes vazios ou só zeros)", ignorados: [...ignorados] }, { status: 400 });
+  if (tuplas.size === 0) return NextResponse.json({ error: "nenhum dado válido (nenhum nome reconhecido)", ignorados: [...ignorados] }, { status: 400 });
 
   // CADASTRA os players novos (após o guard, pra um early-return não deixar player órfão): guilda MANI
   // (Manicômio) + grupo 'Indefinido'. A staff completa grupo/classe/guilda depois em /membros.

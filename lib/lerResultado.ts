@@ -22,24 +22,42 @@ function normMedia(m: string): MediaType {
   return "image/png";
 }
 
-const PROMPT = `Esta é uma captura de tela do RESULTADO de uma Guerra de Nó (Node War) do jogo Black Desert Online. A interface pode estar em PORTUGUÊS ou ESPANHOL. Há uma tabela com uma linha por membro da guilda e várias colunas de estatística.
+const fmtRotulo: Record<string, string> = { inteiro: "número inteiro", abreviado: "número, podendo vir abreviado (ex.: 484.2k, 6.3M)", tempo: "tempo mm:ss" };
 
-Para CADA linha (membro), extraia:
-- "familia": o nome de FAMÍLIA = o texto ANTES do parêntese na coluna de nome. Ex.: "Fafnir (Fafnyra)" -> "Fafnir". Se não houver parêntese, use o texto todo.
-- o VALOR de cada uma das métricas abaixo, casando pela coluna correspondente.
+const PROMPT = `Esta é uma captura de tela do RESULTADO de uma Guerra de Nó (Node War) do jogo Black Desert Online. Há uma tabela com uma linha por membro da guilda.
 
-Métricas (use exatamente estas chaves):
-${METRICAS_RESULTADO.map((m) => `- ${m.metrica}: ${m.dica}`).join("\n")}
+O CABEÇALHO É SÓ DE ÍCONES — não há texto nos títulos das colunas. Portanto NÃO tente identificar as colunas por nome: identifique-as por POSIÇÃO. A ordem é sempre a mesma.
 
-REGRAS IMPORTANTES:
-- Transcreva o valor EXATAMENTE como aparece na tela, incluindo sufixos e formato: "635.1k", "6.7M", "1.234", "09:56". NÃO converta nem arredonde.
-- Se uma célula estiver vazia, com traço ("-") ou zero em branco, OMITA aquela chave (não invente 0).
-- Se você não conseguir identificar uma coluna com segurança, OMITA a chave para todas as linhas (melhor faltar do que errar a coluna).
-- Ignore a linha de cabeçalho e linhas de total/rodapé. Não invente membros que não estejam na imagem.
+Cada linha tem, da esquerda para a direita:
+- coluna 1: Nome de Família (texto)
+- coluna 2: Classe (ícone, ignore)
+- colunas 3 a 17: as 15 métricas abaixo, NESTA ORDEM EXATA:
+
+${METRICAS_RESULTADO.map((m, i) => `${i + 1}. ${m.metrica} — ${m.dica} (${fmtRotulo[m.formato]})`).join("\n")}
+
+COMO CONFERIR O ALINHAMENTO antes de responder:
+- As DUAS ÚLTIMAS colunas são as únicas no formato mm:ss (tempo_morto e depois tempo_sobrevivencia). Se as duas últimas que você leu não forem mm:ss, você se deslocou — reconte da direita para a esquerda.
+- As TRÊS PRIMEIRAS (kills, mortes, sequencia) são inteiros pequenos, normalmente abaixo de 100.
+- As colunas 10 a 13 (canhão e trap) são 0 na maioria das linhas. Isso é NORMAL e não significa que a coluna não existe — conte-as mesmo assim, senão tudo à direita desloca.
+- Conte 15 valores por linha, sempre. Se uma linha parecer ter menos, você juntou duas colunas.
+
+REGRAS:
+- "familia": o nome de FAMÍLIA = o texto ANTES do parêntese, se houver. Ex.: "Fafnir (Fafnyra)" -> "Fafnir".
+- Transcreva o valor EXATAMENTE como aparece na tela, com o sufixo e o formato originais: "484.2k", "6.3M", "13878", "08:00". NÃO converta, não arredonde, não tire o ponto.
+- Célula com "0" é um ZERO DE VERDADE: transcreva "0". Só omita a chave se a célula estiver de fato vazia ou com traço ("-").
+- Ignore o cabeçalho e qualquer linha de total/rodapé. Não invente membros que não estejam na imagem.
 
 Chame a ferramenta registrar_resultado com todas as linhas.`;
 
-// Ferramenta forçada: garante JSON limpo (sem cercas markdown). Cada métrica = string opcional.
+/**
+ * Ferramenta forçada: garante JSON limpo (sem cercas markdown).
+ *
+ * As 15 métricas são exigidas TODAS (`required`), e a descrição de cada uma diz a POSIÇÃO da coluna.
+ * Antes só `familia` era obrigatória, então o modelo podia omitir uma coluna que não entendeu — e o
+ * resultado era aquela estatística sumir da war inteira sem nenhum aviso. Com todas obrigatórias,
+ * omissão vira erro de schema (e retry) em vez de perda silenciosa; célula vazia de verdade se
+ * declara com "".
+ */
 const TOOL: Anthropic.Tool = {
   name: "registrar_resultado",
   description: "Registra as linhas do print de resultado da war.",
@@ -52,9 +70,12 @@ const TOOL: Anthropic.Tool = {
           type: "object",
           properties: {
             familia: { type: "string", description: "nome de família (texto antes do parêntese)" },
-            ...Object.fromEntries(METRICAS_RESULTADO.map((m) => [m.metrica, { type: "string", description: m.dica }])),
+            ...Object.fromEntries(METRICAS_RESULTADO.map((m, i) => [m.metrica, {
+              type: "string",
+              description: `coluna ${i + 1} de 15 (${m.dica}) — valor cru; "0" se for zero, "" se estiver vazia`,
+            }])),
           },
-          required: ["familia"],
+          required: ["familia", ...METRICAS_RESULTADO.map((m) => m.metrica)],
         },
       },
     },
