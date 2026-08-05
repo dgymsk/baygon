@@ -109,8 +109,10 @@ export default function ConfirmacaoBoard({
    */
   const filaRef = useRef<File[]>([]);
   const lendoRef = useRef(false);
+  // espelho do estado pra leitura dentro do loop assíncrono. Sincronizado em efeito, não no
+  // render — escrever em ref durante o render é o tipo de coisa que quebra em modo concorrente.
   const lidosRef = useRef<Lido[] | null>(null);
-  lidosRef.current = lidos;
+  useEffect(() => { lidosRef.current = lidos; }, [lidos]);
 
   async function enfileirar(files: ArrayLike<File> | null) {
     if (!files?.length || !canEdit) return;
@@ -148,7 +150,7 @@ export default function ConfirmacaoBoard({
   // Só escuta com a aba VISÍVEL: as abas ficam montadas (pra não perder a leitura ao trocar), e
   // sem isso colar o print do resultado da war na aba de estatísticas cairia aqui por engano.
   const enfileirarRef = useRef(enfileirar);
-  enfileirarRef.current = enfileirar;
+  useEffect(() => { enfileirarRef.current = enfileirar; });
   useEffect(() => {
     if (!canEdit || !ativo) return;
     const onPaste = (e: ClipboardEvent) => {
@@ -193,30 +195,7 @@ export default function ConfirmacaoBoard({
     finally { setSalvandoNome(null); }
   }
 
-  type Item = { label: string; familia: string; ligado: boolean };
-  /** Cada nome é clicável e grava NA HORA (uma linha por pessoa) — não depende do botão de gravar. */
-  const Col = ({ titulo, cor, itens, hint, id }: { titulo: string; cor: string; itens: Item[]; hint?: string; id: string }) => (
-    <div style={{ flex: "1 1 240px", minWidth: 240, border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ color: cor, fontWeight: 700, fontSize: 13.5 }}>{titulo} <span style={{ color: C.mute }}>({itens.length})</span></span>
-        {itens.length > 0 && <button onClick={() => copiar(itens.map((i) => i.familia), id)} title="copiar nomes" style={{ background: "none", border: "none", color: copiado === id ? C.verde : C.mute, cursor: "pointer", fontSize: 12 }}>{copiado === id ? "✓ copiado" : "⧉ copiar"}</button>}
-      </div>
-      {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
-        {itens.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
-          : itens.map((it) => (
-            <button key={it.familia} disabled={!canEdit || salvandoNome === it.familia}
-              onClick={() => marcarUm(it.familia, !it.ligado)}
-              title={canEdit ? (it.ligado ? "clique p/ desmarcar (grava na hora)" : "clique p/ marcar (grava na hora)") : undefined}
-              style={{ background: "none", border: "none", padding: 0, fontFamily: "inherit", fontSize: 12.5, cursor: canEdit ? "pointer" : "default", color: salvandoNome === it.familia ? C.mute : C.texto, textDecoration: canEdit ? "underline dotted transparent" : "none" }}
-              onMouseEnter={(e) => { if (canEdit) e.currentTarget.style.textDecoration = "underline dotted"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "underline dotted transparent"; }}>
-              {it.label}
-            </button>
-          ))}
-      </div>
-    </div>
-  );
+  const col = { canEdit, copiado, salvandoNome, onCopiar: copiar, onToggle: marcarUm };
 
   const aviso = (cor: string) => ({ color: cor, fontSize: 12.5, marginTop: 6, marginBottom: 10, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "8px 11px", background: C.inputBg } as const);
 
@@ -302,9 +281,9 @@ export default function ConfirmacaoBoard({
           </span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-          <Col id="certo" titulo="✅ Certo" cor={C.verde} itens={colunas.certo} hint="Escalado e confirmado in-game" />
-          <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} itens={colunas.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" />
-          <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} itens={colunas.semVaga} hint="Confirmado fora da escalação → decidir se entra ou retira" />
+          <Col id="certo" titulo="✅ Certo" cor={C.verde} itens={colunas.certo} hint="Escalado e confirmado in-game" ctx={col} />
+          <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} itens={colunas.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" ctx={col} />
+          <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} itens={colunas.semVaga} hint="Confirmado fora da escalação → decidir se entra ou retira" ctx={col} />
         </div>
         <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
           {conc
@@ -337,6 +316,40 @@ export default function ConfirmacaoBoard({
           ))}
           {!alvos.length && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>Ninguém marcou nesta chamada.</span>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+type Item = { label: string; familia: string; ligado: boolean };
+type ColCtx = { canEdit: boolean; copiado: string; salvandoNome: string | null; onCopiar: (n: string[], id: string) => void; onToggle: (f: string, v: boolean) => void };
+
+/**
+ * Coluna da conferência. Fica FORA do componente de propósito: definida dentro, o React a trataria
+ * como um tipo novo a cada render e remontaria tudo — o "✓ copiado" piscava e o hover se perdia.
+ * Cada nome é clicável e grava NA HORA (uma linha por pessoa), sem depender do botão de gravar.
+ */
+function Col({ titulo, cor, itens, hint, id, ctx }: { titulo: string; cor: string; itens: Item[]; hint?: string; id: string; ctx: ColCtx }) {
+  const { canEdit, copiado, salvandoNome, onCopiar, onToggle } = ctx;
+  return (
+    <div style={{ flex: "1 1 240px", minWidth: 240, border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <span style={{ color: cor, fontWeight: 700, fontSize: 13.5 }}>{titulo} <span style={{ color: C.mute }}>({itens.length})</span></span>
+        {itens.length > 0 && <button onClick={() => onCopiar(itens.map((i) => i.familia), id)} title="copiar nomes" style={{ background: "none", border: "none", color: copiado === id ? C.verde : C.mute, cursor: "pointer", fontSize: 12 }}>{copiado === id ? "✓ copiado" : "⧉ copiar"}</button>}
+      </div>
+      {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
+        {itens.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
+          : itens.map((it) => (
+            <button key={it.familia} disabled={!canEdit || salvandoNome === it.familia}
+              onClick={() => onToggle(it.familia, !it.ligado)}
+              title={canEdit ? (it.ligado ? "clique p/ desmarcar (grava na hora)" : "clique p/ marcar (grava na hora)") : undefined}
+              style={{ background: "none", border: "none", padding: 0, fontFamily: "inherit", fontSize: 12.5, cursor: canEdit ? "pointer" : "default", color: salvandoNome === it.familia ? C.mute : C.texto, textDecoration: canEdit ? "underline dotted transparent" : "none" }}
+              onMouseEnter={(e) => { if (canEdit) e.currentTarget.style.textDecoration = "underline dotted"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "underline dotted transparent"; }}>
+              {it.label}
+            </button>
+          ))}
       </div>
     </div>
   );

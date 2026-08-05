@@ -13,6 +13,7 @@ import { faltasPorChave, type Falta } from "@/lib/faltas";
 export type FunilEvento = {
   eventoId: number; uuid: string; titulo: string; tipo: string; data: string; status: string;
   marcaram: number; escalados: number; confirmaram: number; jogaram: number;
+  aceitaram: number; recusaram: number; naoVao: number;
   temWar: boolean;      // false → "presença oficial" ainda é desconhecida, não zero
   resultado: string | null;
   presetId: number | null; presetNome: string | null; // qual chamada gerou este evento
@@ -27,6 +28,9 @@ export async function funilEventos(limite = 24): Promise<FunilEvento[]> {
       (r.war_id IS NOT NULL) AS "temWar",
       (SELECT count(*)::int FROM intencao_resp ir WHERE ir.message_id = p.message_id AND ir.resposta = 'vai') AS marcaram,
       (SELECT count(*)::int FROM evento_escalacao es WHERE es.evento_id = e.id AND es.party_id IS NOT NULL) AS escalados,
+      (SELECT count(*)::int FROM evento_escalacao es WHERE es.evento_id = e.id AND es.confirmou IS TRUE) AS aceitaram,
+      (SELECT count(*)::int FROM evento_escalacao es WHERE es.evento_id = e.id AND es.confirmou IS FALSE) AS recusaram,
+      (SELECT count(*)::int FROM intencao_resp ir WHERE ir.message_id = p.message_id AND ir.resposta = 'nao') AS naoVao,
       (SELECT count(*)::int FROM evento_presenca ep WHERE ep.evento_id = e.id AND ep.participar) AS confirmaram,
       COALESCE((SELECT count(DISTINCT d.nome_familia)::int FROM desempenho d WHERE d.war_id = r.war_id), 0) AS jogaram,
       p.preset_id::int AS "presetId", pr.nome AS "presetNome"

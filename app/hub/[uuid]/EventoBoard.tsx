@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
@@ -68,7 +68,6 @@ export default function EventoBoard({
   const [salvando, setSalvando] = useState(false);
   const [sincronizou, setSincronizou] = useState(false);
   const [convocacao, setConvocacao] = useState("");
-  const arrastando = useRef<string | null>(null);
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
@@ -82,22 +81,21 @@ export default function EventoBoard({
     return m;
   }, [grupos, escalados]);
 
-  const partyDe = (j: JogadorVM) => (j.chave in local ? local[j.chave] : j.escaladoEm);
-
   /**
-   * Solta o estado otimista assim que o servidor concorda. Sem isso o override do arrastar seria
-   * eterno e passaria por cima do que chega do auto-refresh — a recusa de alguém na DM, ou o
-   * remanejo de outra pessoa da staff, nunca apareceriam nesta aba.
+   * O estado otimista do arrastar vale só enquanto DISCORDA do servidor. Ele é descartado na
+   * leitura, não num efeito que limpa depois: senão o override seria eterno e passaria por cima do
+   * que chega do auto-refresh — a recusa de alguém na DM, ou o remanejo de outra pessoa da staff,
+   * nunca apareceriam nesta aba.
    */
-  const sigServidor = useMemo(() => [...todos.values()].map((j) => `${j.chave}:${j.escaladoEm}`).join("|"), [todos]);
-  useEffect(() => {
-    setLocal((s) => {
-      let mudou = false;
-      const n = { ...s };
-      for (const j of todos.values()) if (j.chave in n && n[j.chave] === j.escaladoEm) { delete n[j.chave]; mudou = true; }
-      return mudou ? n : s;
-    });
-  }, [sigServidor, todos]);
+  const overrides = useMemo(() => {
+    const n: Record<string, number | null> = {};
+    for (const [chave, v] of Object.entries(local)) {
+      const j = todos.get(chave);
+      if (!j || j.escaladoEm !== v) n[chave] = v; // servidor ainda não confirmou → mantém o local
+    }
+    return n;
+  }, [local, todos]);
+  const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
   const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id);
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
@@ -231,8 +229,10 @@ export default function EventoBoard({
     return (
       <div
         draggable={canEdit}
-        onDragStart={() => { arrastando.current = j.chave; }}
-        onDragEnd={() => { arrastando.current = null; setSobre(null); }}
+        // quem está sendo arrastado viaja no próprio evento (dataTransfer), não num ref: o ref
+        // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
+        onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); }}
+        onDragEnd={() => setSobre(null)}
         style={{
           position: "relative",
           // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
@@ -286,7 +286,7 @@ export default function EventoBoard({
   const alvo = (id: number | "pool") => ({
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); setSobre(id); },
     onDragLeave: () => setSobre((s) => (s === id ? null : s)),
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); setSobre(null); const c = arrastando.current; arrastando.current = null; if (c) mover(c, id === "pool" ? null : id); },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setSobre(null); const c = e.dataTransfer.getData("text/plain"); if (c) mover(c, id === "pool" ? null : id); },
   });
   const realce = (id: number | "pool") => (sobre === id ? { borderColor: C.verde, background: C.verdeTint } : {});
 
