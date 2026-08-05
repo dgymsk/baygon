@@ -42,8 +42,18 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
   const [preset, cat, perfil, emojis, meta, emojisServidor, linhas] = await Promise.all([
     post.preset_id ? getPreset(post.preset_id) : Promise.resolve(null),
     listParties(), perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listarEmojisGuild(),
-    sql`SELECT chave, familia, user_id, party_id::int AS party_id, ordem_pt::int AS ordem_pt, confirmou
-        FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY party_id NULLS LAST, ordem_pt NULLS LAST, familia` as Promise<unknown>,
+    // o user_id é resolvido NA LEITURA, e não só no que a convocação gravou: evento_escalacao.user_id
+    // só é preenchido quando alguém clica em Convocar, então publicar antes disso deixava a lista
+    // inteira sem menção. A resposta da chamada e o registro do jogador já sabem quem é.
+    sql`SELECT e.chave, e.familia, e.party_id::int AS party_id, e.ordem_pt::int AS ordem_pt, e.confirmou,
+               COALESCE(e.user_id, r.user_id, pl.discord_id) AS user_id
+        FROM evento_escalacao e
+        LEFT JOIN LATERAL (SELECT ir.user_id FROM intencao_resp ir
+                           JOIN intencao_post ip ON ip.message_id = ir.message_id
+                           WHERE ip.evento_id = e.evento_id AND ir.chave = e.chave LIMIT 1) r ON TRUE
+        LEFT JOIN players pl ON pl.nome_familia = e.familia
+        WHERE e.evento_id = ${eventoId}
+        ORDER BY e.party_id NULLS LAST, e.ordem_pt NULLS LAST, e.familia` as Promise<unknown>,
   ]);
   const rows = linhas as { chave: string; familia: string; user_id: string | null; party_id: number | null; ordem_pt: number | null; confirmou: boolean | null }[];
 
