@@ -20,20 +20,45 @@ export async function botFetch(path: string, init: RequestInit = {}, tentativas 
   return res;
 }
 
-export type EmojiGuild = { id: string; name: string; animated: boolean };
-let emojiCache: { at: number; data: EmojiGuild[] } | null = null;
+export type EmojiGuild = { id: string; name: string; animated: boolean; guilda: string };
+let emojiCache: { at: number; chave: string; data: EmojiGuild[] } | null = null;
 
-/** Emojis customizados do servidor ATIVO (cache de 60s). Vazio se sem bot/guild. */
+/**
+ * Emojis customizados de TODOS os servidores onde o bot está (cache de 60s).
+ *
+ * Não só o servidor ativo: um bot pode usar emoji de qualquer guild da qual participa, em qualquer
+ * canal. Listar só o ativo escondia os que a guilda usa de verdade — depois da migração pro Psicose
+ * (13 emojis) sumiram do seletor os ícones de classe e de PT, que moram na BAYGON e na Manicômio,
+ * mesmo continuando a renderizar normalmente onde já estavam salvos.
+ *
+ * Os do servidor ativo vêm primeiro: com nome repetido entre servidores (`:flame:` existe em dois),
+ * quem resolve por nome deve casar com o de casa.
+ */
 export async function listarEmojisGuild(): Promise<EmojiGuild[]> {
-  const gid = (await getDiscordConfig()).guildId;
-  if (!BOT_TOKEN || !gid) return [];
-  if (emojiCache && Date.now() - emojiCache.at < 60_000) return emojiCache.data;
+  const ativo = (await getDiscordConfig()).guildId;
+  if (!BOT_TOKEN) return [];
   try {
-    const res = await botFetch(`/guilds/${gid}/emojis`);
-    if (!res.ok) return emojiCache?.data ?? [];
-    const arr = (await res.json()) as { id: string; name: string; animated?: boolean }[];
-    const data = arr.filter((e) => e.id && e.name).map((e) => ({ id: e.id, name: e.name, animated: !!e.animated }));
-    emojiCache = { at: Date.now(), data };
+    const gres = await botFetch(`/users/@me/guilds`);
+    if (!gres.ok) return emojiCache?.data ?? [];
+    const guilds = (await gres.json()) as { id: string; name: string }[];
+    // ativo primeiro, o resto por nome — a ordem é o critério de desempate na resolução por nome
+    const ordenadas = [...guilds].sort((a, b) =>
+      (a.id === ativo ? -1 : 0) - (b.id === ativo ? -1 : 0) || a.name.localeCompare(b.name, "pt-BR"));
+
+    // cache inclui as guilds: trocar o servidor ativo (ou entrar/sair de um) tem que invalidar
+    const chave = ordenadas.map((g) => g.id).join(",");
+    if (emojiCache && emojiCache.chave === chave && Date.now() - emojiCache.at < 60_000) return emojiCache.data;
+
+    const listas = await Promise.all(ordenadas.map(async (g) => {
+      const res = await botFetch(`/guilds/${g.id}/emojis`);
+      if (!res.ok) return [];
+      const arr = (await res.json()) as { id: string; name: string; animated?: boolean }[];
+      return arr.filter((e) => e.id && e.name).map((e) => ({ id: e.id, name: e.name, animated: !!e.animated, guilda: g.name }));
+    }));
+    const vistos = new Set<string>();
+    const data: EmojiGuild[] = [];
+    for (const e of listas.flat()) { if (vistos.has(e.id)) continue; vistos.add(e.id); data.push(e); }
+    emojiCache = { at: Date.now(), chave, data };
     return data;
   } catch { return emojiCache?.data ?? []; }
 }
