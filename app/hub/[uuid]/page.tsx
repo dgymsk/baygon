@@ -2,7 +2,7 @@ import { sql } from "@/lib/db";
 import { listFuncoes } from "@/lib/funcao";
 import { listParties } from "@/lib/party";
 import { getPreset, listPresets, listPlayerFuncoes } from "@/lib/intencaoPreset";
-import { desempenhoDaWar } from "@/lib/eventos";
+import { desempenhoDaWar, aliancasDaWar } from "@/lib/eventos";
 import { getMarcas, getRespostasInt } from "@/lib/intencao";
 import { getEscalacao } from "@/lib/escalacao";
 import { getPresenca } from "@/lib/presencaEvento";
@@ -43,7 +43,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   }
   const temChamada = ev.message_id != null;
 
-  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, statsIniciais, vizinhos, playerFuncoes] = await Promise.all([
+  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     listFuncoes(), listParties(),
     // sem chamada não há mensagem pra consultar — o tipo vazio precisa vir anotado, senão vira never[]
@@ -52,6 +52,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     getEscalacao(ev.evento_id), getPresenca(ev.evento_id), faltasPorChave(), perfilGear(), listPlayers(),
     getGuildMeta(), canEditNow(), listPresets(),
     ev.war_id != null ? desempenhoDaWar(ev.war_id) : Promise.resolve([]), // pré-carrega a tabela de stats
+    ev.war_id != null ? aliancasDaWar(ev.war_id) : Promise.resolve([] as string[]),
     // vizinhos p/ navegar sem voltar ao hub (mais recente → mais antigo). Todos os eventos: filtrar
     // pelos que tiveram chamada deixava o <select> exibindo o nome de OUTRO evento quando o atual
     // não estava na lista.
@@ -158,7 +159,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       canEdit={canEdit && ev.status === "aberto"} guildas={meta.guildas}
       recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
-      playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais}
+      playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
     />
   );
 }

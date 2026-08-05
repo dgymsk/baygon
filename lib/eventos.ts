@@ -212,6 +212,12 @@ export async function desempenhoDaWar(warId: number): Promise<{ nome_familia: st
   return [...porJogador.entries()].map(([nome_familia, valores]) => ({ nome_familia, valores }));
 }
 
+/** Alianças que estavam na war. Vazio = não informado — é rótulo livre, não cadastro. */
+export async function aliancasDaWar(warId: number): Promise<string[]> {
+  const rows = (await sql`SELECT aliancas FROM wars WHERE war_id = ${warId}`) as { aliancas: string[] | null }[];
+  return rows[0]?.aliancas ?? [];
+}
+
 export async function getEventoById(id: number): Promise<Evento | null> {
   const rows = (await sql`
     SELECT id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em

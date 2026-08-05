@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { C } from "@/lib/theme";
-import { getEventoByUuid, desempenhoDaWar } from "@/lib/eventos";
+import { getEventoByUuid, desempenhoDaWar, aliancasDaWar } from "@/lib/eventos";
 import { getDiscordConfig } from "@/lib/discordConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
 import { canEditNow } from "@/lib/requireAuth";
@@ -23,7 +23,10 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
   if (!ev) notFound();
   const guildTags = Object.fromEntries(gmeta.guildas.map((g) => [g.id, g.tag]));
   nomes.sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const statsIniciais = ev.warId != null ? await desempenhoDaWar(ev.warId) : []; // pré-carrega a tabela se já há war ligada
+  // pré-carrega a tabela e as alianças se já há war ligada — regravar não pode apagar o que foi digitado
+  const [statsIniciais, aliancasIniciais] = ev.warId != null
+    ? await Promise.all([desempenhoDaWar(ev.warId), aliancasDaWar(ev.warId)])
+    : [[], [] as string[]];
 
   const RES_LABEL: Record<string, string> = { derrota: "Derrota", participacao: "Participação", vitoria: "Vitória" };
 
@@ -95,7 +98,7 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
         {/* FACETA 3 (parte 2): stats por membro extraídos do print (Opus) → wars/desempenho */}
         <div style={{ ...card, marginTop: 14 }}>
           <div style={secTitulo}>Stats da guerra (por membro)</div>
-          <ResultadoExtrair id={ev.id} canEdit={canEdit} players={nomes} warIdInicial={ev.warId} statsIniciais={statsIniciais} />
+          <ResultadoExtrair id={ev.id} canEdit={canEdit} players={nomes} warIdInicial={ev.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais} />
         </div>
       </div>
     </div>

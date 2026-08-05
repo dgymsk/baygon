@@ -18,7 +18,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const eid = Math.trunc(Number((await params).id));
   if (!Number.isFinite(eid) || eid <= 0) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
 
-  let body: { linhas?: { nome_familia?: unknown; valores?: Record<string, unknown>; novo?: unknown }[]; data?: unknown; territorio?: unknown; tier?: unknown };
+  let body: { linhas?: { nome_familia?: unknown; valores?: Record<string, unknown>; novo?: unknown }[]; data?: unknown; territorio?: unknown; tier?: unknown; aliancas?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
   if (!Array.isArray(body.linhas) || body.linhas.length === 0) return NextResponse.json({ error: "sem linhas" }, { status: 400 });
 
@@ -76,6 +76,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const dataWar = typeof body.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.data) ? body.data : ev[0].data;
   const territorio = typeof body.territorio === "string" && body.territorio.trim() ? body.territorio.trim().slice(0, 120) : null;
   const tier = Number.isFinite(Number(body.tier)) && body.tier != null && body.tier !== "" ? Math.trunc(Number(body.tier)) : null;
+  // alianças em campo: rótulo digitado pela staff. Sem duplicata (case-insensitive), sem vazio,
+  // teto de 20 — é contexto da war, não lista de convidados
+  const aliancas: string[] = [];
+  for (const raw of Array.isArray(body.aliancas) ? body.aliancas : []) {
+    const s = typeof raw === "string" ? raw.replace(/s+/g, " ").trim().slice(0, 60) : "";
+    if (s && !aliancas.some((x) => x.toLowerCase() === s.toLowerCase())) aliancas.push(s);
+    if (aliancas.length >= 20) break;
+  }
 
   const arr = [...tuplas.values()];
   const nomes = arr.map((t) => t.nome), metricas = arr.map((t) => t.metrica), valores = arr.map((t) => t.valor);
@@ -86,7 +94,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (warId) {
     // reusa: replace-all seguro num único transaction (upsert → apaga só o que saiu; nunca esvazia a war se falhar)
     await sql.transaction([
-      sql`UPDATE wars SET data = ${dataWar}::date, resultado = ${resultadoWar}, territorio = ${territorio}, tier = ${tier} WHERE war_id = ${warId}`,
+      sql`UPDATE wars SET data = ${dataWar}::date, resultado = ${resultadoWar}, territorio = ${territorio}, tier = ${tier}, aliancas = ${aliancas}::text[] WHERE war_id = ${warId}`,
       sql`INSERT INTO desempenho (war_id, nome_familia, metrica, valor)
           SELECT ${warId}, u.nome, u.metrica, u.valor
           FROM UNNEST(${nomes}::text[], ${metricas}::text[], ${valores}::float8[]) AS u(nome, metrica, valor)
@@ -101,8 +109,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // nova war: CTE única e atômica (cria war + insere desempenho + liga evento_resultado juntos → retry não vaza war órfã)
     const rows = (await sql`
       WITH w AS (
-        INSERT INTO wars (data, territorio, resultado, tier)
-        VALUES (${dataWar}::date, ${territorio}, ${resultadoWar}, ${tier}) RETURNING war_id
+        INSERT INTO wars (data, territorio, resultado, tier, aliancas)
+        VALUES (${dataWar}::date, ${territorio}, ${resultadoWar}, ${tier}, ${aliancas}::text[]) RETURNING war_id
       ), d AS (
         INSERT INTO desempenho (war_id, nome_familia, metrica, valor)
         SELECT w.war_id, u.nome, u.metrica, u.valor

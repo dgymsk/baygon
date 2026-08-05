@@ -22,7 +22,7 @@ export type ContextoJogador = { chave: string; escalado: boolean; confirmouIngam
 
 type Ordem = { col: string; desc: boolean };
 
-export default function StatsWar({ stats, contexto }: { stats: LinhaStat[]; contexto: ContextoJogador[] }) {
+export default function StatsWar({ stats, contexto, aliancas = [] }: { stats: LinhaStat[]; contexto: ContextoJogador[]; aliancas?: string[] }) {
   const [ordem, setOrdem] = useState<Ordem>({ col: "dano_em_player", desc: true });
   const [soEscalados, setSoEscalados] = useState(false);
 
@@ -87,6 +87,14 @@ export default function StatsWar({ stats, contexto }: { stats: LinhaStat[]; cont
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
         <span style={{ color: C.verde, fontWeight: 700, fontSize: 13 }}>Números da war</span>
+        {aliancas.length > 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }} title="alianças que estavam em campo">
+            <span style={{ color: C.mute, fontSize: 11 }}>contra</span>
+            {aliancas.map((a) => (
+              <span key={a} style={{ border: `1px solid ${C.border2}`, borderRadius: 999, background: C.inputBg, color: C.texto, padding: "1px 8px", fontSize: 11 }}>{a}</span>
+            ))}
+          </span>
+        )}
         <span style={{ color: C.mute, fontSize: 12 }}>
           <b style={{ color: C.texto }}>{nJogaram}</b> com estatística
           {nFaltaram > 0 && <> · <b style={{ color: C.vermelho }}>{nFaltaram}</b> escalados que não jogaram</>}

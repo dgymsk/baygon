@@ -57,11 +57,11 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, guildas, temChamada = true,
-  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], recusaram = [],
+  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
-  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; recusaram?: string[];
+  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats">("escalacao");
@@ -424,7 +424,7 @@ export default function EventoBoard({
           <StatsWar stats={statsIniciais} contexto={[...todos.values()].map((j) => ({
             chave: j.chave, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
             party: parties.find((x) => x.id === partyDe(j))?.nome ?? null, lendario: j.lendario,
-          }))} />
+          }))} aliancas={aliancasIniciais} />
 
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
             <thead>
@@ -452,7 +452,7 @@ export default function EventoBoard({
           {/* captura das estatísticas de combate — MESMO fluxo do /eventos, trazido pra cá */}
           <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 16, paddingTop: 4 }}>
             <ResultadoExtrair id={evento.eventoId} canEdit={canEdit} players={playersNomes}
-              warIdInicial={evento.warId} statsIniciais={statsIniciais} />
+              warIdInicial={evento.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais} />
           </div>
         </div>
       )}</div>
