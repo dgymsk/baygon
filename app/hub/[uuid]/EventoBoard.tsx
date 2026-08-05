@@ -566,11 +566,16 @@ type CardCtx = {
   onSoltarEmCima?: (chaveArrastada: string) => void;  // reordenar dentro da PT
 };
 
-/** Emoji de classe do Discord ("<:shai:123>") como imagem; unicode renderiza como texto. */
+/**
+ * Emoji de classe do Discord ("<:shai:123>") como imagem; unicode renderiza como texto.
+ * Usa o `iconeUrl` de lib/guild — é o mesmo resolvedor do ícone de guilda, já testado. Ter uma
+ * segunda regex aqui foi o que quebrou: um escape perdido virou /:w+:(d+)/ e o card passou a
+ * cuspir o `<:TAMER:15263…>` cru na tela.
+ */
 function IconeClasse({ raw, nome }: { raw: string; nome: string }) {
-  const m = raw.match(/^<(a?):w+:(d+)>$/);
-  if (m) return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.${m[1] ? "gif" : "png"}`} alt={nome} title={nome}
-    width={14} height={14} style={{ flexShrink: 0, verticalAlign: "-2px" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />;
+  const u = iconeUrl(raw);
+  if (u) return <img src={u} alt={nome} title={nome} width={14} height={14}
+    style={{ flexShrink: 0, verticalAlign: "-2px" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />;
   return <span title={nome} style={{ fontSize: 12, flexShrink: 0 }}>{raw}</span>;
 }
 
