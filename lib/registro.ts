@@ -7,6 +7,7 @@ import { parseGarmothId } from "@/lib/garmothId";
 import { CLASSE_NOMES, ALIASES, canonicalClasse, tiposDe } from "@/lib/bdoClasses";
 import { botFetch } from "@/lib/discordApi";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { getGuildMeta } from "@/lib/guildConfig";
 
 /**
  * Jornada de registro (Discord). Estado temporário entre os passos em registro_jornada; ao finalizar,
@@ -22,10 +23,24 @@ export async function salvarEtapa1(userId: string, familia: string, apelido: str
   await sql`INSERT INTO registro_jornada (user_id, familia, apelido, atualizado) VALUES (${userId}, ${limparNome(familia)}, ${limparNome(apelido).slice(0, 32)}, now())
     ON CONFLICT (user_id) DO UPDATE SET familia = EXCLUDED.familia, apelido = EXCLUDED.apelido, atualizado = now()`;
 }
-async function getEtapa1(userId: string): Promise<{ familia: string; apelido: string } | null> {
-  const r = (await sql`SELECT familia, apelido FROM registro_jornada WHERE user_id = ${userId}`) as { familia: string | null; apelido: string | null }[];
+async function getEtapa1(userId: string): Promise<{ familia: string; apelido: string; guilda: string | null } | null> {
+  const r = (await sql`SELECT familia, apelido, guilda FROM registro_jornada WHERE user_id = ${userId}`) as { familia: string | null; apelido: string | null; guilda: string | null }[];
   if (!r[0]?.familia || !r[0]?.apelido) return null;
-  return { familia: r[0].familia, apelido: r[0].apelido };
+  return { familia: r[0].familia, apelido: r[0].apelido, guilda: r[0].guilda };
+}
+
+/** Guilda escolhida no passo do meio. Valida contra o catálogo da aliança: id que não existe é
+ *  recusado, senão um payload forjado gravaria uma guilda inventada em players. */
+export async function salvarGuilda(userId: string, guildaId: string): Promise<boolean> {
+  const g = (await getGuildMeta()).guildas.find((x) => x.id === guildaId);
+  if (!g) return false;
+  const r = (await sql`UPDATE registro_jornada SET guilda = ${g.id}, atualizado = now() WHERE user_id = ${userId} RETURNING user_id`) as unknown[];
+  return r.length > 0;
+}
+
+/** O que a pessoa pode escolher — o catálogo da aliança, configurável em /guildas. */
+export async function guildasDisponiveis(): Promise<{ id: string; nome: string; tag: string; icone: string }[]> {
+  return (await getGuildMeta()).guildas.map((g) => ({ id: g.id, nome: g.nome, tag: g.tag, icone: g.icone }));
 }
 async function limparEtapa1(userId: string): Promise<void> {
   await sql`DELETE FROM registro_jornada WHERE user_id = ${userId}`;
@@ -63,8 +78,12 @@ type GearInput = {
 };
 
 /** Grava tudo (atômico) e aplica os efeitos no Discord. Retorna a mensagem pro usuário. */
-async function aplicar(userId: string, guildId: string, familiaTyped: string, apelido: string, g: GearInput): Promise<{ ok: boolean; msg: string }> {
+async function aplicar(userId: string, guildId: string, familiaTyped: string, apelido: string, guildaEscolhida: string | null, g: GearInput): Promise<{ ok: boolean; msg: string }> {
   const familia = await resolvePlayer(familiaTyped);
+  // sem escolha (jornada começada antes disto existir, ou id que sumiu do catálogo) cai na primeira
+  // guilda configurada: players.guilda é NOT NULL, e chutar é melhor que travar o registro no fim
+  const meta = await getGuildMeta();
+  const guilda = meta.guildas.find((x) => x.id === guildaEscolhida)?.id ?? meta.guildas[0]?.id ?? "MANI";
 
   // GUARD anti-sequestro: se essa família já está vinculada a OUTRA conta Discord, não mexe em nada.
   const dono = (await sql`SELECT discord_id FROM players WHERE nome_familia = ${familia}`) as { discord_id: string | null }[];
@@ -79,9 +98,9 @@ async function aplicar(userId: string, guildId: string, familiaTyped: string, ap
   await sql.transaction([
     sql`UPDATE players SET discord_id = NULL WHERE discord_id = ${userId} AND nome_familia <> ${familia}`, // 1 conta = 1 player
     sql`INSERT INTO players (nome_familia, grupo, guilda, classe_bdo, classe_tipo, registro, discord_id, garmoth_id)
-        VALUES (${familia}, 'Indefinido', 'MANI', ${g.classeBdo}, ${g.classeTipo}, TRUE, ${userId}, ${g.garmothId})
+        VALUES (${familia}, 'Indefinido', ${guilda}, ${g.classeBdo}, ${g.classeTipo}, TRUE, ${userId}, ${g.garmothId})
         ON CONFLICT (nome_familia) DO UPDATE SET classe_bdo = EXCLUDED.classe_bdo, classe_tipo = EXCLUDED.classe_tipo,
-          registro = TRUE, discord_id = EXCLUDED.discord_id, garmoth_id = COALESCE(EXCLUDED.garmoth_id, players.garmoth_id)`,
+          guilda = EXCLUDED.guilda, registro = TRUE, discord_id = EXCLUDED.discord_id, garmoth_id = COALESCE(EXCLUDED.garmoth_id, players.garmoth_id)`,
     sql`INSERT INTO garmoth_build (nome_familia, garmoth_id, fonte, char_name, char_class, spec, level, ap, aap, dp, acc, dados, atualizado)
         VALUES (${familia}, ${g.garmothId}, ${g.garmothId ? "garmoth" : "manual"}, ${g.charName}, ${g.charClass}, ${g.spec}, ${g.level}, ${g.ap}, ${g.aap}, ${g.dp}, ${g.acc}, ${dadosJson}::jsonb, now())
         ON CONFLICT (nome_familia) DO UPDATE SET garmoth_id = COALESCE(EXCLUDED.garmoth_id, garmoth_build.garmoth_id),
@@ -114,7 +133,8 @@ async function aplicar(userId: string, guildId: string, familiaTyped: string, ap
     await efeito("nick", () => botFetch(`/guilds/${gid}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ nick }) }), "não troquei seu nick — se você é o DONO do server o Discord não deixa (troque à mão); senão o bot precisa de Gerenciar Apelidos e cargo acima do seu", "não consegui trocar seu nick agora");
   }
 
-  const base = `✅ Registro concluído! Bem-vindo(a), **${apelido} [${familia}]**.\nGS **${gs ?? "—"}** · AP ${g.ap} / AAP ${g.aap} / DP ${g.dp}${g.classeBdo ? ` · ${g.classeBdo}${g.classeTipo ? ` (${g.classeTipo})` : ""}` : ""}`;
+  const nomeGuilda = meta.guildas.find((x) => x.id === guilda)?.nome ?? guilda;
+  const base = `✅ Registro concluído! Bem-vindo(a), **${apelido} [${familia}]** · ${nomeGuilda}.\nGS **${gs ?? "—"}** · AP ${g.ap} / AAP ${g.aap} / DP ${g.dp}${g.classeBdo ? ` · ${g.classeBdo}${g.classeTipo ? ` (${g.classeTipo})` : ""}` : ""}`;
   return { ok: true, msg: avisos.length ? `${base}\n⚠ ${avisos.join(" · ")}` : base };
 }
 
@@ -133,7 +153,7 @@ export async function finalizarGarmoth(userId: string, guildId: string, link: st
   const classe = classeGarmoth(r.char_class);
   if (!classe) return { ok: false, msg: "Não reconheci a classe da build. Selecione a classe correta no Garmoth e tente de novo." };
   const tipo = tipoGarmoth(classe, r.spec);
-  return aplicar(userId, guildId, et.familia, et.apelido, {
+  return aplicar(userId, guildId, et.familia, et.apelido, et.guilda, {
     ap: r.ap, aap: r.aap, dp: r.dp, acc: r.acc, classeBdo: classe, classeTipo: tipo, spec: r.spec,
     garmothId: id, charName: r.char_name, charClass: r.char_class, level: r.level, dados: r.dados,
   });
@@ -155,7 +175,7 @@ export async function finalizarManual(userId: string, guildId: string, v: { ap: 
   const profNorm = /^a/i.test(v.prof.trim()) ? "awk" : /^s/i.test(v.prof.trim()) ? "succ" : null;
   const tipo = tipoGarmoth(classe, profNorm);
   if (tipo == null && tiposDe(classe).length > 1) return { ok: false, msg: "Proficiência inválida. Escreva **succ** (Sucessão) ou **awk** (Despertar/Awakening)." };
-  return aplicar(userId, guildId, et.familia, et.apelido, {
+  return aplicar(userId, guildId, et.familia, et.apelido, et.guilda, {
     ap, aap, dp, acc: null, classeBdo: classe, classeTipo: tipo, spec: profNorm,
     garmothId: null, charName: et.apelido, charClass: null, level: null, dados: null,
   });

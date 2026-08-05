@@ -14,7 +14,7 @@ import { eventoExiste } from "@/lib/eventos";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
 import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
-import { salvarEtapa1, finalizarGarmoth, finalizarManual, playerPorDiscord } from "@/lib/registro";
+import { salvarEtapa1, salvarGuilda, guildasDisponiveis, finalizarGarmoth, finalizarManual, playerPorDiscord } from "@/lib/registro";
 import { alternarMarca, marcarNaoVou, postarIntencao, montarPayload } from "@/lib/intencao";
 import { listPresets } from "@/lib/intencaoPreset";
 import { responderConvocacao } from "@/lib/convocacao";
@@ -34,7 +34,7 @@ type Interaction = {
   token?: string;
   guild_id?: string;
   channel_id?: string;
-  data?: { name?: string; custom_id?: string; components?: ModalComp[]; options?: { name?: string; value?: unknown }[] };
+  data?: { name?: string; custom_id?: string; components?: ModalComp[]; options?: { name?: string; value?: unknown }[]; values?: string[] };
   message?: { id?: string };
   member?: { user?: DUser; nick?: string | null; roles?: string[] };
   user?: DUser;
@@ -44,10 +44,24 @@ type Interaction = {
 const linha = (comp: object) => ({ type: 1, components: [comp] });
 const inputTxt = (custom_id: string, label: string, o: { max?: number; ph?: string; style?: number } = {}) =>
   ({ type: 4, custom_id, style: o.style ?? 1, label, min_length: 1, max_length: o.max ?? 100, required: true, placeholder: o.ph });
-const MODAL_ETAPA1 = { type: 9, data: { custom_id: "regm1", title: "Registro — Manicômio", components: [
+const MODAL_ETAPA1 = { type: 9, data: { custom_id: "regm1", title: "Registro", components: [
   linha(inputTxt("familia", "Nick de família (BDO)", { max: 60, ph: "Ex.: Fafnir" })),
   linha(inputTxt("apelido", "Seu nome/apelido", { max: 32, ph: "Como te chamam" })),
 ] } };
+/** Passo do meio: de qual guilda da aliança a pessoa é. Select (e não botão) porque a aliança pode
+ *  ter até 12 guildas configuradas, e linha de botão só cabe 5. */
+async function escolhaGuilda() {
+  const gs = await guildasDisponiveis();
+  // uma guilda só na aliança não é escolha — pula direto pro gear e grava ela
+  if (gs.length <= 1) return null;
+  return { type: 4, data: { flags: 64, content: "De qual guilda você é?", components: [
+    { type: 1, components: [{
+      type: 3, custom_id: "reg:guilda", placeholder: "escolha sua guilda",
+      options: gs.slice(0, 25).map((g) => ({ label: g.nome.slice(0, 100), value: g.id, description: `tag ${g.tag}`.slice(0, 100) })),
+    }] },
+  ] } };
+}
+
 const ESCOLHA = { type: 4, data: { flags: 64, content: "Boa! Agora informe seu **gear** — escolha o método:", components: [
   { type: 1, components: [
     { type: 2, style: 1, label: "📊 Via Garmoth", custom_id: "reg:garmoth" },
@@ -194,6 +208,15 @@ export async function POST(req: Request) {
     // JORNADA DE REGISTRO: botões abrem modais (síncrono, type 9).
     const cidReg = String(body.data?.custom_id ?? "");
     if (cidReg === "reg:start") return json(MODAL_ETAPA1);   // botão do Buzinador (DM)
+    if (cidReg === "reg:guilda") {
+      const uSel = body.member?.user ?? body.user;
+      const escolhida = body.data?.values?.[0] ?? "";
+      if (!uSel?.id || !escolhida) return efemero("Não consegui registrar sua escolha. Tente /register de novo.");
+      const ok = await salvarGuilda(String(uSel.id), escolhida);
+      // sessão expirada é o caso comum aqui: o estado da jornada tem TTL e o select fica na tela
+      if (!ok) return efemero("Sua sessão de registro expirou (ou essa guilda não existe mais). Comece de novo com /register.");
+      return json(ESCOLHA);
+    }
     if (cidReg === "reg:garmoth") return json(MODAL_GARMOTH);
     if (cidReg === "reg:manual") return json(MODAL_MANUAL);
 
@@ -350,6 +373,11 @@ export async function POST(req: Request) {
       if (!uid || !comps.familia?.trim() || !comps.apelido?.trim()) return efemero("Preencha o nick de família e o apelido.");
       try { await salvarEtapa1(uid, comps.familia, comps.apelido); }
       catch (e) { console.error("salvarEtapa1 erro", e); return efemero("Não consegui salvar agora. Tente /register de novo."); }
+      // com mais de uma guilda na aliança, pergunta antes do gear; com uma só, não há o que perguntar
+      try {
+        const passo = await escolhaGuilda();
+        if (passo) return json(passo);
+      } catch (e) { console.error("escolhaGuilda erro", e); } // falhar aqui não pode travar o registro
       return json(ESCOLHA);
     }
     // REGISTRO passo 2 (garmoth ou manual) → finaliza em after() (fetch/discord podem passar de 3s).
