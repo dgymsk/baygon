@@ -51,7 +51,7 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
   const parties: PartyL[] = (preset?.parties ?? []).map((v) => pById.get(v.party_id))
     .filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }));
 
-  const presenca = (await sql`SELECT chave FROM evento_presenca WHERE evento_id = ${eventoId} AND participar`) as { chave: string }[];
+  const presenca = (await sql`SELECT chave, familia FROM evento_presenca WHERE evento_id = ${eventoId} AND participar ORDER BY familia`) as { chave: string; familia: string }[];
   const ingame = new Set(presenca.map((p) => p.chave));
   // ordem de chegada na chamada — é o que decide prioridade dentro da PT
   const posPorChave = new Map((await filaDaChamada(post.message_id)).map((f) => [f.chave, f.posicao]));
@@ -69,6 +69,7 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
     titulo: post.titulo, data: post.data, tamanhoMax: preset?.tamanho_max ?? null,
     parties, escalados,
     recusaram: rows.filter((r) => r.confirmou === false).map((r) => r.familia),
+    foraDaEscalacao: presenca.filter((p) => !rows.some((r) => r.chave === p.chave && r.party_id != null)).map((p) => p.familia),
     emojis, tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
   });
   const body = JSON.stringify({ allowed_mentions: { parse: [] }, ...payload });

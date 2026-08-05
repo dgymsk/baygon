@@ -29,6 +29,7 @@ export type DadosLista = {
   parties: PartyL[];
   escalados: EscaladoL[];
   recusaram?: string[];
+  foraDaEscalacao?: string[];  // apareceu in-game sem estar em PT nenhuma
   emojis?: PerfilEmojis;
   tags?: Record<string, string>;
   nota?: string;
@@ -53,13 +54,16 @@ export function montarLista(d: DadosLista) {
     const gEmoji = (e.guilda && d.emojis?.guildas[e.guilda]) || (e.guilda && tags[e.guilda]) || "";
     const cEmoji = (e.classe && d.emojis?.classes[e.classe]) || (e.classe ? `(${safeLink(e.classe)})` : "");
     const nome = e.userId ? `[${safeLink(e.familia)}](https://discord.com/users/${e.userId})` : safeLink(e.familia);
-    // ✅ confirmou a escalação · ⏳ ainda não respondeu — o mesmo sinal que a staff vê no site
-    const sinal = e.confirmouEscalacao === true ? "✅" : e.confirmouEscalacao === false ? "❌" : "⏳";
-    // posição na fila em largura fixa pra as linhas alinharem; 🎮 = já apareceu na conferência
-    // in-game, e é a ausência dele que a cobrança de "participar" vai atrás
+    // um sinal só, e o IN-GAME tem prioridade: quem já apareceu no jogo respondeu na prática a
+    // pergunta que o ⏳ fazia. "Aguardando resposta" ao lado de "está no jogo" era contradição na
+    // mesma linha.
+    const sinal = e.confirmouIngame ? "🎮"
+      : e.confirmouEscalacao === true ? "✅"
+      : e.confirmouEscalacao === false ? "❌" : "⏳";
+    // posição na fila em largura fixa pra as linhas alinharem
     const pos = "`#" + (e.ordem != null ? String(e.ordem).padStart(2, "0") : "--") + "`";
     // 👑 = líder da PT, que é simplesmente quem a staff pôs em primeiro
-    return [pos, i === 0 ? "👑" : null, sinal, e.confirmouIngame ? "🎮" : null, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
+    return [pos, i === 0 ? "👑" : null, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
   };
   // índice explícito: `es.map(linha)` passaria o índice como 2º argumento por acidente, e aqui ele
   // decide quem leva a coroa — melhor deixar à vista
@@ -73,6 +77,10 @@ export function montarLista(d: DadosLista) {
     const cab = `${p.icone ? p.icone + " " : ""}**${p.nome}** — ${dentro.length}${media != null ? ` · GS ${media}` : ""}`;
     secoes.push(`${cab}\n${dentro.length ? moldura(dentro) : "> _(vazia)_"}`);
   }
+  // quem veio sem estar escalado é decisão pendente — entra numa PT ou sai. Sem isso ele não
+  // aparecia em canto nenhum da mensagem, porque não tem linha em evento_escalacao.
+  if (d.foraDaEscalacao?.length) secoes.push(`**🎮 Vieram sem estar escalados — ${d.foraDaEscalacao.length}**
+${d.foraDaEscalacao.join(", ")}`);
   if (d.recusaram?.length) secoes.push(`**❌ Não vão — ${d.recusaram.length}**\n${d.recusaram.join(", ")}`);
 
   const total = d.escalados.filter((e) => e.partyId != null).length;
@@ -83,7 +91,7 @@ export function montarLista(d: DadosLista) {
     if ((topo + corpo + (corpo ? "\n\n" : "") + s).length > 3900) { cortou = true; break; }
     corpo += (corpo ? "\n\n" : "") + s;
   }
-  const rodape = "\n\n👑 líder da PT · ✅ confirmou · ⏳ aguardando · ❌ recusou · 🎮 marcou in-game";
+  const rodape = "\n\n👑 líder da PT · 🎮 está no jogo · ✅ confirmou na DM · ⏳ aguardando · ❌ recusou";
   const desc = (topo + corpo + (cortou ? "\n\n⚠ +itens não exibidos (limite do Discord)." : "") + rodape).slice(0, 4096);
 
   return {

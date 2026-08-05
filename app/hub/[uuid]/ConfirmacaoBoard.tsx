@@ -113,6 +113,13 @@ export default function ConfirmacaoBoard({
   // render — escrever em ref durante o render é o tipo de coisa que quebra em modo concorrente.
   const lidosRef = useRef<Lido[] | null>(null);
   useEffect(() => { lidosRef.current = lidos; }, [lidos]);
+  // o autosave roda dentro do loop de leitura, que capturou o closure do início — estes espelhos
+  // são o que faz ele ver o roster e as resoluções manuais como estão agora
+  const rosterCandRef = useRef(rosterCand);
+  const playersCandRef = useRef(playersCand);
+  const manualRef = useRef(manual);
+  const gravarRef = useRef<(l?: Lido[]) => Promise<void>>(async () => {});
+  useEffect(() => { rosterCandRef.current = rosterCand; playersCandRef.current = playersCand; manualRef.current = manual; gravarRef.current = gravar; });
 
   async function enfileirar(files: ArrayLike<File> | null) {
     if (!files?.length || !canEdit) return;
@@ -138,7 +145,16 @@ export default function ConfirmacaoBoard({
         setLidos([...acc.values()]); // mostra o parcial a cada print, não só no fim
       }
       setFalhas(ruins);
-      setProg(`${acc.size} nome(s) no total`);
+      const lidosFinais = [...acc.values()];
+      setLidos(lidosFinais);
+      // grava sozinho ao terminar a leitura. Nome que não casou com ninguém é o ÚNICO motivo pra
+      // segurar: gravar sem resolver seria escolher por você, e depois vira falta em cima de quem
+      // veio. Nesse caso a tabela fica na tela esperando o seletor e o botão de gravar.
+      const vieram = lidosFinais.filter((l) => l.participar);
+      const { naoEncontrados } = canonicalizarNomes(vieram.map((l) => l.familia), rosterCandRef.current, playersCandRef.current);
+      const pend = naoEncontrados.filter((n) => !manualRef.current[chaveNome(n)]);
+      if (pend.length) { setProg(`${acc.size} nome(s) · ${pend.length} pendente(s) — resolva pra gravar`); return; }
+      await gravarRef.current(lidosFinais);
     } finally {
       lendoRef.current = false; setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -167,14 +183,30 @@ export default function ConfirmacaoBoard({
     return () => document.removeEventListener("paste", onPaste);
   }, [canEdit, ativo]);
 
-  async function gravar() {
-    if (!conc || !canEdit) return;
+  async function gravar(lidosDiretos?: Lido[]) {
+    if (!canEdit) return;
+    // resolve na hora quando vem do autosave; senão usa o que a tela já mostra (conc)
+    let nomes: string[];
+    if (lidosDiretos) {
+      const vieram = lidosDiretos.filter((l) => l.participar);
+      const { mapa } = canonicalizarNomes(vieram.map((l) => l.familia), rosterCandRef.current, playersCandRef.current);
+      const finais = new Map<string, string>();
+      for (const l of vieram) {
+        const k = chaveNome(l.familia);
+        const nome = manualRef.current[k] ?? mapa.get(k) ?? l.familia;
+        finais.set(chaveNome(nome), nome);
+      }
+      nomes = [...finais.values()];
+    } else {
+      if (!conc) return;
+      nomes = [...conc.finais.values()];
+    }
     setBusy(true);
     try {
-      const membros = [...conc.finais.values()].map((familia) => ({ familia, participar: true }));
+      const membros = nomes.map((familia) => ({ familia, participar: true }));
       const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "presenca-print", eventoId, membros }) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
-      setProg("presença gravada ✓"); setLidos(null); setManual({}); router.refresh();
+      setProg(`presença gravada ✓ — ${membros.length} confirmado(s)`); setLidos(null); setManual({}); router.refresh();
     } catch (e) { setErro((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -208,7 +240,7 @@ export default function ConfirmacaoBoard({
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <input ref={inputRef} type="file" accept="image/*" multiple disabled={busy} onChange={(e) => enfileirar(e.target.files)} style={{ color: C.mute, fontSize: 12 }} />
               {lidos && <button onClick={() => { setLidos(null); setManual({}); setProg(""); setFalhas([]); }} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12 }}>descartar</button>}
-              {conc && <button onClick={gravar} disabled={busy || !!conc.pendentes.length} title={conc.pendentes.length ? "resolva os nomes pendentes primeiro" : undefined}
+              {conc && <button onClick={() => gravar()} disabled={busy || !!conc.pendentes.length} title={conc.pendentes.length ? "resolva os nomes pendentes primeiro" : undefined}
                 style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: conc.pendentes.length ? "transparent" : C.verdeTint, color: conc.pendentes.length ? C.mute : C.verde, padding: "5px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Gravar presença</button>}
             </div>
           )}
