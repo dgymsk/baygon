@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { C } from "@/lib/theme";
+import { corTier } from "@/lib/tier";
 import type { FunilEvento } from "@/lib/hub";
 
 /**
@@ -61,6 +62,7 @@ function Cabecalho({ e, atual = false, seta }: { e: FunilEvento; atual?: boolean
       {e.origem === "manual" && <Selo cor={C.mute}>manual</Selo>}
       {e.origem === "legado" && <Selo cor={C.mute}>bot antigo</Selo>}
       <span style={{ color: C.mute, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1 }}>{e.tipo}</span>
+      {e.tier && <Selo cor={corTier[e.tier]}>{e.tier}</Selo>}
       {e.status !== "aberto" && <span style={{ color: C.amarelo, fontSize: 11 }}>🔒 {e.status}</span>}
       {e.resultado && (
         <span style={{ color: e.resultado === "vitoria" ? C.verde : e.resultado === "derrota" ? C.vermelho : C.mute, fontSize: 11 }}>{e.resultado}</span>

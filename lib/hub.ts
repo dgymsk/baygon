@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 import { faltasPorChave, type Falta } from "@/lib/faltas";
+import type { Tier } from "@/lib/tier";
 
 /**
  * Agregações do HUB — o funil de um evento e o resumo de uma série.
@@ -15,7 +16,7 @@ import { faltasPorChave, type Falta } from "@/lib/faltas";
 export type OrigemEvento = "chamada" | "legado" | "manual";
 
 export type FunilEvento = {
-  eventoId: number; uuid: string; titulo: string; tipo: string; data: string; status: string;
+  eventoId: number; uuid: string; titulo: string; tipo: string; tier: Tier | null; data: string; status: string;
   marcaram: number | null; // null = não houve chamada nenhuma: o degrau não existe, e 0 mentiria
   naoVao: number | null;
   escalados: number; confirmaram: number; jogaram: number;
@@ -46,7 +47,7 @@ export async function funilEventos(limite = 24): Promise<FunilEvento[]> {
   return (await sql`
     SELECT
       e.id::int AS "eventoId", e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo,
-      e.data::text AS data, e.status, r.resultado,
+      e.tier, e.data::text AS data, e.status, r.resultado,
       (r.war_id IS NOT NULL) AS "temWar",
       -- "dá pra marcar agora": tem mensagem no canal E o evento ainda aceita clique. Sem o status
       -- o selo ficava aceso pra sempre, contradizendo o 🔒 finalizado na mesma linha.

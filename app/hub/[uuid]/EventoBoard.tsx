@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
+import { TIERS, corTier, type Tier } from "@/lib/tier";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
 import AutoSync from "@/app/confirmados/AutoSync";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
@@ -49,7 +50,7 @@ function Pokebola({ size = 13 }: { size?: number }) {
 }
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
-type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
+type Ev = { uuid: string; titulo: string; tipo: string; tier: Tier | null; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
@@ -178,6 +179,16 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
 
+  /** Troca o tier desta guerra. Fica no evento, não no preset: a mesma chamada serve pra T2 e T3,
+   *  e o nó que efetivamente caiu só se sabe na hora. */
+  async function trocarTier(tier: string) {
+    if (!canEdit || !evento) return;
+    setSalvando(true);
+    try { await api({ acao: "evento-tier", eventoId: evento.eventoId, tier: tier || null }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   /** Troca a chamada que rege o evento — muda o agrupamento do pool por função. */
   async function trocarPreset(presetId: number) {
     if (!canEdit || !evento || !Number.isFinite(presetId)) return;
@@ -221,6 +232,7 @@ export default function EventoBoard({
           <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 24, letterSpacing: 1, margin: 0, color: C.amarelo }}>{evento.titulo}</h1>
           <div style={{ color: C.mute, fontSize: 12.5, marginTop: 3 }}>
             {new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {evento.tipo}
+            {evento.tier && <span style={{ color: corTier[evento.tier], fontWeight: 700 }}> · {evento.tier}</span>}
             {evento.status !== "aberto" && <span style={{ color: C.amarelo }}> · 🔒 {evento.status}</span>}
             {evento.resultado && <span style={{ color: evento.resultado === "vitoria" ? C.verde : C.vermelho }}> · {evento.resultado}</span>}
           </div>
@@ -263,6 +275,17 @@ export default function EventoBoard({
         <button onClick={() => proximo && router.push(`/hub/${proximo.uuid}`)} disabled={!proximo}
           title={proximo ? `${proximo.titulo} →` : "é o mais recente"} style={navBtn(!!proximo)}>próximo ›</button>
 
+        {canEdit && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: C.mute, fontSize: 11.5 }}>tier:</span>
+            <select value={evento.tier ?? ""} onChange={(e) => trocarTier(e.target.value)} disabled={salvando}
+              title="porte da guerra — T1, T2 ou T3"
+              style={{ background: C.inputBg, color: evento.tier ? corTier[evento.tier] : C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 8px", fontSize: 12, fontFamily: "inherit", fontWeight: 700, cursor: "pointer" }}>
+              <option value="">—</option>
+              {TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </span>
+        )}
         {canEdit && presets.length > 0 && (
           <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ color: C.mute, fontSize: 11.5 }}>chamada:</span>

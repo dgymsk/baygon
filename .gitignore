@@ -48,3 +48,4 @@ next-env.d.ts
 
 # backup com PII (discord, avaliacoes)
 baygon-backup-latest.json
+backup/

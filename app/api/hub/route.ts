@@ -5,6 +5,7 @@ import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoe
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
 import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
 import { criarEventoManual } from "@/lib/eventos";
+import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
@@ -47,8 +48,8 @@ export async function POST(req: Request) {
     case "lendario": await setLendario(b.familia, !!b.valor); return NextResponse.json({ ok: true });
 
     // --- preset do bot ---
-    case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.parties, b.tamanhoMax)) ?? { error: "nome e tipo obrigatórios" });
-    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId }); return NextResponse.json({ presets: await listPresets() });
+    case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.parties, b.tamanhoMax, b.tier)) ?? { error: "nome e tipo obrigatórios" });
+    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId, tier: b.tier }); return NextResponse.json({ presets: await listPresets() });
     case "preset-excluir":  await excluirPreset(b.id); return NextResponse.json({ presets: await listPresets() });
     case "membro-add":      await addPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
     case "membro-del":      await delPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
@@ -75,6 +76,7 @@ export async function POST(req: Request) {
         titulo: typeof b.titulo === "string" && b.titulo.trim() ? b.titulo.trim() : preset.nome,
         status: "aberto",   // nasce operável — no hub o evento serve pra escalar, não pra arquivar
         presetId: pid,
+        tier: typeof b.tier === "string" && b.tier ? b.tier : preset.tier, // o do formulário manda; senão herda a chamada
       });
       return NextResponse.json({ ok: true, uuid: ev.uuid });
     }
@@ -88,6 +90,13 @@ export async function POST(req: Request) {
       await sql`UPDATE evento SET preset_id = ${pid} WHERE id = ${eid()}`;
       // espelha no post pra mensagem do Discord continuar sendo remontável (sincronizarMensagem lê de lá)
       await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE evento_id = ${eid()}`;
+      return NextResponse.json({ ok: true });
+    }
+
+    // --- tier da guerra (T1/T2/T3): o nó que caiu nem sempre é o que estava marcado ---
+    case "evento-tier": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      await sql`UPDATE evento SET tier = ${tierOk(b.tier)} WHERE id = ${eid()}`;
       return NextResponse.json({ ok: true });
     }
 

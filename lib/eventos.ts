@@ -3,6 +3,7 @@ import { getTemplate, listPts, listMembros } from "@/lib/participacaoPt";
 import { listPlayers } from "@/lib/players";
 import { chaveNome } from "@/lib/nomes";
 import { montarSituacao, type SituacaoNN, type PerfilGear } from "@/lib/participacaoSituacao";
+import { tierOk, type Tier } from "@/lib/tier";
 
 /**
  * HUB de EVENTOS. Cada disparo cria 1 evento; a rodada de participação (participacao_post) é a 1ª
@@ -12,20 +13,20 @@ import { montarSituacao, type SituacaoNN, type PerfilGear } from "@/lib/particip
  * Self-contained (query participacao_resp inline) p/ NÃO criar ciclo com lib/participacao.ts.
  */
 export type EventoStatus = "aberto" | "travado" | "finalizado";
-export type Evento = { id: number; uuid: string; data: string; tipo: string; titulo: string | null; status: EventoStatus; templateId: number | null; criado: string; travadoEm: string | null; finalizadoEm: string | null };
+export type Evento = { id: number; uuid: string; data: string; tipo: string; tier: Tier | null; titulo: string | null; status: EventoStatus; templateId: number | null; criado: string; travadoEm: string | null; finalizadoEm: string | null };
 export type EventoSnapshot = SituacaoNN & { versao: 1; capturadoEm: string; warKey: string };
 export type EventoDetalhe = Evento & { snapshot: EventoSnapshot | null; messageId: string | null; channelId: string | null; resultado: string | null; warId: number | null };
 export const RESULTADOS = ["derrota", "participacao", "vitoria"] as const;
 
-type Row = { id: number; uuid: string; data: string; tipo: string; titulo: string | null; status: EventoStatus; template_id: number | null; criado: string; travado_em: string | null; finalizado_em: string | null };
-const map = (r: Row): Evento => ({ id: r.id, uuid: r.uuid, data: r.data, tipo: r.tipo, titulo: r.titulo, status: r.status, templateId: r.template_id, criado: r.criado, travadoEm: r.travado_em, finalizadoEm: r.finalizado_em });
+type Row = { id: number; uuid: string; data: string; tipo: string; tier: Tier | null; titulo: string | null; status: EventoStatus; template_id: number | null; criado: string; travado_em: string | null; finalizado_em: string | null };
+const map = (r: Row): Evento => ({ id: r.id, uuid: r.uuid, data: r.data, tipo: r.tipo, tier: r.tier, titulo: r.titulo, status: r.status, templateId: r.template_id, criado: r.criado, travadoEm: r.travado_em, finalizadoEm: r.finalizado_em });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Cria o evento (status 'aberto'). Chamado por postarMensagem DEPOIS do Discord aceitar a mensagem. */
 export async function criarEvento(o: { tipo: string; titulo: string | null; templateId: number | null }): Promise<Evento> {
   const rows = (await sql`
     INSERT INTO evento (tipo, titulo, template_id) VALUES (${o.tipo}, ${o.titulo}, ${o.templateId})
-    RETURNING id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
+    RETURNING id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
   return map(rows[0]);
 }
 
@@ -90,7 +91,7 @@ export async function situacaoAoVivoPorEvento(eventoId: number, cat?: CatalogosR
  *  Retorna o detalhe (com messageId/channelId) p/ o caller editar a mensagem do Discord. */
 export async function finalizarEvento(id: number): Promise<EventoDetalhe | null> {
   const evs = (await sql`
-    SELECT id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
+    SELECT id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
     FROM evento WHERE id = ${id}`) as (Row & { snapshot: EventoSnapshot | null })[];
   const ev = evs[0];
   if (!ev) return null;
@@ -106,10 +107,10 @@ export async function finalizarEvento(id: number): Promise<EventoDetalhe | null>
     UPDATE evento SET status='finalizado', finalizado_em=now(), travado_em=COALESCE(travado_em, now()),
       snapshot = ${snapshot ? JSON.stringify(snapshot) : null}::jsonb
     WHERE id = ${id} AND status <> 'finalizado'
-    RETURNING id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
+    RETURNING id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
   if (upd[0]) return { ...map(upd[0]), snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null, resultado: null, warId: null };
   // corrida: outra chamada finalizou 1º → relê o estado PERSISTIDO (não devolve snapshot local não gravado)
-  const done = (await sql`SELECT id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em FROM evento WHERE id = ${id}`) as (Row & { snapshot: EventoSnapshot | null })[];
+  const done = (await sql`SELECT id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em FROM evento WHERE id = ${id}`) as (Row & { snapshot: EventoSnapshot | null })[];
   const d = done[0] ?? ev;
   return { ...map(d), snapshot: d.snapshot, messageId: post?.message_id ?? null, channelId: post?.channel_id ?? null, resultado: null, warId: null };
 }
@@ -124,7 +125,7 @@ export async function listEventos(o: { status?: "ativos" | "historico"; tipo?: s
   const ate = iso(o.ate);
   const limit = Math.min(Math.max(o.limit ?? 100, 1), 500);
   const rows = (await sql`
-    SELECT id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
+    SELECT id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
     FROM evento
     WHERE (${st}::text IS NULL
            OR (${st} = 'ativos' AND status IN ('aberto','travado'))
@@ -141,7 +142,7 @@ export async function listEventos(o: { status?: "ativos" | "historico"; tipo?: s
 export async function getEventoByUuid(uuid: string): Promise<EventoDetalhe | null> {
   if (!UUID_RE.test(uuid)) return null;
   const evs = (await sql`
-    SELECT id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
+    SELECT id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, snapshot, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
     FROM evento WHERE uuid = ${uuid}::uuid`) as (Row & { snapshot: EventoSnapshot | null })[];
   const ev = evs[0];
   if (!ev) return null;
@@ -183,7 +184,7 @@ export async function deletarEvento(id: number): Promise<{ ok: boolean; messageI
  * finalização mentiria pro purge e pra UI de /eventos.
  * `presetId` decide quais PTs viram as colunas da escalação — sem ele o board abre sem coluna nenhuma.
  */
-export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null; status?: EventoStatus; presetId?: number | null }): Promise<Evento> {
+export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null; status?: EventoStatus; presetId?: number | null; tier?: unknown }): Promise<Evento> {
   const tipo = o.tipo === "siege" ? "siege" : "nodewar";
   const data = o.data && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
   const titulo = o.titulo ? String(o.titulo).slice(0, 200) : null;
@@ -191,10 +192,10 @@ export async function criarEventoManual(o: { tipo: string; data?: string; titulo
   const status: EventoStatus = o.status && ["aberto", "travado", "finalizado"].includes(o.status) ? o.status : "finalizado";
   const presetId = Number.isFinite(Number(o.presetId)) ? Math.trunc(Number(o.presetId)) : null;
   const rows = (await sql`
-    INSERT INTO evento (tipo, titulo, data, status, finalizado_em, preset_id)
+    INSERT INTO evento (tipo, titulo, data, status, finalizado_em, preset_id, tier)
     VALUES (${tipo}, ${titulo}, COALESCE(${data}::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date),
-            ${status}, CASE WHEN ${status}::text = 'finalizado' THEN now() END, ${presetId})
-    RETURNING id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
+            ${status}, CASE WHEN ${status}::text = 'finalizado' THEN now() END, ${presetId}, ${tierOk(o.tier)})
+    RETURNING id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
   return map(rows[0]);
 }
 
@@ -213,7 +214,7 @@ export async function desempenhoDaWar(warId: number): Promise<{ nome_familia: st
 
 export async function getEventoById(id: number): Promise<Evento | null> {
   const rows = (await sql`
-    SELECT id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
+    SELECT id::int AS id, uuid, data::text AS data, tipo, tier, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em
     FROM evento WHERE id = ${id}`) as Row[];
   return rows[0] ? map(rows[0]) : null;
 }

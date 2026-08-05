@@ -48,11 +48,11 @@ export async function getRespostasInt(messageId: string): Promise<RespI[]> {
 
 /** O bot mostra TODAS as funções do catálogo (o preset não as filtra — ele define PTs e teto).
  *  Do preset vêm só o nome da rodada e o tipo. */
-async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string; canalId: string | null } | null> {
+async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string; tier: string | null; canalId: string | null } | null> {
   const [preset, cat] = await Promise.all([getPreset(presetId), listFuncoes()]);
   if (!preset) return null;
   const funcoes: FuncaoI[] = cat.map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
-  return { funcoes, nome: preset.nome, tipo: preset.tipo, canalId: preset.canal_id ?? null };
+  return { funcoes, nome: preset.nome, tipo: preset.tipo, tier: preset.tier, canalId: preset.canal_id ?? null };
 }
 
 /** Reconstrói o payload da mensagem a partir do estado atual. Null se o preset sumiu. */
@@ -102,7 +102,7 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
 
   const rows = (await sql`
     WITH ev AS (
-      INSERT INTO evento (tipo, titulo, template_id) VALUES (${info.tipo}, ${info.nome}, NULL) RETURNING id, uuid
+      INSERT INTO evento (tipo, titulo, template_id, preset_id, tier) VALUES (${info.tipo}, ${info.nome}, NULL, ${presetId}, ${info.tier}) RETURNING id, uuid
     ), p AS (
       INSERT INTO intencao_post (message_id, tipo, channel_id, titulo, preset_id, evento_id, criado)
       SELECT ${msg.id}, ${info.tipo}, ${canal}, ${info.nome}, ${presetId}, ev.id, now() FROM ev

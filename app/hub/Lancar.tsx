@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
+import { corTier } from "@/lib/tier";
 import type { Preset } from "@/lib/intencaoPreset";
 
 /**
@@ -51,6 +52,7 @@ export default function Lancar({ presets, partiesPorPreset }: { presets: Preset[
         style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "5px 9px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer" }}>
         {presets.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.tipo}</option>)}
       </select>
+      {preset?.tier && <span style={{ color: corTier[preset.tier], fontSize: 11, fontWeight: 700, border: `1px solid ${corTier[preset.tier]}`, borderRadius: 999, padding: "1px 8px" }}>{preset.tier}</span>}
       <span style={{ color: C.mute, fontSize: 11.5 }}>
         {pts.length
           ? <>{pts.join(" · ")}{preset?.tamanho_max ? <span style={{ color: C.amarelo }}> · máx {preset.tamanho_max}</span> : null}</>

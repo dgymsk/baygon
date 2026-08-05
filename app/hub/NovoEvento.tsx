@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
+import { TIERS, corTier, type Tier } from "@/lib/tier";
 import type { Preset } from "@/lib/intencaoPreset";
 
 /**
@@ -19,12 +20,15 @@ export default function NovoEvento({ presets, partiesPorPreset }: { presets: Pre
   const [aberto, setAberto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState("");
-  const [f, setF] = useState<{ presetId: string; data: string; titulo: string }>({ presetId: String(presets.find((p) => (partiesPorPreset[p.id] ?? []).length > 0)?.id ?? ""), data: "", titulo: "" });
+  // tier em branco = herda o da chamada; explícito = essa guerra caiu noutro nó
+  const [f, setF] = useState<{ presetId: string; data: string; titulo: string; tier: string }>({ presetId: String(presets.find((p) => (partiesPorPreset[p.id] ?? []).length > 0)?.id ?? ""), data: "", titulo: "", tier: "" });
 
   // chamada sem PT não serve: as PTs dela é que viram as colunas da escalação
   const usaveis = presets.filter((p) => (partiesPorPreset[p.id] ?? []).length > 0);
   const preset = usaveis.find((p) => String(p.id) === f.presetId) ?? null;
   const pts = preset ? partiesPorPreset[preset.id] ?? [] : [];
+  // tier em branco no formulário = herda o da chamada
+  const tierEfetivo = (f.tier || preset?.tier || null) as Tier | null;
 
   async function criar() {
     if (!preset || busy) return;
@@ -32,7 +36,7 @@ export default function NovoEvento({ presets, partiesPorPreset }: { presets: Pre
     try {
       const res = await fetch("/api/hub", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ acao: "evento-criar", presetId: preset.id, data: f.data || undefined, titulo: f.titulo }),
+        body: JSON.stringify({ acao: "evento-criar", presetId: preset.id, data: f.data || undefined, titulo: f.titulo, tier: f.tier || undefined }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || (d as { error?: string }).error) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
@@ -60,6 +64,13 @@ export default function NovoEvento({ presets, partiesPorPreset }: { presets: Pre
           <select value={f.presetId} onChange={(e) => setF({ ...f, presetId: e.target.value })} style={{ ...input, cursor: "pointer" }}>
             {!usaveis.length && <option value="">nenhuma chamada com PT configurada</option>}
             {usaveis.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.tipo}</option>)}
+          </select>
+        </Campo>
+        <Campo rot="Tier">
+          <select value={f.tier} onChange={(e) => setF({ ...f, tier: e.target.value })}
+            style={{ ...input, width: 110, cursor: "pointer", color: tierEfetivo ? corTier[tierEfetivo] : C.mute }}>
+            <option value="">{preset?.tier ? `da chamada (${preset.tier})` : "—"}</option>
+            {TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </Campo>
         <Campo rot="Data (vazio = hoje)">

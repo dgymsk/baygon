@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
+import { TIERS, corTier } from "@/lib/tier";
 import { chaveNome } from "@/lib/nomes";
 import type { Funcao } from "@/lib/funcao";
 import type { Party } from "@/lib/party";
@@ -257,6 +258,14 @@ export default function ConfigBoard({
                 })}
                 {!parties.length && <Vazio>Nenhuma party criada ainda — crie acima.</Vazio>}
                 <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: C.mute, fontSize: 11.5 }}>tier:</span>
+                  <select defaultValue={preset.tier ?? ""} disabled={!canEdit}
+                    onChange={(e) => api({ acao: "preset-editar", id: preset.id, tier: e.target.value || null }, "tier salvo")}
+                    title="T1/T2/T3 — porte da guerra; o evento nasce com este valor e pode ser trocado depois"
+                    style={{ ...input, width: 78, padding: "5px 8px", fontSize: 12.5, cursor: canEdit ? "pointer" : "default", color: preset.tier ? corTier[preset.tier] : C.mute }}>
+                    <option value="">—</option>
+                    {TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
                   <span style={{ color: C.mute, fontSize: 11.5 }}>canal:</span>
                   <input defaultValue={preset.canal_id ?? ""} disabled={!canEdit} placeholder="do tipo"
                     onBlur={(e) => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, canalId: e.target.value }, "canal do preset salvo")}
