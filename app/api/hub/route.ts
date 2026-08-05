@@ -3,7 +3,8 @@ import { sql } from "@/lib/db";
 import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
-import { listPresets, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
+import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
+import { criarEventoManual } from "@/lib/eventos";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
@@ -58,12 +59,35 @@ export async function POST(req: Request) {
       return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
     }
 
-    // --- troca a chamada (preset) que rege o evento: muda como o pool é agrupado ---
-    case "preset-do-evento": {
-      const mid = typeof b.messageId === "string" ? b.messageId : "";
+    // --- evento criado à mão, sem passar pelo Discord (war marcada por fora, treino, siege) ---
+    case "evento-criar": {
       const pid = Math.trunc(Number(b.presetId));
-      if (!mid || !Number.isFinite(pid)) return NextResponse.json({ error: "dados inválidos" }, { status: 400 });
-      await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE message_id = ${mid}`;
+      if (!Number.isFinite(pid)) return NextResponse.json({ error: "escolha a chamada que rege as PTs" }, { status: 400 });
+      const preset = await getPreset(pid);
+      if (!preset) return NextResponse.json({ error: "chamada não encontrada" }, { status: 400 });
+      // sem PT as colunas da escalação não existem: o evento nasceria inescalável e a tela culparia
+      // o catálogo de parties, que não tem nada a ver
+      if (!preset.parties.length) return NextResponse.json({ error: `"${preset.nome}" não tem PT nenhuma — configure as PTs dela em Definições` }, { status: 400 });
+      // tipo vem do preset, não do formulário: pedir os dois deixaria criar siege com preset de nodewar
+      const ev = await criarEventoManual({
+        tipo: preset.tipo,
+        data: typeof b.data === "string" ? b.data : undefined,
+        titulo: typeof b.titulo === "string" && b.titulo.trim() ? b.titulo.trim() : preset.nome,
+        status: "aberto",   // nasce operável — no hub o evento serve pra escalar, não pra arquivar
+        presetId: pid,
+      });
+      return NextResponse.json({ ok: true, uuid: ev.uuid });
+    }
+
+    // --- troca a chamada (preset) que rege o evento: muda como o pool é agrupado ---
+    // chaveia por EVENTO, não por mensagem: evento manual não tem mensagem, e o UPDATE por
+    // message_id vazio acertava 0 linhas devolvendo 200 — a troca fracassava em silêncio
+    case "preset-do-evento": {
+      const pid = Math.trunc(Number(b.presetId));
+      if (!Number.isFinite(eid()) || !Number.isFinite(pid)) return NextResponse.json({ error: "dados inválidos" }, { status: 400 });
+      await sql`UPDATE evento SET preset_id = ${pid} WHERE id = ${eid()}`;
+      // espelha no post pra mensagem do Discord continuar sendo remontável (sincronizarMensagem lê de lá)
+      await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE evento_id = ${eid()}`;
       return NextResponse.json({ ok: true });
     }
 

@@ -1,19 +1,21 @@
 import Link from "next/link";
 import { funilEventos, resumoSerie, totaisHub } from "@/lib/hub";
-import { postsIntencaoAtivos } from "@/lib/intencao";
 import { listPresets } from "@/lib/intencaoPreset";
 import { listParties } from "@/lib/party";
+import { listAgendas } from "@/lib/agenda";
 import { canEditNow } from "@/lib/requireAuth";
 import { C } from "@/lib/theme";
 import Lancar from "./Lancar";
+import NovoEvento from "./NovoEvento";
 import EventosLista from "./EventosLista";
+import AgendaBoard from "./AgendaBoard";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hub · BAYGON" };
 
 export default async function HubPage() {
-  const [eventos, serie, totais, ativos, presets, parties, canEdit] = await Promise.all([
-    funilEventos(), resumoSerie(), totaisHub(), postsIntencaoAtivos(), listPresets(), listParties(), canEditNow(),
+  const [eventos, serie, totais, presets, parties, canEdit, agendas] = await Promise.all([
+    funilEventos(), resumoSerie(), totaisHub(), listPresets(), listParties(), canEditNow(), listAgendas(),
   ]);
   // o preset é PTs + teto de gente — é isso que aparece antes de lançar
   const nomeParty = new Map(parties.map((p) => [p.id, p.nome]));
@@ -52,28 +54,31 @@ export default async function HubPage() {
           <Stat>{totais.lendarios} lendários</Stat>
         </div>
 
-        {canEdit && <Lancar presets={presets} partiesPorPreset={partiesPorPreset} />}
-
-        {ativos.length > 0 && (
-          <div style={{ border: `1px solid ${C.border2}`, borderRadius: 12, background: C.inputBg, padding: "10px 14px", marginBottom: 18 }}>
-            <span style={{ color: C.verde, fontWeight: 700, fontSize: 13 }}>Chamada ativa</span>
-            {ativos.map((a) => (
-              <span key={a.message_id} style={{ color: C.mute, fontSize: 12.5, marginLeft: 10 }}>
-                {a.titulo} ({a.tipo}) · {a.criado.slice(0, 16).replace("T", " ")}
-                {a.evento_uuid && <> · <Link href={`/hub/${a.evento_uuid}`} style={{ color: C.verde }}>abrir</Link></>}
-              </span>
-            ))}
+        {/* as duas formas de começar um evento, lado a lado: com bot e sem bot */}
+        {canEdit && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch", marginBottom: 18 }}>
+            <div style={{ flex: "1 1 460px" }}><Lancar presets={presets} partiesPorPreset={partiesPorPreset} /></div>
+            <NovoEvento presets={presets} partiesPorPreset={partiesPorPreset} />
           </div>
         )}
 
         <h2 style={{ color: C.verde, fontSize: 15, margin: "0 0 10px" }}>Eventos</h2>
         {!eventos.length ? (
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 24, color: C.mute, fontSize: 13 }}>
-            Nenhuma chamada de intenção postada ainda.{canEdit && <> Configure em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link> e dispare por lá ou pelo <code>/intencao-nodewar</code>.</>}
+            Nenhum evento ainda.{canEdit && <> Dispare uma chamada aí em cima, ou crie um evento à mão em <b style={{ color: C.amarelo }}>＋ Novo evento</b>. A chamada se configura em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link>.</>}
           </div>
         ) : (
           <EventosLista eventos={eventos} />
         )}
+
+        {/* agenda depois dos eventos: é rotina semanal, não a decisão das 20h de terça.
+            Fechada por padrão pra não empurrar o evento atual pra fora da primeira dobra. */}
+        <details style={{ marginBottom: 26 }}>
+          <summary style={{ cursor: "pointer", color: C.verde, fontSize: 15, fontWeight: 600, marginBottom: 8, listStyle: "revert" }}>
+            Agenda de disparo <span style={{ color: C.mute, fontSize: 12, fontWeight: 400 }}>— {agendas.filter((a) => a.ativo).length} ativo(s)</span>
+          </summary>
+          <AgendaBoard agendas={agendas} presets={presets} canEdit={canEdit} />
+        </details>
 
         <h2 style={{ color: C.verde, fontSize: 15, margin: "0 0 4px" }}>Série — quem marca e não joga</h2>
         <p style={{ color: C.mute, fontSize: 11.5, margin: "0 0 10px" }}>

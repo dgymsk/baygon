@@ -174,14 +174,26 @@ export async function deletarEvento(id: number): Promise<{ ok: boolean; messageI
   return { ok: true, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null };
 }
 
-/** Cria um evento RETROATIVO (à mão, sem disparo) — pra registrar wars passadas. Nasce 'finalizado'. */
-export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null }): Promise<Evento> {
+/**
+ * Cria um evento à mão, sem disparo. Dois usos, e o `status` é o que os separa:
+ * - `/eventos` cria RETROATIVO ('finalizado', o default) só pra pendurar o resultado de uma war passada;
+ * - o hub cria 'aberto', porque lá o evento precisa ser operável — escalar e confirmar presença
+ *   dependem de `status === 'aberto'`.
+ * `finalizado_em` só é preenchido quando de fato nasce finalizado: um evento aberto com data de
+ * finalização mentiria pro purge e pra UI de /eventos.
+ * `presetId` decide quais PTs viram as colunas da escalação — sem ele o board abre sem coluna nenhuma.
+ */
+export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null; status?: EventoStatus; presetId?: number | null }): Promise<Evento> {
   const tipo = o.tipo === "siege" ? "siege" : "nodewar";
   const data = o.data && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
   const titulo = o.titulo ? String(o.titulo).slice(0, 200) : null;
+  // valida aqui pra não estourar no CHECK do banco (que viraria 500 sem explicação)
+  const status: EventoStatus = o.status && ["aberto", "travado", "finalizado"].includes(o.status) ? o.status : "finalizado";
+  const presetId = Number.isFinite(Number(o.presetId)) ? Math.trunc(Number(o.presetId)) : null;
   const rows = (await sql`
-    INSERT INTO evento (tipo, titulo, data, status, finalizado_em)
-    VALUES (${tipo}, ${titulo}, COALESCE(${data}::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date), 'finalizado', now())
+    INSERT INTO evento (tipo, titulo, data, status, finalizado_em, preset_id)
+    VALUES (${tipo}, ${titulo}, COALESCE(${data}::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date),
+            ${status}, CASE WHEN ${status}::text = 'finalizado' THEN now() END, ${presetId})
     RETURNING id::int AS id, uuid, data::text AS data, tipo, titulo, status, template_id::int AS template_id, criado::text AS criado, travado_em::text AS travado_em, finalizado_em::text AS finalizado_em`) as Row[];
   return map(rows[0]);
 }

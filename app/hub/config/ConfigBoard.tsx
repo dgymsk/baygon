@@ -9,8 +9,6 @@ import type { Funcao } from "@/lib/funcao";
 import type { Party } from "@/lib/party";
 import type { Preset, PlayerFuncao } from "@/lib/intencaoPreset";
 import type { IntencaoConfig } from "@/lib/intencaoConfig";
-import type { AgendaVM } from "@/lib/agenda";
-import AgendaBoard from "./AgendaBoard";
 
 /**
  * Central de definições — cria num lugar só e vale em todo lugar. Três eixos que NÃO se misturam:
@@ -24,8 +22,8 @@ type Jog = { nome: string; lendario: boolean };
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, agendas, canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; agendas: AgendaVM[]; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, canEdit,
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -277,7 +275,6 @@ export default function ConfigBoard({
           )}
         </div>
 
-        <AgendaBoard agendas={agendas} presets={presets} canEdit={canEdit} />
 
         {/* FUNÇÃO DO JOGADOR — card próprio: é atributo da pessoa, não depende de preset nem de
             tipo. Ficava aninhado no bloco do preset, então sumia quando não havia preset de siege. */}

@@ -23,7 +23,15 @@ export async function alvosConvocacao(eventoId: number, soNovos = true): Promise
   return rows.map((r) => ({ chave: r.chave, familia: r.familia, userId: r.user_id, party: r.party }));
 }
 
-/** Resolve o Discord de cada escalado pela resposta dele na chamada (é o vínculo que já existe). */
+/**
+ * Resolve o Discord de cada escalado. Duas fontes, nesta ordem:
+ * 1. a resposta dele na chamada — o vínculo mais fresco, e o único que existia até aqui;
+ * 2. o registro do jogador (`players.discord_id`).
+ *
+ * A segunda existe porque a primeira só funciona pra quem clicou no bot: num evento criado à mão
+ * não há chamada nenhuma, e quem foi escalado na unha sem ter respondido caía todo em "sem Discord
+ * vinculado" — a convocação inteira falhava sem ter como dar certo.
+ */
 async function resolverUserIds(eventoId: number): Promise<void> {
   await sql`
     UPDATE evento_escalacao e SET user_id = r.user_id
@@ -31,6 +39,11 @@ async function resolverUserIds(eventoId: number): Promise<void> {
     JOIN intencao_post p ON p.message_id = r.message_id
     WHERE p.evento_id = ${eventoId} AND e.evento_id = ${eventoId}
       AND r.chave = e.chave AND e.user_id IS NULL`;
+  await sql`
+    UPDATE evento_escalacao e SET user_id = pl.discord_id
+    FROM players pl
+    WHERE e.evento_id = ${eventoId} AND e.user_id IS NULL
+      AND pl.nome_familia = e.familia AND pl.discord_id IS NOT NULL`;
 }
 
 const linha = (comps: object[]) => ({ type: 1, components: comps });

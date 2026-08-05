@@ -65,4 +65,5 @@ export default function Lancar({ presets, partiesPorPreset }: { presets: Preset[
   );
 }
 
-const caixa = { border: `1px solid ${C.border2}`, borderRadius: 12, background: C.inputBg, padding: "10px 14px", marginBottom: 18, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } as const;
+// a margem de baixo mora no wrapper da faixa de ação, que alinha esta caixa com a de "novo evento"
+const caixa = { border: `1px solid ${C.border2}`, borderRadius: 12, background: C.inputBg, padding: "10px 14px", height: "100%", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } as const;

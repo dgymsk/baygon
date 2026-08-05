@@ -52,7 +52,12 @@ export async function fetchConfirmadosDoBot(o: { eventoUuid?: string | null; tag
   const ativos = await listEventos({ status: "ativos", limit: 50 });
   const eventos: EventoLite[] = ativos.map((e) => ({ uuid: e.uuid, titulo: e.titulo ?? rotulo(e.tipo), tipo: e.tipo, data: e.data, status: e.status }));
   if (!ativos.length) return { ok: false, erro: "nenhum evento ativo do bot", grupos: [], listaEspera: [], eventos, eventoUuid: null };
-  const ev = (o.eventoUuid && ativos.find((e) => e.uuid === o.eventoUuid)) || ativos[0];
+  // o default tem que ser o último evento COM post deste bot: desde que o hub cria evento à mão,
+  // "o mais recente" pode ser um que nunca teve mensagem daqui, e a tela abriria vazia sem motivo
+  const comPost = new Set(((await sql`
+    SELECT DISTINCT evento_id::int AS evento_id FROM participacao_post WHERE evento_id = ANY(${ativos.map((e) => e.id)})
+  `) as { evento_id: number }[]).map((r) => r.evento_id));
+  const ev = (o.eventoUuid && ativos.find((e) => e.uuid === o.eventoUuid)) || ativos.find((e) => comPost.has(e.id)) || ativos[0];
 
   const posts = (await sql`SELECT message_id FROM participacao_post WHERE evento_id = ${ev.id} ORDER BY criado DESC LIMIT 1`) as { message_id: string }[];
   const warKey = posts[0]?.message_id ?? null;

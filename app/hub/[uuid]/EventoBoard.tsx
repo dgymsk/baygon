@@ -49,15 +49,16 @@ function Pokebola({ size = 13 }: { size?: number }) {
 }
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
-type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string; warId: number | null; presetId: number | null };
+type Ev = { uuid: string; titulo: string; tipo: string; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
-  evento, grupos, parties, escalados, canEdit, guildas,
+  evento, grupos, parties, envolvidos, canEdit, guildas, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], recusaram = [],
 }: {
-  evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; escalados: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
+  evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
+  temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
   vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; recusaram?: string[];
 }) {
   const router = useRouter();
@@ -68,6 +69,7 @@ export default function EventoBoard({
   const [salvando, setSalvando] = useState(false);
   const [sincronizou, setSincronizou] = useState(false);
   const [convocacao, setConvocacao] = useState("");
+  const [busca, setBusca] = useState("");
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
@@ -77,9 +79,9 @@ export default function EventoBoard({
   const todos = useMemo(() => {
     const m = new Map<string, JogadorVM>();
     for (const g of grupos) for (const j of g.jogadores) m.set(j.chave, j);
-    for (const j of escalados) if (!m.has(j.chave)) m.set(j.chave, j);
+    for (const j of envolvidos) if (!m.has(j.chave)) m.set(j.chave, j);
     return m;
-  }, [grupos, escalados]);
+  }, [grupos, envolvidos]);
 
   /**
    * O estado otimista do arrastar vale só enquanto DISCORDA do servidor. Ele é descartado na
@@ -96,6 +98,8 @@ export default function EventoBoard({
     return n;
   }, [local, todos]);
   const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
+  const nPool = grupos.reduce((n, g) => n + g.jogadores.length, 0);
+  const casaBusca = (j: JogadorVM) => !busca.trim() || j.familia.toLowerCase().includes(busca.trim().toLowerCase());
   const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id);
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
@@ -133,6 +137,7 @@ export default function EventoBoard({
     if (!evento) return;
     setSalvando(true);
     try {
+      if (!evento.messageId) return;
       await api({ acao: "sync", messageId: evento.messageId });
       setErro(""); setSincronizou(true); setTimeout(() => setSincronizou(false), 2500);
     } catch (e) { setErro((e as Error).message); }
@@ -177,7 +182,7 @@ export default function EventoBoard({
   async function trocarPreset(presetId: number) {
     if (!canEdit || !evento || !Number.isFinite(presetId)) return;
     setSalvando(true);
-    try { await api({ acao: "preset-do-evento", messageId: evento.messageId, presetId }); setErro(""); router.refresh(); }
+    try { await api({ acao: "preset-do-evento", eventoId: evento.eventoId, presetId }); setErro(""); router.refresh(); }
     catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
   }
@@ -190,98 +195,13 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
 
-  const GuildIcon = ({ id }: { id: string | null }) => {
-    const g = id ? byId.get(id) : null;
-    if (!g) return null;
-    const u = iconeUrl(g.icone);
-    return u ? <img src={u} alt="" width={13} height={13} style={{ borderRadius: 3 }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
-      : <span style={{ fontSize: 10, color: C.mute }}>{g.tag}</span>;
-  };
-
-  /** Mini-card do jogador, aberto ao passar o mouse no nome. Resume o que decide a escalação. */
-  const MiniCard = ({ j }: { j: JogadorVM }) => (
-    <div style={{
-      position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 60, minWidth: 210,
-      border: `1px solid ${j.lendario ? C.amarelo : C.border2}`, borderRadius: 10, background: C.bg0,
-      boxShadow: "0 8px 26px rgba(0,0,0,.7)", padding: "9px 11px", cursor: "default",
-      display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: C.mute,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.texto, fontSize: 13, fontWeight: 700 }}>
-        {j.lendario && <Pokebola size={14} />}{j.familia}
-      </div>
-      <Linha k="Classe" v={j.classe ?? "—"} />
-      <Linha k="GS" v={j.gs != null ? String(j.gs) : "—"} />
-      {(j.ap != null || j.aap != null || j.dp != null) && <Linha k="AP / AAP / DP" v={`${j.ap ?? "—"} / ${j.aap ?? "—"} / ${j.dp ?? "—"}`} />}
-      {j.funcaoNome && <Linha k="Marcou" v={j.funcaoNome} />}
-      <Linha k="Wars com stat" v={j.nWars != null ? String(j.nWars) : "—"} />
-      <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 2, paddingTop: 4 }}>
-        {j.diasSemJogar != null
-          ? <Linha k="Sem jogar" v={`${j.diasSemJogar} dia(s)`} cor={j.diasSemJogar >= 14 ? C.vermelho : j.diasSemJogar >= 7 ? C.laranja : C.verde} />
-          : <Linha k="Sem jogar" v="nunca jogou no período" cor={C.mute} />}
-        {j.faltas != null && j.faltas > 0 && <Linha k="Marcou e faltou" v={`${j.faltas} war(s) seguidas`} cor={j.faltas >= 3 ? C.vermelho : C.laranja} />}
-        {j.diasDesdeFalta != null && <Linha k="Última falta" v={`há ${j.diasDesdeFalta} dia(s)`} />}
-      </div>
-    </div>
-  );
-
-  const Card = ({ j }: { j: JogadorVM }) => {
-    const [hover, setHover] = useState(false);
-    return (
-      <div
-        draggable={canEdit}
-        // quem está sendo arrastado viaja no próprio evento (dataTransfer), não num ref: o ref
-        // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
-        onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); }}
-        onDragEnd={() => setSobre(null)}
-        style={{
-          position: "relative",
-          // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
-          // apareceu in-game. Lendário manda no contorno (dourado + brilho) por ser atributo fixo.
-          border: `1px solid ${j.lendario ? C.amarelo : j.confirmouIngame ? C.verde : C.border2}`,
-          boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
-          background: j.confirmouEscalacao === true ? "rgba(46,125,50,.30)" : j.confirmouIngame ? C.verdeTint : C.inputBg,
-          borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
-          display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
-        }}
-      >
-        {j.lendario && <Pokebola />}
-        {j.confirmouEscalacao === true && <span style={{ color: C.verde, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
-        {partyDe(j) != null && j.confirmouEscalacao == null && (j.convidado
-          ? <span style={{ color: C.amarelo, fontSize: 11 }} title="DM enviada — aguardando resposta">⏳</span>
-          : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
-        <GuildIcon id={j.guilda} />
-        <span onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-          style={{ color: C.texto, fontWeight: 600, cursor: "help", whiteSpace: "nowrap" }}>
-          {j.familia}
-        </span>
-        {j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
-        {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
-
-        {/* indicadores à direita: "faz N dias" pesa mais do que a contagem crua de guerras */}
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5 }}>
-          {j.diasSemJogar != null && j.diasSemJogar >= 7 && (
-            <span title={`Não joga há ${j.diasSemJogar} dias`}
-              style={{ fontSize: 10, fontWeight: 700, color: j.diasSemJogar >= 14 ? C.vermelho : C.laranja }}>
-              {j.diasSemJogar}d
-            </span>
-          )}
-          {j.faltas != null && j.faltas > 0 && (
-            <span title={`Marcou e não jogou nas ${j.faltas} últimas wars`}
-              style={{ fontSize: 10, fontWeight: 700, color: j.faltas >= 3 ? C.vermelho : C.laranja }}>
-              ⚠{j.faltas}
-            </span>
-          )}
-          {canEdit && (
-            <button onClick={() => togglePresenca(j)} title={j.confirmouIngame ? "desmarcar confirmação in-game" : "marcar confirmado in-game"}
-              style={{ background: "none", border: "none", cursor: "pointer", color: j.confirmouIngame ? C.verde : C.borderSoft, fontSize: 12, padding: "0 2px" }}>
-              {j.confirmouIngame ? "✅" : "◻"}
-            </button>
-          )}
-        </span>
-        {hover && <MiniCard j={j} />}
-      </div>
-    );
-  };
+  // o que o card precisa do board. Objeto novo a cada render é de boa: o que não pode mudar de
+  // identidade é o TIPO do componente, e ele agora é fixo (escopo de módulo).
+  const ctx = (j: JogadorVM): CardCtx => ({
+    canEdit, byId, escalado: partyDe(j) != null,
+    onFimArraste: () => setSobre(null),
+    onTogglePresenca: togglePresenca,
+  });
 
   const alvo = (id: number | "pool") => ({
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); setSobre(id); },
@@ -308,10 +228,12 @@ export default function EventoBoard({
         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           {salvando && <span style={{ color: C.mute, fontSize: 12 }}>salvando…</span>}
           {sincronizou && <span style={{ color: C.verde, fontSize: 12 }}>✓ mensagem atualizada</span>}
-          <button onClick={sincronizar} disabled={salvando} title="redesenha a mensagem do bot no canal com o estado atual do banco"
-            style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-            🔄 Atualizar no Discord
-          </button>
+          {canEdit && evento.messageId && (
+            <button onClick={sincronizar} disabled={salvando} title="redesenha a mensagem do bot no canal com o estado atual do banco"
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              🔄 Atualizar no Discord
+            </button>
+          )}
           {canEdit && nEscalados > 0 && (
             <button onClick={() => convocar(true)} disabled={salvando} title="manda DM pros escalados que ainda não responderam; segure Shift pra reenviar a todos"
               onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); convocar(false); } }}
@@ -319,7 +241,7 @@ export default function EventoBoard({
               📨 Convocar {nSemConvocar + nAguardando > 0 ? `(${nSemConvocar + nAguardando})` : "escalados"}
             </button>
           )}
-          {canEdit && nEscalados > 0 && (
+          {canEdit && nEscalados > 0 && evento.messageId && (
             <button onClick={publicar} disabled={salvando} title="posta/atualiza a escalação no canal da lista (uma mensagem só, editada)"
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               📋 Publicar lista
@@ -369,35 +291,57 @@ export default function EventoBoard({
       <div style={{ display: aba === "escalacao" ? "block" : "none" }}>{(
         <>
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
-            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{todos.size}</b> que marcaram · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar ·
+            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{nPool}</b> {temChamada ? "que marcaram" : "no elenco"} · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar ·
             <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.borderSoft }}>✉ ainda não convocado</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
           </div>
           {!parties.length ? (
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 20, color: C.amarelo, fontSize: 13 }}>
-              Nenhuma party in-game cadastrada — crie em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link> pra poder escalar.
+              {evento.presetId == null
+                ? (canEdit && presets.length > 0
+                    ? <>Este evento não tem chamada associada — escolha uma em <b>chamada:</b> aí em cima e as PTs dela viram as colunas.</>
+                    : <>Este evento não tem chamada associada, então não há PTs pra montar. {evento.status === "aberto" ? "Peça pra staff associar uma." : `Evento ${evento.status} — a escalação não é mais editável.`}</>)
+                : <>Nenhuma party in-game cadastrada — crie em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link> pra poder escalar.</>}
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "minmax(250px, 330px) 1fr", gap: 14, alignItems: "start" }}>
               {/* pool por FUNÇÃO */}
               <div {...alvo("pool")} style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surface, padding: 12, ...realce("pool") }}>
-                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 9 }}>Marcaram, por função</div>
+                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 9 }}>{temChamada ? "Marcaram, por função" : "Elenco, por função"}</div>
+                {/* sem chamada o pool é o elenco inteiro; achar alguém rolando 90 nomes numa coluna
+                    de 330px não é viável, então a busca aparece quando o pool cresce */}
+                {nPool > 12 && (
+                  <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="filtrar por nome…"
+                    style={{ width: "100%", boxSizing: "border-box", background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "5px 9px", fontSize: 12, fontFamily: "inherit", outline: "none", marginBottom: 9 }} />
+                )}
                 {grupos.map((g) => {
-                  const livres = g.jogadores.filter((j) => partyDe(j) == null);
+                  const livres = g.jogadores.filter((j) => partyDe(j) == null && casaBusca(j));
+                  // um grupo grande (tipicamente "Sem função", que junta quem não foi classificado)
+                  // vira sanfona pra não empurrar os grupos úteis pra fora da tela
+                  const dobra = livres.length > 12 && !busca.trim();
+                  const cabeca = (
+                    <span style={{ color: C.verde, fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <Icone raw={g.emoji} nome={g.nome} /> {g.nome} <span style={{ color: C.mute, fontWeight: 400 }}>{livres.length}</span>
+                    </span>
+                  );
+                  const corpo = (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {livres.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
+                      {!livres.length && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>{busca.trim() ? "— nada com esse nome —" : "— todos escalados —"}</span>}
+                    </div>
+                  );
                   return (
                     <div key={g.funcaoId ?? "sem"} style={{ marginBottom: 11 }}>
-                      <div style={{ color: C.verde, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
-                        <Icone raw={g.emoji} nome={g.nome} /> {g.nome} <span style={{ color: C.mute, fontWeight: 400 }}>{livres.length}</span>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {livres.map((j) => <Card key={j.chave} j={j} />)}
-                        {!livres.length && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>— todos escalados —</span>}
-                      </div>
+                      {dobra ? (
+                        <details><summary style={{ cursor: "pointer", marginBottom: 5 }}>{cabeca}</summary>{corpo}</details>
+                      ) : (
+                        <><div style={{ marginBottom: 5 }}>{cabeca}</div>{corpo}</>
+                      )}
                     </div>
                   );
                 })}
-                {!grupos.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>Ninguém marcou ainda.</span>}
+                {!grupos.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>{temChamada ? "Ninguém marcou ainda." : "Nenhum jogador ativo cadastrado."}</span>}
 
                 {/* quem recusou a convocação: já saiu da PT, mas fica à vista pra você saber que
                     avisou (≠ de quem sumiu) e não reescalar sem querer */}
@@ -427,7 +371,7 @@ export default function EventoBoard({
                         <span style={{ color: C.mute, fontSize: 11 }}>{dentro.length}{media != null ? ` · GS ${media}` : ""}</span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {dentro.map((j) => <Card key={j.chave} j={j} />)}
+                        {dentro.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
                         {!dentro.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>arraste alguém aqui</span>}
                       </div>
                     </div>
@@ -484,6 +428,116 @@ export default function EventoBoard({
         </div>
       )}</div>
     </Casca>
+  );
+}
+
+type CardCtx = {
+  canEdit: boolean;
+  byId: Map<string, GuildEntry>;
+  escalado: boolean;                       // já está numa PT — muda os selos de convocação
+  onFimArraste: () => void;
+  onTogglePresenca: (j: JogadorVM) => void;
+};
+
+function GuildIcon({ id, byId }: { id: string | null; byId: Map<string, GuildEntry> }) {
+  const g = id ? byId.get(id) : null;
+  if (!g) return null;
+  const u = iconeUrl(g.icone);
+  return u ? <img src={u} alt="" width={13} height={13} style={{ borderRadius: 3 }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+    : <span style={{ fontSize: 10, color: C.mute }}>{g.tag}</span>;
+}
+
+/** Mini-card do jogador, aberto ao passar o mouse no nome. Resume o que decide a escalação. */
+function MiniCard({ j }: { j: JogadorVM }) {
+  return (
+  <div style={{
+    position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 60, minWidth: 210,
+    border: `1px solid ${j.lendario ? C.amarelo : C.border2}`, borderRadius: 10, background: C.bg0,
+    boxShadow: "0 8px 26px rgba(0,0,0,.7)", padding: "9px 11px", cursor: "default",
+    display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: C.mute,
+  }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.texto, fontSize: 13, fontWeight: 700 }}>
+      {j.lendario && <Pokebola size={14} />}{j.familia}
+    </div>
+    <Linha k="Classe" v={j.classe ?? "—"} />
+    <Linha k="GS" v={j.gs != null ? String(j.gs) : "—"} />
+    {(j.ap != null || j.aap != null || j.dp != null) && <Linha k="AP / AAP / DP" v={`${j.ap ?? "—"} / ${j.aap ?? "—"} / ${j.dp ?? "—"}`} />}
+    {j.funcaoNome && <Linha k="Marcou" v={j.funcaoNome} />}
+    <Linha k="Wars com stat" v={j.nWars != null ? String(j.nWars) : "—"} />
+    <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 2, paddingTop: 4 }}>
+      {j.diasSemJogar != null
+        ? <Linha k="Sem jogar" v={`${j.diasSemJogar} dia(s)`} cor={j.diasSemJogar >= 14 ? C.vermelho : j.diasSemJogar >= 7 ? C.laranja : C.verde} />
+        : <Linha k="Sem jogar" v="nunca jogou no período" cor={C.mute} />}
+      {j.faltas != null && j.faltas > 0 && <Linha k="Marcou e faltou" v={`${j.faltas} war(s) seguidas`} cor={j.faltas >= 3 ? C.vermelho : C.laranja} />}
+      {j.diasDesdeFalta != null && <Linha k="Última falta" v={`há ${j.diasDesdeFalta} dia(s)`} />}
+    </div>
+  </div>
+  );
+}
+
+/**
+ * Card do jogador. Vive no ESCOPO DO MÓDULO, não dentro do board: definido lá dentro, o React
+ * trataria cada render como um tipo novo e remontaria todos os cards — o mini-card do hover fechava
+ * sozinho a cada releitura automática (de 20 em 20s), a cada arraste e a cada salvamento, e não
+ * reabria sem tirar e devolver o mouse.
+ */
+function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
+  const { canEdit, byId, escalado, onFimArraste, onTogglePresenca } = ctx;
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      draggable={canEdit}
+      // quem está sendo arrastado viaja no próprio evento (dataTransfer), não num ref: o ref
+      // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
+      onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); }}
+      onDragEnd={onFimArraste}
+      style={{
+        position: "relative",
+        // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
+        // apareceu in-game. Lendário manda no contorno (dourado + brilho) por ser atributo fixo.
+        border: `1px solid ${j.lendario ? C.amarelo : j.confirmouIngame ? C.verde : C.border2}`,
+        boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
+        background: j.confirmouEscalacao === true ? "rgba(46,125,50,.30)" : j.confirmouIngame ? C.verdeTint : C.inputBg,
+        borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
+        display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
+      }}
+    >
+      {j.lendario && <Pokebola />}
+      {j.confirmouEscalacao === true && <span style={{ color: C.verde, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
+      {escalado && j.confirmouEscalacao == null && (j.convidado
+        ? <span style={{ color: C.amarelo, fontSize: 11 }} title="DM enviada — aguardando resposta">⏳</span>
+        : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
+      <GuildIcon id={j.guilda} byId={byId} />
+      <span onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+        style={{ color: C.texto, fontWeight: 600, cursor: "help", whiteSpace: "nowrap" }}>
+        {j.familia}
+      </span>
+      {j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
+      {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
+
+      {/* indicadores à direita: "faz N dias" pesa mais do que a contagem crua de guerras */}
+      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5 }}>
+        {j.diasSemJogar != null && j.diasSemJogar >= 7 && (
+          <span title={`Não joga há ${j.diasSemJogar} dias`}
+            style={{ fontSize: 10, fontWeight: 700, color: j.diasSemJogar >= 14 ? C.vermelho : C.laranja }}>
+            {j.diasSemJogar}d
+          </span>
+        )}
+        {j.faltas != null && j.faltas > 0 && (
+          <span title={`Marcou e não jogou nas ${j.faltas} últimas wars`}
+            style={{ fontSize: 10, fontWeight: 700, color: j.faltas >= 3 ? C.vermelho : C.laranja }}>
+            ⚠{j.faltas}
+          </span>
+        )}
+        {canEdit && (
+          <button onClick={() => onTogglePresenca(j)} title={j.confirmouIngame ? "desmarcar confirmação in-game" : "marcar confirmado in-game"}
+            style={{ background: "none", border: "none", cursor: "pointer", color: j.confirmouIngame ? C.verde : C.borderSoft, fontSize: 12, padding: "0 2px" }}>
+            {j.confirmouIngame ? "✅" : "◻"}
+          </button>
+        )}
+      </span>
+      {hover && <MiniCard j={j} />}
+    </div>
   );
 }
 
