@@ -20,9 +20,13 @@ export type EscaladoL = {
 export type PerfilEmojis = { classes: Record<string, string>; guildas: Record<string, string> };
 
 const COR = 0xcc0000;
-/** Espaço ideográfico (U+3000): invisível e de largura cheia — o mais perto de um "emoji vazio"
- *  que existe sem depender de um emoji custom do servidor. Serve pra reservar o slot da coroa. */
-const VAZIO = "　";
+/** Reserva o slot da coroa em quem não é líder.
+ *
+ *  O certo é um emoji transparente do servidor (`:vazio:`), porque emoji tem largura fixa no
+ *  Discord e caractere não tem — fora de code block a fonte é proporcional, e qualquer espaço
+ *  branco aproxima sem casar. O espaço ideográfico fica como queda: se o emoji for apagado, a lista
+ *  volta a desalinhar um pouco em vez de exibir "<:vazio:123>" cru. */
+const VAZIO_FALLBACK = "　";
 const safeLink = (s: string) => (s || "?").replace(/[`[\]()\n]/g, "").trim() || "?";
 
 export type DadosLista = {
@@ -36,6 +40,7 @@ export type DadosLista = {
   emojis?: PerfilEmojis;
   tags?: Record<string, string>;
   nota?: string;
+  vazio?: string | null;  // emoji transparente que reserva o slot da coroa
 };
 
 export function montarLista(d: DadosLista) {
@@ -56,7 +61,10 @@ export function montarLista(d: DadosLista) {
   const linha = (e: EscaladoL, i: number): string => {
     const gEmoji = (e.guilda && d.emojis?.guildas[e.guilda]) || (e.guilda && tags[e.guilda]) || "";
     const cEmoji = (e.classe && d.emojis?.classes[e.classe]) || (e.classe ? `(${safeLink(e.classe)})` : "");
-    const nome = e.userId ? `[${safeLink(e.familia)}](https://discord.com/users/${e.userId})` : safeLink(e.familia);
+    // menção de verdade (<@id>) em vez de link mascarado: vira o chip do Discord, com avatar no
+    // hover, e a pessoa se acha na lista pelo próprio nome do servidor. Sem user_id vinculado
+    // (escalado à mão, sem registro) sobra o nome de família em texto.
+    const nome = e.userId ? `<@${e.userId}>` : safeLink(e.familia);
     // um sinal só, e o IN-GAME tem prioridade: quem já apareceu no jogo respondeu na prática a
     // pergunta que o ⏳ fazia. "Aguardando resposta" ao lado de "está no jogo" era contradição na
     // mesma linha.
@@ -66,7 +74,7 @@ export function montarLista(d: DadosLista) {
     // 👑 = líder (quem a staff pôs em primeiro). Quem não é líder recebe o espaço no lugar da
     // coroa: sem isso a linha de baixo começava deslocada, e o olho perde a coluna do nome.
     // O Discord usa fonte proporcional fora de code block, então isso aproxima — não casa ao pixel.
-    const marca = i === 0 ? "👑" : VAZIO;
+    const marca = i === 0 ? "👑" : (d.vazio || VAZIO_FALLBACK);
     return [marca, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
   };
   // índice explícito: `es.map(linha)` passaria o índice como 2º argumento por acidente, e aqui ele

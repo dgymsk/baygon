@@ -7,6 +7,7 @@ import { getPreset } from "@/lib/intencaoPreset";
 import { listParties } from "@/lib/party";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
+import { listarEmojisGuild } from "@/lib/discordApi";
 import { getGuildMeta } from "@/lib/guildConfig";
 import { filaDaChamada } from "@/lib/threadChamada";
 import { type Tipo } from "@/lib/participacaoConfig";
@@ -38,9 +39,9 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
     || (await getParticipacaoConfig())[post.tipo as Tipo]?.channelId;
   if (!canal) return { ok: false, erro: "nenhum canal configurado para a lista" };
 
-  const [preset, cat, perfil, emojis, meta, linhas] = await Promise.all([
+  const [preset, cat, perfil, emojis, meta, emojisServidor, linhas] = await Promise.all([
     post.preset_id ? getPreset(post.preset_id) : Promise.resolve(null),
-    listParties(), perfilGear(), getEmojiMapResolvido(), getGuildMeta(),
+    listParties(), perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listarEmojisGuild(),
     sql`SELECT chave, familia, user_id, party_id::int AS party_id, ordem_pt::int AS ordem_pt, confirmou
         FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY party_id NULLS LAST, ordem_pt NULLS LAST, familia` as Promise<unknown>,
   ]);
@@ -71,7 +72,17 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
     recusaram: rows.filter((r) => r.confirmou === false).map((r) => r.familia),
     foraDaEscalacao: presenca.filter((p) => !rows.some((r) => r.chave === p.chave && r.party_id != null)).map((p) => p.familia),
     emojis, tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
+    // por NOME, não por id fixo: emoji apagado ou servidor trocado cai no fallback sozinho, em vez
+    // de a lista passar a mostrar o código cru
+    vazio: (() => {
+      const e = emojisServidor.find((x) => x.name.toLowerCase() === "vazio");
+      return e ? `<${e.animated ? "a" : ""}:${e.name}:${e.id}>` : null;
+    })(),
   });
+  // As menções ficam DENTRO do embed, e embed não notifica ninguém no Discord — elas rendem o chip
+  // (nome do servidor, avatar no hover, clicável) sem ping. É o que se quer aqui: a lista é editada
+  // a cada mudança de presença ou convocação, e um ping por edição seria insuportável.
+  // Se um dia quiserem avisar de fato, o caminho é uma mensagem de texto à parte, fora do embed.
   const body = JSON.stringify({ allowed_mentions: { parse: [] }, ...payload });
 
   // edita a mensagem existente; se ela sumiu (apagada no Discord), posta uma nova
