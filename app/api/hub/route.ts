@@ -8,7 +8,7 @@ import { criarEventoManual, deletarEvento, resumoExclusao } from "@/lib/eventos"
 import { silenciarOrfas } from "@/lib/silenciarEvento";
 import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
-import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
+import { aplicarEscalacao, limparEscalacao, getEscalacao, reordenarParty } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { convocar, pedirParticiparIngame } from "@/lib/convocacao";
 import { publicarLista } from "@/lib/publicarLista";
@@ -158,6 +158,10 @@ export async function POST(req: Request) {
     case "escalar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
       return NextResponse.json({ escalacao: await aplicarEscalacao(eid(), b.ops) });
+    }
+    case "escalacao-reordenar": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      return NextResponse.json({ escalacao: await reordenarParty(eid(), b.partyId, b.chaves) });
     }
     case "escalacao-limpar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });

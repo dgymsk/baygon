@@ -9,6 +9,7 @@ import { getPresenca } from "@/lib/presencaEvento";
 import { faltasPorChave } from "@/lib/faltas";
 import { perfilGear, listPlayers } from "@/lib/players";
 import { getGuildMeta } from "@/lib/guildConfig";
+import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { canEditNow } from "@/lib/requireAuth";
 import { chaveNome } from "@/lib/nomes";
 import { filaDaChamada } from "@/lib/threadChamada";
@@ -44,14 +45,14 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   }
   const temChamada = ev.message_id != null;
 
-  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes, fila] = await Promise.all([
+  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes, fila] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     listFuncoes(), listParties(),
     // sem chamada não há mensagem pra consultar — o tipo vazio precisa vir anotado, senão vira never[]
     ev.message_id ? getMarcas(ev.message_id) : Promise.resolve([] as Awaited<ReturnType<typeof getMarcas>>),
     ev.message_id ? getRespostasInt(ev.message_id) : Promise.resolve([] as Awaited<ReturnType<typeof getRespostasInt>>),
     getEscalacao(ev.evento_id), getPresenca(ev.evento_id), faltasPorChave(), perfilGear(), listPlayers(),
-    getGuildMeta(), canEditNow(), listPresets(),
+    getGuildMeta(), canEditNow(), listPresets(), getEmojiMapResolvido(),
     ev.war_id != null ? desempenhoDaWar(ev.war_id) : Promise.resolve([]), // pré-carrega a tabela de stats
     ev.war_id != null ? aliancasDaWar(ev.war_id) : Promise.resolve([] as string[]),
     // vizinhos p/ navegar sem voltar ao hub (mais recente → mais antigo). Todos os eventos: filtrar
@@ -69,6 +70,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const ordemFuncoes = funcoes.map((f) => f.id); // pool agrupa por TODAS as funções do catálogo
   const presencaPorChave = new Map(presenca.map((p) => [p.chave, p.participar]));
   const escalaPorChave = new Map(escalacao.map((e) => [e.chave, e.party_id]));
+  const ordemPtPorChave = new Map(escalacao.map((e) => [e.chave, e.ordem_pt]));
   // confirmou a ESCALAÇÃO (DM): null = não respondeu, true = aceitou, false = recusou
   const confEscPorChave = new Map(escalacao.map((e) => [e.chave, e.confirmou]));
   // convidado_em separa "ainda não foi chamado" de "chamado e sem responder"
@@ -113,6 +115,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       convidadoEm: convidadoPorChave.get(chave) ?? null,
       respondeuEm: respondeuPorChave.get(chave) ?? null,
       ingameEm: ingamePorChave.get(chave) ?? null,
+      ordemPt: ordemPtPorChave.get(chave) ?? null,
     };
   };
 
@@ -132,9 +135,12 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const ativoPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), p.ativo]));
   const grupos: GrupoVM[] = ordemFuncoes.map((id: number) => {
     const f = fById.get(id);
-    const jogadores = temChamada
+    const jogadores = (temChamada
       ? marcas.filter((m) => m.funcao_id === id).map((m) => porUser.get(m.user_id)).filter((j): j is JogadorVM => !!j)
-      : playerFuncoes.filter((pf) => pf.funcao_id === id && ativoPorChave.get(pf.chave) !== false).map((pf) => vmFam(pf.familia));
+      : playerFuncoes.filter((pf) => pf.funcao_id === id && ativoPorChave.get(pf.chave) !== false).map((pf) => vmFam(pf.familia)))
+      // ordem de marcação dentro da função: é a fila, e é ela que decide quem tem prioridade.
+      // Sem chamada não há fila — cai no alfabético, que ao menos é estável.
+      .sort((a, x) => (a.ordem ?? 1e9) - (x.ordem ?? 1e9) || a.familia.localeCompare(x.familia, "pt-BR"));
     return { funcaoId: id, nome: f?.nome ?? `Função ${id}`, emoji: f?.emoji || null, jogadores };
   }).filter((g) => g.jogadores.length > 0); // grupo vazio virava "— todos escalados —", o que é mentira
 
@@ -168,7 +174,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     <EventoBoard
       evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, tier: ev.tier, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
-      canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} guildas={meta.guildas}
+      canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
       recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
       playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}

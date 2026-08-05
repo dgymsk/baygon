@@ -43,6 +43,7 @@ export type JogadorVM = {
   convidadoEm: string | null;     // DM de convocação enviada
   respondeuEm: string | null;     // respondeu a DM (aceitou ou recusou)
   ingameEm: string | null;        // apareceu na conferência in-game
+  ordemPt: number | null;         // posição DENTRO da PT — 0 é o líder
 };
 
 /** Pokébola — só no site, nunca no bot. SVG inline pra não depender de emoji nem de CDN. */
@@ -63,11 +64,12 @@ export type EvLink = { uuid: string; titulo: string; data: string; status: strin
 export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
-  evento, grupos, parties, envolvidos, canEdit, podeApagar = false, guildas, temChamada = true,
+  evento, grupos, parties, envolvidos, canEdit, podeApagar = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
+  emojisClasse?: Record<string, string>; // classe → emoji do Discord (o Shai é o que se procura de relance)
   temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
   vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
 }) {
@@ -80,6 +82,8 @@ export default function EventoBoard({
   const [sincronizou, setSincronizou] = useState(false);
   const [convocacao, setConvocacao] = useState("");
   const [busca, setBusca] = useState("");
+  // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
+  const [ordemLocal, setOrdemLocal] = useState<Record<string, number>>({});
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
@@ -107,10 +111,20 @@ export default function EventoBoard({
     }
     return n;
   }, [local, todos]);
+  const ordemOverrides = useMemo(() => {
+    const n: Record<string, number> = {};
+    for (const [chave, v] of Object.entries(ordemLocal)) {
+      const j = todos.get(chave);
+      if (!j || j.ordemPt !== v) n[chave] = v;   // servidor ainda não confirmou → mantém o local
+    }
+    return n;
+  }, [ordemLocal, todos]);
   const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
   const nPool = grupos.reduce((n, g) => n + g.jogadores.length, 0);
   const casaBusca = (j: JogadorVM) => !busca.trim() || j.familia.toLowerCase().includes(busca.trim().toLowerCase());
-  const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id);
+  const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id)
+    .sort((a, x) => (ordemOverrides[a.chave] ?? a.ordemPt ?? 1e9) - (ordemOverrides[x.chave] ?? x.ordemPt ?? 1e9)
+      || a.familia.localeCompare(x.familia, "pt-BR"));
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
   const nAguardando = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.convidado).length;
@@ -239,12 +253,48 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
     finally { setSalvando(false); }
   }
 
+  /**
+   * Reordena dentro da PT: quem foi arrastado entra ANTES do card em que soltou. Arrastar pra fora
+   * do último card é o caso de "quero no fim", tratado pelo alvo da coluna, que já move pra lá.
+   *
+   * A ordem inteira é reenviada (não só a posição de um): reindexar no servidor a partir da lista
+   * final é o que garante 0..n-1 sem buraco, mesmo com dois arrastes seguidos.
+   */
+  async function reordenar(chaveArrastada: string, partyId: number, chaveAlvo: string) {
+    if (!canEdit || !evento || chaveArrastada === chaveAlvo) return;
+    const atual = naParty(partyId).map((j) => j.chave);
+    const de = atual.indexOf(chaveArrastada);
+    const lista = de >= 0 ? atual.filter((c) => c !== chaveArrastada) : atual.slice();
+    const para = lista.indexOf(chaveAlvo);
+    if (para < 0) return;
+    lista.splice(para, 0, chaveArrastada);
+    setOrdemLocal((s) => ({ ...s, ...Object.fromEntries(lista.map((c, i) => [c, i])) }));
+    // quem vinha de OUTRA PT precisa mudar de party antes de ter posição aqui
+    const j = todos.get(chaveArrastada);
+    setSalvando(true);
+    try {
+      if (j && partyDe(j) !== partyId) {
+        setLocal((s) => ({ ...s, [chaveArrastada]: partyId }));
+        await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
+      }
+      await api({ acao: "escalacao-reordenar", eventoId: evento.eventoId, partyId, chaves: lista });
+      setErro(""); router.refresh();
+    } catch (e) {
+      setErro((e as Error).message);
+      setOrdemLocal({});
+    } finally { setSalvando(false); }
+  }
+
   // o que o card precisa do board. Objeto novo a cada render é de boa: o que não pode mudar de
   // identidade é o TIPO do componente, e ele agora é fixo (escopo de módulo).
-  const ctx = (j: JogadorVM): CardCtx => ({
-    canEdit, byId, escalado: partyDe(j) != null,
+  // `partyId` só vem quando o card está DENTRO de uma PT: no pool não há ordem a reordenar,
+  // e o card não deve virar alvo de solta.
+  const ctx = (j: JogadorVM, partyId?: number, lider?: boolean): CardCtx => ({
+    canEdit, byId, escalado: partyDe(j) != null, lider,
+    emojiClasse: (j.classe && emojisClasse[j.classe]) || null,
     onFimArraste: () => setSobre(null),
     onTogglePresenca: togglePresenca,
+    onSoltarEmCima: canEdit && partyId != null ? (c) => reordenar(c, partyId, j.chave) : undefined,
   });
 
   const alvo = (id: number | "pool") => ({
@@ -433,7 +483,7 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
                         <span style={{ color: C.mute, fontSize: 11 }}>{dentro.length}{media != null ? ` · GS ${media}` : ""}</span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {dentro.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
+                        {dentro.map((j, i) => <Card key={j.chave} j={j} ctx={ctx(j, p.id, i === 0)} />)}
                         {!dentro.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>arraste alguém aqui</span>}
                       </div>
                     </div>
@@ -509,9 +559,20 @@ type CardCtx = {
   canEdit: boolean;
   byId: Map<string, GuildEntry>;
   escalado: boolean;                       // já está numa PT — muda os selos de convocação
+  lider?: boolean;                         // primeiro da PT
+  emojiClasse?: string | null;             // ícone da classe (Shai é o que se procura de relance)
   onFimArraste: () => void;
   onTogglePresenca: (j: JogadorVM) => void;
+  onSoltarEmCima?: (chaveArrastada: string) => void;  // reordenar dentro da PT
 };
+
+/** Emoji de classe do Discord ("<:shai:123>") como imagem; unicode renderiza como texto. */
+function IconeClasse({ raw, nome }: { raw: string; nome: string }) {
+  const m = raw.match(/^<(a?):w+:(d+)>$/);
+  if (m) return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.${m[1] ? "gif" : "png"}`} alt={nome} title={nome}
+    width={14} height={14} style={{ flexShrink: 0, verticalAlign: "-2px" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />;
+  return <span title={nome} style={{ fontSize: 12, flexShrink: 0 }}>{raw}</span>;
+}
 
 function GuildIcon({ id, byId }: { id: string | null; byId: Map<string, GuildEntry> }) {
   const g = id ? byId.get(id) : null;
@@ -565,8 +626,9 @@ function MiniCard({ j }: { j: JogadorVM }) {
  * reabria sem tirar e devolver o mouse.
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
-  const { canEdit, byId, escalado, onFimArraste, onTogglePresenca } = ctx;
+  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima } = ctx;
   const [hover, setHover] = useState(false);
+  const [alvo, setAlvo] = useState(false);   // outro card sendo arrastado por cima deste
   return (
     <div
       draggable={canEdit}
@@ -576,6 +638,17 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       onDragEnd={onFimArraste}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      // soltar EM CIMA de um card insere antes dele. stopPropagation pra o alvo da coluna não
+      // tratar isso como "jogar no fim" logo em seguida.
+      {...(onSoltarEmCima ? {
+        onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setAlvo(true); },
+        onDragLeave: () => setAlvo(false),
+        onDrop: (e: React.DragEvent) => {
+          e.preventDefault(); e.stopPropagation(); setAlvo(false); setHover(false);
+          const c = e.dataTransfer.getData("text/plain");
+          if (c) onSoltarEmCima(c);
+        },
+      } : {})}
       style={{
         position: "relative",
         // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
@@ -584,9 +657,12 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
         background: j.confirmouEscalacao === true ? "rgba(46,125,50,.30)" : j.confirmouIngame ? C.verdeTint : C.inputBg,
         borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
+        // linha no topo marca onde o card vai entrar
+        boxSizing: "border-box", borderTop: alvo ? `3px solid ${C.verde}` : undefined,
         display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
       }}
     >
+      {lider && <span title="líder da PT" style={{ fontSize: 11, flexShrink: 0 }}>👑</span>}
       {j.lendario && <Pokebola />}
       {j.confirmouEscalacao === true && <span style={{ color: C.verde, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
       {escalado && j.confirmouEscalacao == null && (j.convidado
@@ -594,7 +670,9 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
       <GuildIcon id={j.guilda} byId={byId} />
       <span style={{ color: C.texto, fontWeight: 600, whiteSpace: "nowrap" }}>{j.familia}</span>
-      {j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
+      {emojiClasse
+        ? <IconeClasse raw={emojiClasse} nome={j.classe ?? ""} />
+        : j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
       {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
 
       {/* indicadores à direita: "faz N dias" pesa mais do que a contagem crua de guerras */}
