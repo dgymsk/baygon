@@ -37,6 +37,12 @@ export type JogadorVM = {
   diasSemJogar: number | null;    // "faz N dias" é mais concreto que "N guerras"
   diasDesdeFalta: number | null;
   funcaoNome: string | null;      // a que ele marcou no bot (útil depois de escalado)
+  // carimbos do funil — é o "quando" de cada passo, e o que responde "quem chegou primeiro"
+  marcouEm: string | null;        // clicou participar no bot
+  ordem: number | null;           // posição na fila de chegada
+  convidadoEm: string | null;     // DM de convocação enviada
+  respondeuEm: string | null;     // respondeu a DM (aceitou ou recusou)
+  ingameEm: string | null;        // apareceu na conferência in-game
 };
 
 /** Pokébola — só no site, nunca no bot. SVG inline pra não depender de emoji nem de CDN. */
@@ -521,7 +527,7 @@ function MiniCard({ j }: { j: JogadorVM }) {
   <div style={{
     position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 60, minWidth: 210,
     border: `1px solid ${j.lendario ? C.amarelo : C.border2}`, borderRadius: 10, background: C.bg0,
-    boxShadow: "0 8px 26px rgba(0,0,0,.7)", padding: "9px 11px", cursor: "default",
+    boxShadow: "0 8px 26px rgba(0,0,0,.7)", padding: "9px 11px", cursor: "default", pointerEvents: "none",
     display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: C.mute,
   }}>
     <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.texto, fontSize: 13, fontWeight: 700 }}>
@@ -539,6 +545,15 @@ function MiniCard({ j }: { j: JogadorVM }) {
       {j.faltas != null && j.faltas > 0 && <Linha k="Marcou e faltou" v={`${j.faltas} war(s) seguidas`} cor={j.faltas >= 3 ? C.vermelho : C.laranja} />}
       {j.diasDesdeFalta != null && <Linha k="Última falta" v={`há ${j.diasDesdeFalta} dia(s)`} />}
     </div>
+    {/* quando cada passo aconteceu — é o que responde "quem chegou primeiro" na hora de priorizar */}
+    {(j.marcouEm || j.convidadoEm || j.respondeuEm || j.ingameEm) && (
+      <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 2, paddingTop: 4 }}>
+        {j.marcouEm && <Linha k={j.ordem != null ? `Marcou (#${j.ordem})` : "Marcou"} v={quando(j.marcouEm)} cor={C.texto} />}
+        {j.convidadoEm && <Linha k="Convocado" v={quando(j.convidadoEm)} />}
+        {j.respondeuEm && <Linha k={j.confirmouEscalacao === false ? "Recusou" : "Confirmou"} v={quando(j.respondeuEm)} cor={j.confirmouEscalacao === false ? C.vermelho : C.verde} />}
+        {j.ingameEm && <Linha k="In-game" v={quando(j.ingameEm)} cor={C.verde} />}
+      </div>
+    )}
   </div>
   );
 }
@@ -557,8 +572,10 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       draggable={canEdit}
       // quem está sendo arrastado viaja no próprio evento (dataTransfer), não num ref: o ref
       // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
-      onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); }}
+      onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); setHover(false); }}
       onDragEnd={onFimArraste}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         position: "relative",
         // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
@@ -576,10 +593,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         ? <span style={{ color: C.amarelo, fontSize: 11 }} title="DM enviada — aguardando resposta">⏳</span>
         : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
       <GuildIcon id={j.guilda} byId={byId} />
-      <span onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-        style={{ color: C.texto, fontWeight: 600, cursor: "help", whiteSpace: "nowrap" }}>
-        {j.familia}
-      </span>
+      <span style={{ color: C.texto, fontWeight: 600, whiteSpace: "nowrap" }}>{j.familia}</span>
       {j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
       {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
 
@@ -618,6 +632,17 @@ function Casca({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+/** Carimbo legível: hoje mostra só a hora, outro dia mostra o dia junto — numa war que vira a
+ *  madrugada "23:58" e "00:04" sem data confundem mais do que informam. */
+function quando(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const opts: Intl.DateTimeFormatOptions = { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" };
+  const hoje = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  const dia = d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  return dia === hoje ? d.toLocaleTimeString("pt-BR", opts) : `${dia.slice(0, 5)} ${d.toLocaleTimeString("pt-BR", opts)}`;
+}
+
 const Linha = ({ k, v, cor }: { k: string; v: string; cor?: string }) => (
   <span style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
     <span style={{ color: "#8f8f8f" }}>{k}</span><span style={{ color: cor ?? "#e5e5e5" }}>{v}</span>

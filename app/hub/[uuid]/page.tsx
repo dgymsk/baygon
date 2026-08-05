@@ -11,6 +11,7 @@ import { perfilGear, listPlayers } from "@/lib/players";
 import { getGuildMeta } from "@/lib/guildConfig";
 import { canEditNow } from "@/lib/requireAuth";
 import { chaveNome } from "@/lib/nomes";
+import { filaDaChamada } from "@/lib/threadChamada";
 import type { Tier } from "@/lib/tier";
 import EventoBoard, { type JogadorVM, type GrupoVM, type PartyVM } from "./EventoBoard";
 
@@ -43,7 +44,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   }
   const temChamada = ev.message_id != null;
 
-  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes] = await Promise.all([
+  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes, fila] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     listFuncoes(), listParties(),
     // sem chamada não há mensagem pra consultar — o tipo vazio precisa vir anotado, senão vira never[]
@@ -59,6 +60,8 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     sql`SELECT e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.data::text AS data, e.status
         FROM evento e ORDER BY e.data DESC, e.criado DESC, e.id DESC LIMIT 40`,
     listPlayerFuncoes(), // pool de quem não teve chamada
+    // fila de chegada: o "quem marcou primeiro", que agora aparece no card
+    ev.message_id ? filaDaChamada(ev.message_id) : Promise.resolve([] as Awaited<ReturnType<typeof filaDaChamada>>),
   ]);
   const vizinhosVM = vizinhos as { uuid: string; titulo: string; data: string; status: string }[];
 
@@ -70,6 +73,8 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const confEscPorChave = new Map(escalacao.map((e) => [e.chave, e.confirmou]));
   // convidado_em separa "ainda não foi chamado" de "chamado e sem responder"
   const convidadoPorChave = new Map(escalacao.map((e) => [e.chave, e.convidado_em]));
+  const respondeuPorChave = new Map(escalacao.map((e) => [e.chave, e.respondeu_em]));
+  const ingamePorChave = new Map(presenca.filter((p) => p.participar).map((p) => [p.chave, p.atualizado]));
   const recusaram = escalacao.filter((e) => e.confirmou === false);
   const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
   const nomesQueJogaram = ev.war_id
@@ -80,6 +85,8 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   // gear e nº de wars pro mini-card do hover
   const rowPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), p]));
   const funcaoPorUser = new Map(marcas.map((m) => [m.user_id, fById.get(m.funcao_id)?.nome ?? null]));
+
+  const filaPorChave = new Map(fila.map((x) => [x.chave, x]));
 
   const vm = (userId: string, familia: string | null, chaveRaw: string | null): JogadorVM => {
     const chave = chaveRaw ?? chaveNome(familia ?? "");
@@ -101,6 +108,11 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       diasSemJogar: f && f.avaliados > 0 ? f.diasSemJogar : null,
       diasDesdeFalta: f && f.avaliados > 0 ? f.diasDesdeFalta : null,
       funcaoNome: funcaoPorUser.get(userId) ?? null,
+      marcouEm: filaPorChave.get(chave)?.vaiEm ?? null,
+      ordem: filaPorChave.get(chave)?.posicao ?? null,
+      convidadoEm: convidadoPorChave.get(chave) ?? null,
+      respondeuEm: respondeuPorChave.get(chave) ?? null,
+      ingameEm: ingamePorChave.get(chave) ?? null,
     };
   };
 

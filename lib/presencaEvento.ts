@@ -9,10 +9,10 @@ import { chaveNome } from "@/lib/nomes";
  * troca de war: serve pra tela do momento, mas não deixa histórico. Aqui a linha fica presa ao
  * evento, que é o que permite dizer "faz 3 guerras que marca e não aparece".
  */
-export type PresencaRow = { chave: string; familia: string; participar: boolean; origem: string };
+export type PresencaRow = { chave: string; familia: string; participar: boolean; origem: string; atualizado: string | null };
 
 export async function getPresenca(eventoId: number): Promise<PresencaRow[]> {
-  return (await sql`SELECT chave, familia, participar, origem FROM evento_presenca WHERE evento_id = ${eventoId} ORDER BY familia`) as PresencaRow[];
+  return (await sql`SELECT chave, familia, participar, origem, atualizado::text AS atualizado FROM evento_presenca WHERE evento_id = ${eventoId} ORDER BY familia`) as PresencaRow[];
 }
 
 /** Upsert de um lote (a leitura por visão manda a lista inteira). Linha a linha = idempotente. */
