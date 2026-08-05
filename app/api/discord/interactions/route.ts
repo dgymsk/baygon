@@ -62,12 +62,27 @@ async function escolhaGuilda() {
   ] } };
 }
 
-const ESCOLHA = { type: 4, data: { flags: 64, content: "Boa! Agora informe seu **gear** — escolha o método:", components: [
-  { type: 1, components: [
-    { type: 2, style: 1, label: "📊 Via Garmoth", custom_id: "reg:garmoth" },
-    { type: 2, style: 2, label: "🖊️ Manual", custom_id: "reg:manual" },
-  ] },
-] } };
+/**
+ * TEMPORÁRIO — registro manual desligado. Vire pra `true` e o botão volta, junto com os dois
+ * gates abaixo; nada mais precisa mudar. `finalizarManual` continua no lib, intacto.
+ *
+ * O gate NÃO pode ser só a ausência do botão: custom_id vive dentro da mensagem pra sempre, então
+ * quem tiver uma mensagem antiga de registro na DM ainda consegue clicar em "🖊️ Manual" e abrir o
+ * modal. Por isso o clique e o envio do modal também recusam.
+ */
+const REGISTRO_MANUAL_LIBERADO = false;
+
+const BOTOES_GEAR = [
+  { type: 2, style: 1, label: "📊 Via Garmoth", custom_id: "reg:garmoth" },
+  ...(REGISTRO_MANUAL_LIBERADO ? [{ type: 2, style: 2, label: "🖊️ Manual", custom_id: "reg:manual" }] : []),
+];
+const ESCOLHA = { type: 4, data: { flags: 64,
+  content: REGISTRO_MANUAL_LIBERADO
+    ? "Boa! Agora informe seu **gear** — escolha o método:"
+    : "Boa! Agora informe seu **gear** pelo Garmoth:",
+  components: [{ type: 1, components: BOTOES_GEAR }],
+} };
+const MANUAL_FORA = "🖊️ O registro manual está desativado no momento — use **📊 Via Garmoth**. Se a sua build não estiver no Garmoth, fale com a staff.";
 const MODAL_GARMOTH = { type: 9, data: { custom_id: "regm_garmoth", title: "Registro — via Garmoth", components: [
   linha(inputTxt("link", "Link (1ª opção = seu boneco de guerra)", { max: 200, ph: "https://garmoth.com/character/..." })),
 ] } };
@@ -218,7 +233,7 @@ export async function POST(req: Request) {
       return json(ESCOLHA);
     }
     if (cidReg === "reg:garmoth") return json(MODAL_GARMOTH);
-    if (cidReg === "reg:manual") return json(MODAL_MANUAL);
+    if (cidReg === "reg:manual") return REGISTRO_MANUAL_LIBERADO ? json(MODAL_MANUAL) : efemero(MANUAL_FORA);
 
     // Botão "Responder" (texto livre) → abre um MODAL (type 9, síncrono, sem DB). custom_id = enqtxt:<enqueteId>.
     const mTxt = String(body.data?.custom_id ?? "").match(/^enqtxt:(\d+)$/);
@@ -383,6 +398,8 @@ export async function POST(req: Request) {
     // REGISTRO passo 2 (garmoth ou manual) → finaliza em after() (fetch/discord podem passar de 3s).
     if (cid5 === "regm_garmoth" || cid5 === "regm_manual") {
       if (!uid) return efemero("Não consegui te identificar.");
+      // modal já aberto quando desligamos: recusa no envio, senão o gate do botão não valeria nada
+      if (cid5 === "regm_manual" && !REGISTRO_MANUAL_LIBERADO) return efemero(MANUAL_FORA);
       const guildId = String(body.guild_id ?? "");
       const tk = String(body.token ?? "");
       after(async () => {
