@@ -31,6 +31,11 @@ export async function POST(req: Request) {
   let b: Record<string, unknown>;
   try { b = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
   const eid = () => Math.trunc(Number(b.eventoId));
+  /** Reflete no Discord o que acabou de mudar. Só EDITA lista já publicada, e nunca derruba a ação:
+   *  a gravação no banco é o que importa; a mensagem é espelho. */
+  const espelharLista = async () => {
+    try { await publicarLista(eid(), { soSePublicada: true }); } catch (e) { console.error("espelho da lista falhou", e); }
+  };
 
   switch (String(b.acao ?? "")) {
     // --- funções (o que vira botão no bot) ---
@@ -157,24 +162,26 @@ export async function POST(req: Request) {
     // --- evento: escalação e presença ---
     case "escalar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      return NextResponse.json({ escalacao: await aplicarEscalacao(eid(), b.ops) });
+      { const escalacao = await aplicarEscalacao(eid(), b.ops); await espelharLista(); return NextResponse.json({ escalacao }); }
     }
     case "escalacao-reordenar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      return NextResponse.json({ escalacao: await reordenarParty(eid(), b.partyId, b.chaves) });
+      { const escalacao = await reordenarParty(eid(), b.partyId, b.chaves); await espelharLista(); return NextResponse.json({ escalacao }); } // a coroa mudou de pessoa
     }
     case "escalacao-limpar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
       await limparEscalacao(eid());
+      await espelharLista();
       return NextResponse.json({ escalacao: await getEscalacao(eid()) });
     }
     case "presenca-manual":
       if (!Number.isFinite(eid()) || typeof b.familia !== "string") return NextResponse.json({ error: "dados inválidos" }, { status: 400 });
       await marcarPresenca(eid(), b.familia, !!b.participar);
+      await espelharLista();   // o 🎮 da lista tem que mudar junto
       return NextResponse.json({ ok: true });
     case "presenca-print":
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      return NextResponse.json({ presenca: await salvarPresenca(eid(), b.membros, "print") });
+      { const presenca = await salvarPresenca(eid(), b.membros, "print"); await espelharLista(); return NextResponse.json({ presenca }); }
 
     default:
       return NextResponse.json({ error: "ação desconhecida" }, { status: 400 });

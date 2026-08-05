@@ -14,7 +14,8 @@ export type EscaladoL = {
   chave: string; familia: string; userId: string | null; partyId: number | null;
   guilda: string | null; classe: string | null; gs: number | null;
   confirmouEscalacao: boolean | null; confirmouIngame: boolean;
-  ordem: number | null;   // posição na fila da chamada (1 = marcou primeiro); null = entrou sem marcar
+  ordem: number | null;   // posição na FILA da chamada (1 = marcou primeiro); null = entrou sem marcar
+  ordemPt: number | null; // posição DENTRO da PT, montada pela staff — 0 é o líder
 };
 export type PerfilEmojis = { classes: Record<string, string>; guildas: Record<string, string> };
 
@@ -42,13 +43,13 @@ export function montarLista(d: DadosLista) {
     a.push(e);
     porParty.set(e.partyId, a);
   }
-  // dentro da PT, quem marcou primeiro vem primeiro — é o critério que a staff usa pra priorizar.
-  // Quem entrou sem passar pela chamada (ordem null) vai pro fim, não pro começo.
+  // a ordem é a que a staff MONTOU arrastando (ordem_pt) — tem que bater com a tela, senão a coroa
+  // sairia em pessoas diferentes nos dois lugares. Sem posição montada, cai na fila de chegada.
   for (const a of porParty.values()) {
-    a.sort((x, y) => (x.ordem ?? 1e9) - (y.ordem ?? 1e9) || x.familia.localeCompare(y.familia, "pt-BR"));
+    a.sort((x, y) => (x.ordemPt ?? x.ordem ?? 1e9) - (y.ordemPt ?? y.ordem ?? 1e9) || x.familia.localeCompare(y.familia, "pt-BR"));
   }
 
-  const linha = (e: EscaladoL): string => {
+  const linha = (e: EscaladoL, i: number): string => {
     const gEmoji = (e.guilda && d.emojis?.guildas[e.guilda]) || (e.guilda && tags[e.guilda]) || "";
     const cEmoji = (e.classe && d.emojis?.classes[e.classe]) || (e.classe ? `(${safeLink(e.classe)})` : "");
     const nome = e.userId ? `[${safeLink(e.familia)}](https://discord.com/users/${e.userId})` : safeLink(e.familia);
@@ -57,9 +58,12 @@ export function montarLista(d: DadosLista) {
     // posição na fila em largura fixa pra as linhas alinharem; 🎮 = já apareceu na conferência
     // in-game, e é a ausência dele que a cobrança de "participar" vai atrás
     const pos = "`#" + (e.ordem != null ? String(e.ordem).padStart(2, "0") : "--") + "`";
-    return [pos, sinal, e.confirmouIngame ? "🎮" : null, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
+    // 👑 = líder da PT, que é simplesmente quem a staff pôs em primeiro
+    return [pos, i === 0 ? "👑" : null, sinal, e.confirmouIngame ? "🎮" : null, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
   };
-  const moldura = (es: EscaladoL[]) => "> " + es.map(linha).join("\n> ");
+  // índice explícito: `es.map(linha)` passaria o índice como 2º argumento por acidente, e aqui ele
+  // decide quem leva a coroa — melhor deixar à vista
+  const moldura = (es: EscaladoL[]) => "> " + es.map((e, i) => linha(e, i)).join("\n> ");
 
   const secoes: string[] = [];
   for (const p of d.parties) {
@@ -79,7 +83,7 @@ export function montarLista(d: DadosLista) {
     if ((topo + corpo + (corpo ? "\n\n" : "") + s).length > 3900) { cortou = true; break; }
     corpo += (corpo ? "\n\n" : "") + s;
   }
-  const rodape = "\n\n✅ confirmou · ⏳ aguardando resposta";
+  const rodape = "\n\n👑 líder da PT · ✅ confirmou · ⏳ aguardando · ❌ recusou · 🎮 marcou in-game";
   const desc = (topo + corpo + (cortou ? "\n\n⚠ +itens não exibidos (limite do Discord)." : "") + rodape).slice(0, 4096);
 
   return {

@@ -16,7 +16,7 @@ import { type Tipo } from "@/lib/participacaoConfig";
  * evento, EDITADA — republicar a cada mudança encheria o canal e a versão velha continuaria
  * visível dando informação errada.
  */
-export async function publicarLista(eventoId: number): Promise<{ ok: boolean; erro?: string; editou?: boolean }> {
+export async function publicarLista(eventoId: number, o: { soSePublicada?: boolean } = {}): Promise<{ ok: boolean; erro?: string; editou?: boolean }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
 
   const posts = (await sql`
@@ -27,6 +27,9 @@ export async function publicarLista(eventoId: number): Promise<{ ok: boolean; er
     { message_id: string; tipo: string; preset_id: number | null; lista_message_id: string | null; lista_channel_id: string | null; titulo: string; data: string }[];
   const post = posts[0];
   if (!post) return { ok: false, erro: "evento sem chamada de intenção" };
+  // atualização automática só EDITA o que já existe: marcar presença não pode fazer aparecer uma
+  // lista no canal do nada — publicar é decisão da staff, no botão
+  if (o.soSePublicada && !(post.lista_message_id && post.lista_channel_id)) return { ok: true, editou: false };
 
   const cfg = await getIntencaoConfig();
   // canal da lista vazio → cai no canal da chamada, senão o botão não faria nada em silêncio
@@ -38,10 +41,10 @@ export async function publicarLista(eventoId: number): Promise<{ ok: boolean; er
   const [preset, cat, perfil, emojis, meta, linhas] = await Promise.all([
     post.preset_id ? getPreset(post.preset_id) : Promise.resolve(null),
     listParties(), perfilGear(), getEmojiMapResolvido(), getGuildMeta(),
-    sql`SELECT chave, familia, user_id, party_id::int AS party_id, confirmou
-        FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY familia` as Promise<unknown>,
+    sql`SELECT chave, familia, user_id, party_id::int AS party_id, ordem_pt::int AS ordem_pt, confirmou
+        FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY party_id NULLS LAST, ordem_pt NULLS LAST, familia` as Promise<unknown>,
   ]);
-  const rows = linhas as { chave: string; familia: string; user_id: string | null; party_id: number | null; confirmou: boolean | null }[];
+  const rows = linhas as { chave: string; familia: string; user_id: string | null; party_id: number | null; ordem_pt: number | null; confirmou: boolean | null }[];
 
   const pById = new Map(cat.map((p) => [p.id, p]));
   // só as PTs DO PRESET, na ordem dele (mesma coisa que a escalação mostra)
@@ -58,6 +61,7 @@ export async function publicarLista(eventoId: number): Promise<{ ok: boolean; er
       chave: r.chave, familia: r.familia, userId: r.user_id, partyId: r.party_id,
       guilda: p?.guilda ?? null, classe: p?.classe ?? null, gs: p?.gs ?? null,
       confirmouEscalacao: r.confirmou, confirmouIngame: ingame.has(r.chave), ordem: posPorChave.get(r.chave) ?? null,
+      ordemPt: r.ordem_pt,
     };
   });
 

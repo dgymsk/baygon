@@ -8,6 +8,7 @@ import { getDiscordConfig } from "@/lib/discordConfig";
 import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { anunciarNaThread } from "@/lib/threadChamada";
+import { publicarLista } from "@/lib/publicarLista";
 import { eventoAberto } from "@/lib/intencao";
 import { eventoExiste } from "@/lib/eventos";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
@@ -253,6 +254,9 @@ export async function POST(req: Request) {
         } });
         return efemero("Não achei sua escalação nesse evento — fale com a staff.");
       }
+      // a lista no canal mostra ✅/❌ por pessoa: sem isso ela envelhece sozinha, e é justamente
+      // aqui que ninguém está olhando a tela pra apertar o botão de publicar
+      after(async () => { try { await publicarLista(eventoIdEsc, { soSePublicada: true }); } catch (e) { console.error("espelho da lista falhou", e); } });
       // edita a própria DM: some com os botões e deixa a resposta registrada à vista
       return json({
         type: 7, // UPDATE_MESSAGE
