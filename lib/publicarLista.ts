@@ -65,14 +65,17 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
   const presenca = (await sql`SELECT chave, familia FROM evento_presenca WHERE evento_id = ${eventoId} AND participar ORDER BY familia`) as { chave: string; familia: string }[];
   const ingame = new Set(presenca.map((p) => p.chave));
   // ordem de chegada na chamada — é o que decide prioridade dentro da PT
-  const posPorChave = new Map((await filaDaChamada(post.message_id)).map((f) => [f.chave, f.posicao]));
+  const fila = await filaDaChamada(post.message_id);
+  const posPorChave = new Map(fila.map((f) => [f.chave, f.posicao]));
+  // filler = apareceu in-game sem ter marcado na chamada; entrou de última hora
+  const marcaram = new Set(fila.map((f) => f.chave));
   const escalados: EscaladoL[] = rows.map((r) => {
     const p = perfil.get(r.chave);
     return {
       chave: r.chave, familia: r.familia, userId: r.user_id, partyId: r.party_id,
       guilda: p?.guilda ?? null, classe: p?.classe ?? null, gs: p?.gs ?? null,
       confirmouEscalacao: r.confirmou, confirmouIngame: ingame.has(r.chave), ordem: posPorChave.get(r.chave) ?? null,
-      ordemPt: r.ordem_pt,
+      ordemPt: r.ordem_pt, filler: ingame.has(r.chave) && !marcaram.has(r.chave),
     };
   });
 
@@ -80,7 +83,6 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
     titulo: post.titulo, data: post.data, tamanhoMax: preset?.tamanho_max ?? null,
     parties, escalados,
     recusaram: rows.filter((r) => r.confirmou === false).map((r) => r.familia),
-    foraDaEscalacao: presenca.filter((p) => !rows.some((r) => r.chave === p.chave && r.party_id != null)).map((p) => p.familia),
     emojis, tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
     // por NOME, não por id fixo: emoji apagado ou servidor trocado cai no fallback sozinho, em vez
     // de a lista passar a mostrar o código cru

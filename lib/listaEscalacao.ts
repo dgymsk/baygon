@@ -16,6 +16,7 @@ export type EscaladoL = {
   confirmouEscalacao: boolean | null; confirmouIngame: boolean;
   ordem: number | null;   // posição na FILA da chamada (1 = marcou primeiro); null = entrou sem marcar
   ordemPt: number | null; // posição DENTRO da PT, montada pela staff — 0 é o líder
+  filler: boolean;        // veio in-game sem ter marcado na chamada
 };
 export type PerfilEmojis = { classes: Record<string, string>; guildas: Record<string, string> };
 
@@ -36,7 +37,6 @@ export type DadosLista = {
   parties: PartyL[];
   escalados: EscaladoL[];
   recusaram?: string[];
-  foraDaEscalacao?: string[];  // apareceu in-game sem estar em PT nenhuma
   emojis?: PerfilEmojis;
   tags?: Record<string, string>;
   nota?: string;
@@ -75,7 +75,9 @@ export function montarLista(d: DadosLista) {
     // coroa: sem isso a linha de baixo começava deslocada, e o olho perde a coluna do nome.
     // O Discord usa fonte proporcional fora de code block, então isso aproxima — não casa ao pixel.
     const marca = i === 0 ? "👑" : (d.vazio || VAZIO_FALLBACK);
-    return [marca, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
+    // 🔴 filler: entrou na PT sem ter marcado na chamada. Fica na própria linha, junto de quem
+    // ele está jogando — separá-lo numa seção dizia "tem alguém sobrando" sem dizer onde.
+    return [marca, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji, e.filler ? "🔴" : null].filter(Boolean).join(" · ");
   };
   // índice explícito: `es.map(linha)` passaria o índice como 2º argumento por acidente, e aqui ele
   // decide quem leva a coroa — melhor deixar à vista
@@ -89,10 +91,6 @@ export function montarLista(d: DadosLista) {
     const cab = `${p.icone ? p.icone + " " : ""}**${p.nome}** — ${dentro.length}${media != null ? ` · GS ${media}` : ""}`;
     secoes.push(`${cab}\n${dentro.length ? moldura(dentro) : "> _(vazia)_"}`);
   }
-  // quem veio sem estar escalado é decisão pendente — entra numa PT ou sai. Sem isso ele não
-  // aparecia em canto nenhum da mensagem, porque não tem linha em evento_escalacao.
-  if (d.foraDaEscalacao?.length) secoes.push(`**🎮 Vieram sem estar escalados — ${d.foraDaEscalacao.length}**
-${d.foraDaEscalacao.join(", ")}`);
   if (d.recusaram?.length) secoes.push(`**❌ Não vão — ${d.recusaram.length}**\n${d.recusaram.join(", ")}`);
 
   const total = d.escalados.filter((e) => e.partyId != null).length;
@@ -103,7 +101,7 @@ ${d.foraDaEscalacao.join(", ")}`);
     if ((topo + corpo + (corpo ? "\n\n" : "") + s).length > 3900) { cortou = true; break; }
     corpo += (corpo ? "\n\n" : "") + s;
   }
-  const rodape = "\n\n👑 líder da PT · 🎮 está no jogo · ✅ confirmou na DM · ⏳ aguardando · ❌ recusou";
+  const rodape = "\n\n👑 líder da PT · 🔴 filler · 🎮 está no jogo · ✅ confirmou na DM · ⏳ aguardando · ❌ recusou";
   const desc = (topo + corpo + (cortou ? "\n\n⚠ +itens não exibidos (limite do Discord)." : "") + rodape).slice(0, 4096);
 
   return {
