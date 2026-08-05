@@ -89,6 +89,16 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const funcaoPorUser = new Map(marcas.map((m) => [m.user_id, fById.get(m.funcao_id)?.nome ?? null]));
 
   const filaPorChave = new Map(fila.map((x) => [x.chave, x]));
+  /**
+   * FILLER: apareceu na conferência in-game sem ter marcado na chamada. Não é falha de ninguém —
+   * é gente que entrou de última hora —, mas precisa ser ESCALÁVEL: sem estar no pool não havia
+   * como arrastar pra uma PT, e a lista publicada mostrava "veio sem estar escalado" sem que
+   * houvesse ação possível na tela.
+   */
+  const marcouNaChamada = new Set(respostas.filter((r) => r.resposta === "vai").map((r) => r.chave).filter((c): c is string => !!c));
+  const fillerChaves = new Set(
+    presenca.filter((p) => p.participar && !marcouNaChamada.has(p.chave)).map((p) => p.chave),
+  );
 
   const vm = (userId: string, familia: string | null, chaveRaw: string | null): JogadorVM => {
     const chave = chaveRaw ?? chaveNome(familia ?? "");
@@ -116,6 +126,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       respondeuEm: respondeuPorChave.get(chave) ?? null,
       ingameEm: ingamePorChave.get(chave) ?? null,
       ordemPt: ordemPtPorChave.get(chave) ?? null,
+      filler: fillerChaves.has(chave),
     };
   };
 
@@ -152,6 +163,14 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   if (semFuncao.length) {
     grupos.push({ funcaoId: null, nome: temChamada ? "Sem função marcada" : "Sem função", emoji: null, jogadores: semFuncao });
   }
+
+  // grupo próprio no fim do pool: são os que a lista do Discord chama de "vieram sem estar
+  // escalados", e agora dá pra arrastar cada um pra uma PT
+  const noPoolAte = new Set(grupos.flatMap((g) => g.jogadores.map((j) => j.chave)));
+  const fillers = presenca
+    .filter((p) => p.participar && fillerChaves.has(p.chave) && !noPoolAte.has(p.chave))
+    .map((p) => vmFam(p.familia));
+  if (fillers.length) grupos.push({ funcaoId: null, nome: "Filler — vieram sem marcar", emoji: null, jogadores: fillers });
 
   // colunas da escalação = as PTs DO PRESET, na ordem dele (não o catálogo inteiro)
   const pById = new Map(parties.map((x) => [x.id, x]));

@@ -20,6 +20,9 @@ export type EscaladoL = {
 export type PerfilEmojis = { classes: Record<string, string>; guildas: Record<string, string> };
 
 const COR = 0xcc0000;
+/** Espaço ideográfico (U+3000): invisível e de largura cheia — o mais perto de um "emoji vazio"
+ *  que existe sem depender de um emoji custom do servidor. Serve pra reservar o slot da coroa. */
+const VAZIO = "　";
 const safeLink = (s: string) => (s || "?").replace(/[`[\]()\n]/g, "").trim() || "?";
 
 export type DadosLista = {
@@ -60,10 +63,11 @@ export function montarLista(d: DadosLista) {
     const sinal = e.confirmouIngame ? "🎮"
       : e.confirmouEscalacao === true ? "✅"
       : e.confirmouEscalacao === false ? "❌" : "⏳";
-    // posição na fila em largura fixa pra as linhas alinharem
-    const pos = "`#" + (e.ordem != null ? String(e.ordem).padStart(2, "0") : "--") + "`";
-    // 👑 = líder da PT, que é simplesmente quem a staff pôs em primeiro
-    return [pos, i === 0 ? "👑" : null, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
+    // 👑 = líder (quem a staff pôs em primeiro). Quem não é líder recebe o espaço no lugar da
+    // coroa: sem isso a linha de baixo começava deslocada, e o olho perde a coluna do nome.
+    // O Discord usa fonte proporcional fora de code block, então isso aproxima — não casa ao pixel.
+    const marca = i === 0 ? "👑" : VAZIO;
+    return [marca, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
   };
   // índice explícito: `es.map(linha)` passaria o índice como 2º argumento por acidente, e aqui ele
   // decide quem leva a coroa — melhor deixar à vista

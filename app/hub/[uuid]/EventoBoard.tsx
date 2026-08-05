@@ -44,6 +44,7 @@ export type JogadorVM = {
   respondeuEm: string | null;     // respondeu a DM (aceitou ou recusou)
   ingameEm: string | null;        // apareceu na conferência in-game
   ordemPt: number | null;         // posição DENTRO da PT — 0 é o líder
+  filler: boolean;                // apareceu in-game sem ter marcado na chamada
 };
 
 /** Pokébola — só no site, nunca no bot. SVG inline pra não depender de emoji nem de CDN. */
@@ -679,6 +680,8 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         ? <IconeClasse raw={emojiClasse} nome={j.classe ?? ""} />
         : j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
       {j.gs != null && <span style={{ color: C.amarelo, fontSize: 11 }}>{j.gs}</span>}
+      {/* veio in-game sem ter marcado: dá pra escalar, mas não estava previsto */}
+      {j.filler && <span title="Filler — apareceu in-game sem marcar na chamada" style={{ color: C.vermelho, fontSize: 9, flexShrink: 0 }}>🔴</span>}
 
       {/* indicadores à direita: "faz N dias" pesa mais do que a contagem crua de guerras */}
       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5 }}>
