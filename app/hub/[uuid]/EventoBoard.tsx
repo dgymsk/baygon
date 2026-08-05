@@ -7,6 +7,7 @@ import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
+import StatsWar from "./StatsWar";
 import AutoSync from "@/app/confirmados/AutoSync";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
 import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
@@ -420,6 +421,11 @@ export default function EventoBoard({
               ⚠ Sem estatística da war ainda — é ela que fecha o funil e diz quem realmente jogou. Grave abaixo.
             </div>
           )}
+          <StatsWar stats={statsIniciais} contexto={[...todos.values()].map((j) => ({
+            chave: j.chave, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
+            party: parties.find((x) => x.id === partyDe(j))?.nome ?? null, lendario: j.lendario,
+          }))} />
+
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
             <thead>
               <tr style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
