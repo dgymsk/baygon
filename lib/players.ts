@@ -107,8 +107,11 @@ export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
   const queries = updates.map((u) => sql`
     UPDATE players
     SET grupo = ${grupoOr(u.grupo)},
-        classe_bdo  = CASE WHEN garmoth_id IS NOT NULL AND garmoth_id <> '' THEN classe_bdo  ELSE ${u.classe_bdo?.trim() || null} END,
-        classe_tipo = CASE WHEN garmoth_id IS NOT NULL AND garmoth_id <> '' THEN classe_tipo ELSE ${u.classe_tipo?.trim() || null} END,
+        -- o CASE olha o garmoth_id QUE ESTÁ SENDO GRAVADO, não o da linha antiga: lendo o antigo,
+        -- limpar o link e corrigir a classe no mesmo save era impossível — o CASE via o id velho e
+        -- descartava o que a staff digitou, sem dizer nada
+        classe_bdo  = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_bdo  ELSE ${u.classe_bdo?.trim() || null} END,
+        classe_tipo = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_tipo ELSE ${u.classe_tipo?.trim() || null} END,
         is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)}, registro = ${!!u.registro},
         pt_preferida = ${ptOr(u.pt_preferida)}, garmoth_id = ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}
     WHERE nome_familia = ${u.nome_familia}

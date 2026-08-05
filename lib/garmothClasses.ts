@@ -23,5 +23,8 @@ export function tipoGarmoth(classeCanonica: string | null, spec: string | null |
   const tipos = tiposDe(classeCanonica);
   if (tipos.length === 1) return tipos[0]; // Arqueiro/Erudita/Deadeye/Wukong/Seraph=Ascensão; Shai=Talento
   const s = (spec || "").toLowerCase();
-  return s === "succ" ? "Sucessão" : (s === "awk" || s === "awakening") ? "Despertar" : null;
+  // a API manda "awak"; "awk" é o que o registro manual digita. Aceitar só os dois últimos fazia
+  // TODO despertar vindo do Garmoth cair em null, e o COALESCE lá em cima congelava o tipo antigo.
+  return s === "succ" || s === "succession" ? "Sucessão"
+    : s === "awak" || s === "awk" || s === "awakening" ? "Despertar" : null;
 }

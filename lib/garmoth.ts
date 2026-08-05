@@ -11,8 +11,8 @@ import { classeGarmoth, tipoGarmoth } from "@/lib/garmothClasses";
 export { parseGarmothId };
 
 export type GarmothScore = { ap?: number; aap?: number; dp?: number; acc?: number; [k: string]: number | undefined };
-export type GarmothChar = { name?: string; class?: number; url?: string; level?: number; spec?: string; builds?: { score?: GarmothScore }[] };
-export type BuildResumo = { garmoth_id: string; char_name: string | null; char_class: number | null; spec: string | null; level: number | null; ap: number | null; aap: number | null; dp: number | null; acc: number | null; dados: GarmothChar };
+export type GarmothChar = { name?: string; class?: number; url?: string; level?: number; spec?: string; updated_at?: string; builds?: { score?: GarmothScore }[] };
+export type BuildResumo = { garmoth_id: string; char_name: string | null; char_class: number | null; spec: string | null; level: number | null; ap: number | null; aap: number | null; dp: number | null; acc: number | null; atualizado_em: string | null; dados: GarmothChar };
 
 const BASE = "https://api.garmoth.com/api/external/gear-planner/getCharacterBuilds";
 const inteiro = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.round(x) : null);
@@ -24,7 +24,11 @@ export function resumoBuild(c: GarmothChar): BuildResumo | null {
   const s = c.builds?.[0]?.score ?? {};
   return {
     garmoth_id: gid, char_name: c.name ?? null, char_class: inteiro(c.class), spec: c.spec ?? null, level: inteiro(c.level),
-    ap: inteiro(s.ap), aap: inteiro(s.aap), dp: inteiro(s.dp), acc: inteiro(s.acc), dados: c,
+    ap: inteiro(s.ap), aap: inteiro(s.aap), dp: inteiro(s.dp), acc: inteiro(s.acc),
+    // quando o PRÓPRIO Garmoth diz que o personagem mudou. É o carimbo honesto do evento; o nosso
+    // `capturado` é só quando o worker passou por ali, e erra em até 2h.
+    atualizado_em: typeof c.updated_at === "string" ? c.updated_at : null,
+    dados: c,
   };
 }
 
@@ -58,8 +62,8 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
   for (const r of rows) { const a = porId.get(r.garmoth_id) ?? []; a.push(r.nome_familia); porId.set(r.garmoth_id, a); }
 
   // valores ANTERIORES (p/ registrar no histórico só quando ap/aap/dp mudam)
-  const antigos = new Map<string, { ap: number | null; aap: number | null; dp: number | null }>();
-  for (const a of (await sql`SELECT nome_familia, ap, aap, dp FROM garmoth_build`) as { nome_familia: string; ap: number | null; aap: number | null; dp: number | null }[]) antigos.set(a.nome_familia, a);
+  const antigos = new Map<string, { ap: number | null; aap: number | null; dp: number | null; char_class: number | null; spec: string | null }>();
+  for (const a of (await sql`SELECT nome_familia, ap, aap, dp, char_class, spec FROM garmoth_build`) as { nome_familia: string; ap: number | null; aap: number | null; dp: number | null; char_class: number | null; spec: string | null }[]) antigos.set(a.nome_familia, a);
 
   const chars = await fetchBuilds([...porId.keys()]);
   const porUrl = new Map<string, GarmothChar>();
@@ -83,10 +87,30 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
           spec=EXCLUDED.spec, level=EXCLUDED.level, ap=EXCLUDED.ap, aap=EXCLUDED.aap, dp=EXCLUDED.dp, acc=EXCLUDED.acc, dados=EXCLUDED.dados, atualizado=now()`);
       // classe/tipo do player a partir do Garmoth (fonte da verdade p/ quem tem id único; tipo desconhecido preserva o manual)
       if (classe && idUnico) upserts.push(sql`UPDATE players SET classe_bdo = ${classe}, classe_tipo = COALESCE(${tipo}, classe_tipo) WHERE nome_familia = ${nome}`);
-      // histórico de gear (só quando o TRIO ap/aap/dp está completo E mudou → sem ponto falso por resposta parcial)
+      /**
+       * Histórico. Duas razões pra gravar um ponto, e elas são independentes:
+       *  - GEAR: o trio ap/aap/dp mudou (e veio completo — resposta parcial não vira degrau falso);
+       *  - CLASSE: char_class ou spec mudaram, ou seja, reroll ou troca de Sucessão↔Despertar.
+       *
+       * A segunda existe porque no BDO o gear é da FAMÍLIA: quem rerolla leva o mesmo equipamento e
+       * o trio sai idêntico. Com o gate só no gear, o reroll não gerava linha nenhuma e a transição
+       * desaparecia — que é exatamente o que a evolução de classe precisa enxergar.
+       *
+       * Sem `old` (primeira vez que vemos essa pessoa) grava só se o gear veio completo: um ponto
+       * inicial sem números não serve pra curva nenhuma.
+       */
       const old = antigos.get(nome);
-      const mudou = !old || old.ap !== r.ap || old.aap !== r.aap || old.dp !== r.dp;
-      if (completo && mudou) upserts.push(sql`INSERT INTO garmoth_gear_hist (nome_familia, garmoth_id, ap, aap, dp) VALUES (${nome}, ${r.garmoth_id}, ${r.ap}, ${r.aap}, ${r.dp})`);
+      const mudouGear = !!old && (old.ap !== r.ap || old.aap !== r.aap || old.dp !== r.dp);
+      const mudouClasse = !!old && (old.char_class !== r.char_class || (old.spec ?? null) !== (r.spec ?? null));
+      const primeiraVez = !old;
+      // id compartilhado por 2+ players não diz a classe de ninguém — o mesmo guard do UPDATE acima.
+      // Sem ele, o personagem de um viraria o "histórico de classe" do outro.
+      const registraClasse = mudouClasse && idUnico;
+      if ((completo && (mudouGear || primeiraVez)) || registraClasse) {
+        upserts.push(sql`INSERT INTO garmoth_gear_hist (nome_familia, garmoth_id, ap, aap, dp, char_class, spec, char_name, motivo, garmoth_updated)
+          VALUES (${nome}, ${r.garmoth_id}, ${r.ap}, ${r.aap}, ${r.dp}, ${idUnico ? r.char_class : null}, ${idUnico ? r.spec : null}, ${idUnico ? r.char_name : null},
+                  ${registraClasse ? "classe" : "gear"}, ${r.atualizado_em ?? null})`);
+      }
       atualizados++;
     }
   }

@@ -80,7 +80,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // teto de 20 — é contexto da war, não lista de convidados
   const aliancas: string[] = [];
   for (const raw of Array.isArray(body.aliancas) ? body.aliancas : []) {
-    const s = typeof raw === "string" ? raw.replace(/s+/g, " ").trim().slice(0, 60) : "";
+    const s = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, 60) : "";
     if (s && !aliancas.some((x) => x.toLowerCase() === s.toLowerCase())) aliancas.push(s);
     if (aliancas.length >= 20) break;
   }
@@ -104,6 +104,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
                           WHERE u.nome = d.nome_familia AND u.metrica = d.metrica)`,
       sql`INSERT INTO evento_resultado (evento_id, war_id) VALUES (${eid}, ${warId})
           ON CONFLICT (evento_id) DO UPDATE SET war_id = EXCLUDED.war_id, gravado = now()`,
+      // CARIMBO: congela quem a pessoa ERA nesta war — classe, tipo, grupo, is_core e o gear do
+      // momento. Sem isto toda tela lê `players` ao vivo, e um reroll reescreve o passado: quem sai
+      // de Backline pra Frontline muda a régua daquela war pra TODO MUNDO dos dois grupos.
+      // DO NOTHING de propósito neste ramo (regravação): o primeiro carimbo vence — regravar o print
+      // três semanas depois não pode reetiquetar a war com a classe de hoje.
+      sql`INSERT INTO war_player (war_id, nome_familia, grupo, is_core, classe_bdo, classe_tipo, guilda,
+                                  garmoth_id, char_name, char_class, spec, ap, aap, dp, gear_lido)
+          SELECT DISTINCT ${warId}::bigint, p.nome_familia, p.grupo, p.is_core, p.classe_bdo, p.classe_tipo, p.guilda,
+                 gb.garmoth_id, gb.char_name, gb.char_class, gb.spec, gb.ap, gb.aap, gb.dp, gb.atualizado
+          FROM UNNEST(${nomes}::text[]) AS u(nome)
+          JOIN players p ON p.nome_familia = u.nome
+          LEFT JOIN garmoth_build gb ON gb.nome_familia = p.nome_familia
+          ON CONFLICT (war_id, nome_familia) DO NOTHING`,
+      // quem saiu da war na regravação não pode deixar carimbo órfão
+      sql`DELETE FROM war_player wp WHERE wp.war_id = ${warId}
+          AND NOT EXISTS (SELECT 1 FROM UNNEST(${nomes}::text[]) AS u(nome) WHERE u.nome = wp.nome_familia)`,
     ]);
   } else {
     // nova war: CTE única e atômica (cria war + insere desempenho + liga evento_resultado juntos → retry não vaza war órfã)
@@ -122,6 +138,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ON CONFLICT (evento_id) DO UPDATE SET war_id = EXCLUDED.war_id, gravado = now()
       RETURNING war_id::int AS war_id`) as { war_id: number }[];
     warId = rows[0].war_id;
+    // carimbo fora da CTE: lá dentro o war_id ainda não está visível pra um segundo INSERT que
+    // precisa fazer JOIN com players. War recém-criada não tem carimbo pra conflitar.
+    await sql`INSERT INTO war_player (war_id, nome_familia, grupo, is_core, classe_bdo, classe_tipo, guilda,
+                                      garmoth_id, char_name, char_class, spec, ap, aap, dp, gear_lido)
+      SELECT DISTINCT ${warId}::bigint, p.nome_familia, p.grupo, p.is_core, p.classe_bdo, p.classe_tipo, p.guilda,
+             gb.garmoth_id, gb.char_name, gb.char_class, gb.spec, gb.ap, gb.aap, gb.dp, gb.atualizado
+      FROM UNNEST(${nomes}::text[]) AS u(nome)
+      JOIN players p ON p.nome_familia = u.nome
+      LEFT JOIN garmoth_build gb ON gb.nome_familia = p.nome_familia
+      ON CONFLICT (war_id, nome_familia) DO NOTHING`;
   }
 
   const nPlayers = new Set(nomes).size;
