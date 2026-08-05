@@ -4,7 +4,8 @@ import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
 import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
-import { criarEventoManual } from "@/lib/eventos";
+import { criarEventoManual, deletarEvento, resumoExclusao } from "@/lib/eventos";
+import { silenciarOrfas } from "@/lib/silenciarEvento";
 import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
@@ -79,6 +80,22 @@ export async function POST(req: Request) {
         tier: typeof b.tier === "string" && b.tier ? b.tier : preset.tier, // o do formulário manda; senão herda a chamada
       });
       return NextResponse.json({ ok: true, uuid: ev.uuid });
+    }
+
+    // --- o que se perde ao apagar: alimenta a confirmação, não apaga nada ---
+    case "evento-resumo-exclusao": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      return NextResponse.json(await resumoExclusao(eid()));
+    }
+
+    // --- apaga o evento. Irreversível: escalação, convocação e presença vão junto ---
+    case "evento-excluir": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const del = await deletarEvento(eid());
+      if (!del.ok) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
+      // as mensagens do Discord não somem com o evento — calar é parte de apagar
+      const restos = await silenciarOrfas(del.orfas);
+      return NextResponse.json({ ok: true, restos });
     }
 
     // --- troca a chamada (preset) que rege o evento: muda como o pool é agrupado ---

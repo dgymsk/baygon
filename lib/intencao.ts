@@ -133,10 +133,13 @@ export async function sincronizarMensagem(messageId: string): Promise<{ ok: bool
 type Quem = { messageId: string; userId: string; username: string; familia: string; chave: string; presetId: number };
 
 /** Evento travado/finalizado não aceita mais marcação (mesmo gate do bot antigo). */
-async function eventoAberto(messageId: string): Promise<boolean> {
-  const rows = (await sql`SELECT e.status FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${messageId}`) as { status: string | null }[];
-  const st = rows[0]?.status ?? null;
-  return !st || st === "aberto";
+export async function eventoAberto(messageId: string): Promise<boolean> {
+  const rows = (await sql`SELECT p.evento_id, e.status FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${messageId}`) as { evento_id: number | null; status: string | null }[];
+  if (!rows[0]) return true;                    // mensagem desconhecida → segue (comportamento antigo)
+  // post ÓRFÃO (evento apagado) trava, igual ao statusPorWarKey do bot antigo: senão a mensagem
+  // viva de um evento deletado seguiria registrando marcação que não aparece em lugar nenhum
+  if (rows[0].evento_id === null) return false;
+  return rows[0].status === "aberto";
 }
 
 /**

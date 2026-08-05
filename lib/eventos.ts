@@ -165,14 +165,65 @@ export async function setResultado(eventoId: number, resultado: string): Promise
   return { ok: true };
 }
 
+export type MensagensOrfas = {
+  legado: { messageId: string; channelId: string } | null;      // bot antigo (participacao)
+  chamada: { messageId: string; channelId: string } | null;     // bot novo (intenção)
+  lista: { messageId: string; channelId: string } | null;       // lista da escalação publicada
+  threadId: string | null;                                      // thread da ordem de chegada
+};
+
 /** Deleta o evento (facetas caem por CASCADE/SET NULL; os stats em wars/desempenho permanecem).
- *  Devolve o post ligado (msg/canal) p/ o caller tirar os botões da mensagem (evita botão morto que
- *  continuaria registrando clique como post "legado" após o evento sumir). */
-export async function deletarEvento(id: number): Promise<{ ok: boolean; messageId?: string | null; channelId?: string | null }> {
-  const posts = (await sql`SELECT message_id, channel_id FROM participacao_post WHERE evento_id = ${id} ORDER BY criado DESC LIMIT 1`) as { message_id: string; channel_id: string }[];
+ *  Devolve TODAS as mensagens que ficariam vivas no Discord — o caller tem que silenciá-las, senão
+ *  sobra botão que segue registrando clique num post que não pertence mais a evento nenhum. */
+export async function deletarEvento(id: number): Promise<{ ok: boolean; orfas: MensagensOrfas }> {
+  const [leg, cha] = (await Promise.all([
+    sql`SELECT message_id, channel_id FROM participacao_post WHERE evento_id = ${id} ORDER BY criado DESC LIMIT 1`,
+    sql`SELECT message_id, channel_id, lista_message_id, lista_channel_id, thread_id
+        FROM intencao_post WHERE evento_id = ${id} ORDER BY criado DESC LIMIT 1`,
+  ])) as [{ message_id: string; channel_id: string }[],
+          { message_id: string; channel_id: string; lista_message_id: string | null; lista_channel_id: string | null; thread_id: string | null }[]];
+
   const rows = (await sql`DELETE FROM evento WHERE id = ${id} RETURNING id`) as { id: number }[];
-  if (rows.length === 0) return { ok: false };
-  return { ok: true, messageId: posts[0]?.message_id ?? null, channelId: posts[0]?.channel_id ?? null };
+  const vazio: MensagensOrfas = { legado: null, chamada: null, lista: null, threadId: null };
+  if (rows.length === 0) return { ok: false, orfas: vazio };
+  return {
+    ok: true,
+    orfas: {
+      legado: leg[0] ? { messageId: leg[0].message_id, channelId: leg[0].channel_id } : null,
+      chamada: cha[0] ? { messageId: cha[0].message_id, channelId: cha[0].channel_id } : null,
+      lista: cha[0]?.lista_message_id && cha[0]?.lista_channel_id ? { messageId: cha[0].lista_message_id, channelId: cha[0].lista_channel_id } : null,
+      threadId: cha[0]?.thread_id ?? null,
+    },
+  };
+}
+
+export type ResumoExclusao = {
+  escalacaoLinhas: number; emPt: number; aceitaramDm: number; recusaramDm: number;
+  presencas: number; presencaDePrint: number; marcaram: number;
+  warId: number | null; desempenhoOrfanado: number;
+};
+
+/**
+ * O que a confirmação mostra antes de apagar — o trabalho manual que se perde junto.
+ *
+ * Conta LINHAS de escalação, não só quem está em PT: quem recusou a convocação teve o party_id
+ * zerado mas a linha cai igual, e é justamente o dado que separa "avisou que não vinha" de "sumiu".
+ * Aceite e recusa vêm separados porque somá-los num "confirmaram" só escondia a recusa.
+ */
+export async function resumoExclusao(id: number): Promise<ResumoExclusao> {
+  const rows = (await sql`SELECT
+    (SELECT count(*)::int FROM evento_escalacao WHERE evento_id = ${id}) AS "escalacaoLinhas",
+    (SELECT count(*)::int FROM evento_escalacao WHERE evento_id = ${id} AND party_id IS NOT NULL) AS "emPt",
+    (SELECT count(*)::int FROM evento_escalacao WHERE evento_id = ${id} AND confirmou IS TRUE) AS "aceitaramDm",
+    (SELECT count(*)::int FROM evento_escalacao WHERE evento_id = ${id} AND confirmou IS FALSE) AS "recusaramDm",
+    (SELECT count(*)::int FROM evento_presenca  WHERE evento_id = ${id} AND participar) AS presencas,
+    (SELECT count(*)::int FROM evento_presenca  WHERE evento_id = ${id} AND participar AND origem = 'print') AS "presencaDePrint",
+    (SELECT count(*)::int FROM intencao_resp r JOIN intencao_post p ON p.message_id = r.message_id
+      WHERE p.evento_id = ${id} AND r.resposta = 'vai') AS marcaram,
+    (SELECT war_id::int FROM evento_resultado WHERE evento_id = ${id}) AS "warId",
+    COALESCE((SELECT count(*)::int FROM desempenho d
+      WHERE d.war_id = (SELECT war_id FROM evento_resultado WHERE evento_id = ${id})), 0) AS "desempenhoOrfanado"`) as ResumoExclusao[];
+  return rows[0];
 }
 
 /**
@@ -231,4 +282,11 @@ export async function getEventoById(id: number): Promise<Evento | null> {
 export async function purgeEventosAntigos(): Promise<number> {
   const rows = (await sql`DELETE FROM evento WHERE status='finalizado' AND finalizado_em < now() - interval '30 days' RETURNING id`) as { id: number }[];
   return rows.length;
+}
+
+/** O evento ainda existe? Separa "foi apagado" de "não achei sua linha" — a diferença decide se a
+ *  mensagem culpa o jogador ou explica o que a staff fez. */
+export async function eventoExiste(id: number): Promise<boolean> {
+  const rows = (await sql`SELECT 1 FROM evento WHERE id = ${id}`) as unknown[];
+  return rows.length > 0;
 }

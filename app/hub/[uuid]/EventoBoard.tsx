@@ -8,6 +8,7 @@ import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
 import StatsWar from "./StatsWar";
+import ApagarEvento from "./ApagarEvento";
 import AutoSync from "@/app/confirmados/AutoSync";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
 import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
@@ -56,10 +57,11 @@ export type EvLink = { uuid: string; titulo: string; data: string; status: strin
 export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
-  evento, grupos, parties, envolvidos, canEdit, guildas, temChamada = true,
+  evento, grupos, parties, envolvidos, canEdit, podeApagar = false, guildas, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
+  podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
   temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
   vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
 }) {
@@ -486,6 +488,13 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
           </div>
         </div>
       )}</div>
+
+      {/* fim da página e faixa própria: colar isso no cabeçalho, ao lado do ↺ Limpar, é justamente
+          o clique errado que a gente não pode facilitar. Fora do gate de status: evento travado ou
+          finalizado também precisa poder ser apagado. */}
+      {podeApagar && evento && (
+        <ApagarEvento eventoId={evento.eventoId} titulo={evento.titulo} temChamada={!!evento.messageId} />
+      )}
     </Casca>
   );
 }

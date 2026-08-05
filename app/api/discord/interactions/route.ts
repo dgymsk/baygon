@@ -8,6 +8,8 @@ import { getDiscordConfig } from "@/lib/discordConfig";
 import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { anunciarNaThread } from "@/lib/threadChamada";
+import { eventoAberto } from "@/lib/intencao";
+import { eventoExiste } from "@/lib/eventos";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
 import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
@@ -240,7 +242,17 @@ export async function POST(req: Request) {
       const userIdEsc = String(uEsc?.id ?? "");
       if (!userIdEsc) return efemero("Não consegui te identificar.");
       const r = await responderConvocacao(eventoIdEsc, userIdEsc, aceita);
-      if (!r.ok) return efemero("Não achei sua escalação nesse evento — fale com a staff.");
+      if (!r.ok) {
+        // evento apagado ≠ escalação não encontrada. Mandar "fale com a staff" por algo que a staff
+        // fez é culpar o jogador — e os botões da DM ficariam vivos pra sempre. type 7 edita a
+        // própria DM e mata o botão no primeiro clique.
+        const existe = (await eventoExiste(eventoIdEsc));
+        if (!existe) return json({ type: 7, data: {
+          embeds: [{ description: "🗑️ Esta convocação foi cancelada — o evento não existe mais.", color: 0x8f8f8f }],
+          components: [],
+        } });
+        return efemero("Não achei sua escalação nesse evento — fale com a staff.");
+      }
       // edita a própria DM: some com os botões e deixa a resposta registrada à vista
       return json({
         type: 7, // UPDATE_MESSAGE
@@ -272,6 +284,9 @@ export async function POST(req: Request) {
       // redesenhar é ação de administração — o botão saiu da mensagem, mas mensagens antigas
       // ainda o têm, então o gate fica aqui e não só na ausência do botão.
       if (acao === "sync" && !(await ehStaff(body.member?.roles))) return efemero("⛔ Só staff atualiza a mensagem.");
+      // chamada de evento apagado/fechado: avisa em vez de aceitar o clique em silêncio. Antes do
+      // ACK de propósito — depois dele não há como dizer nada pra quem clicou.
+      if (acao !== "sync" && !(await eventoAberto(messageId))) return efemero("🔒 Esta chamada foi encerrada — o evento não existe mais.");
       after(async () => {
         try {
           const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));
@@ -283,10 +298,13 @@ export async function POST(req: Request) {
           const payload = acao === "sync" ? await montarPayload(messageId, presetId)
             : acao === "fn" && funcaoId != null ? await alternarMarca({ ...quem, funcaoId })
             : await marcarNaoVou(quem);
-          if (payload) await editarMensagem(tokenInt, payload);
-          // a thread é o registro da ORDEM de chegada. Depois de editar a mensagem de propósito:
-          // se o Discord recusar a thread, a marcação já está gravada e a mensagem já atualizada.
-          if (acao === "fn") await anunciarNaThread({ messageId, userId: userIdInt });
+          if (payload) {
+            await editarMensagem(tokenInt, payload);
+            // a thread é o registro da ORDEM de chegada. Depois de editar a mensagem de propósito:
+            // se o Discord recusar a thread, a marcação já está gravada e a mensagem já atualizada.
+            // Dentro do if: sem payload a marcação não aconteceu, e anunciar criaria thread à toa.
+            if (acao === "fn") await anunciarNaThread({ messageId, userId: userIdInt });
+          }
         } catch (e) { console.error("clique intencao erro", e); }
       });
       return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE

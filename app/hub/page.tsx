@@ -13,7 +13,10 @@ import AgendaBoard from "./AgendaBoard";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hub · BAYGON" };
 
-export default async function HubPage() {
+export default async function HubPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const apagado = typeof sp.apagado === "string" ? sp.apagado : null;
+  const restos = typeof sp.restos === "string" ? sp.restos : null;
   const [eventos, serie, totais, presets, parties, canEdit, agendas] = await Promise.all([
     funilEventos(), resumoSerie(), totaisHub(), listPresets(), listParties(), canEditNow(), listAgendas(),
   ]);
@@ -53,6 +56,17 @@ export default async function HubPage() {
           <Stat>{totais.parties} parties</Stat>
           <Stat>{totais.lendarios} lendários</Stat>
         </div>
+
+        {/* o que sobrou vivo no Discord depois de apagar precisa ser dito aqui: é a única chance,
+            já que o evento não existe mais pra mostrar isso */}
+        {apagado && (
+          <div style={{ border: `1px solid ${restos ? C.amarelo : C.border2}`, borderRadius: 12, background: C.inputBg, padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: C.mute }}>
+            🗑 <b style={{ color: C.texto }}>{apagado}</b> apagado.
+            {restos
+              ? <> ⚠ No Discord ficou pra trás: <b style={{ color: C.amarelo }}>{restos}</b> — resolva na mão lá.</>
+              : <> As mensagens no Discord foram encerradas.</>}
+          </div>
+        )}
 
         {/* as duas formas de começar um evento, lado a lado: com bot e sem bot */}
         {canEdit && (

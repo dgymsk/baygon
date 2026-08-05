@@ -156,7 +156,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     <EventoBoard
       evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, tier: ev.tier, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
-      canEdit={canEdit && ev.status === "aberto"} guildas={meta.guildas}
+      canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} guildas={meta.guildas}
       recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
       playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
