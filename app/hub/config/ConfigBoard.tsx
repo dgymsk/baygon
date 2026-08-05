@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { TIERS, corTier } from "@/lib/tier";
+import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { chaveNome } from "@/lib/nomes";
 import type { Funcao } from "@/lib/funcao";
 import type { Party } from "@/lib/party";
@@ -19,12 +20,12 @@ import type { IntencaoConfig } from "@/lib/intencaoConfig";
  *  PARTY   — onde a pessoa fica de fato in-game. É o ALVO da escalação, nunca aparece no bot.
  *  LENDÁRIO— atributo fixo da pessoa. NUNCA aparece no bot; só destaca o card na escalação.
  */
-type Jog = { nome: string; lendario: boolean };
+type Jog = { nome: string; lendario: boolean; ativo: boolean; guilda: string | null };
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, guildas, canEdit,
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +48,11 @@ export default function ConfigBoard({
     for (const x of membrosTipo) { const a = m.get(x.chave) ?? []; a.push(x.funcao_id); m.set(x.chave, a); }
     return m;
   }, [membrosTipo]);
+  // quem saiu da guilda não tem função a atribuir nem entra em escalação nenhuma — antes a lista
+  // vinha com os 111 do cadastro, e a maioria já estava marcada como "Saiu"
+  const ativos = useMemo(() => jogadores.filter((j) => j.ativo), [jogadores]);
+  const guildaPorId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
+  // lendário inativo continua à mostra pra dar pra desmarcar; quem some é o candidato novo
   const lendarios = jogadores.filter((j) => j.lendario);
 
   // lista de jogadores em ORDEM ALFABÉTICA (localeCompare pra acento não ir pro fim) e filtrada.
@@ -55,11 +61,13 @@ export default function ConfigBoard({
   const TETO = 60;
   const listaJogadores = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    const orden = [...jogadores].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    const orden = [...ativos].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
     const filtrados = q ? orden.filter((j) => j.nome.toLowerCase().includes(q)) : orden;
     return q ? filtrados : filtrados.slice(0, TETO);
-  }, [jogadores, busca]);
-  const comFuncao = useMemo(() => new Set(membros.map((m) => m.chave)).size, [membros]);
+  }, [ativos, busca]);
+  // só conta função de quem está ativo: o denominador e o numerador têm que falar da mesma gente
+  const chavesAtivas = useMemo(() => new Set(ativos.map((j) => chaveNome(j.nome))), [ativos]);
+  const comFuncao = useMemo(() => new Set(membros.map((m) => m.chave).filter((k) => chavesAtivas.has(k))).size, [membros, chavesAtivas]);
 
   async function api(body: Record<string, unknown>, ok?: string) {
     setBusy(true);
@@ -203,7 +211,7 @@ export default function ConfigBoard({
               <input value={buscaRel} onChange={(e) => setBuscaRel(e.target.value)} placeholder="buscar jogador p/ marcar…" style={{ ...input, minWidth: 220 }} />
               {buscaRel.trim() && (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {jogadores.filter((j) => !j.lendario && j.nome.toLowerCase().includes(buscaRel.toLowerCase()))
+                  {ativos.filter((j) => !j.lendario && j.nome.toLowerCase().includes(buscaRel.toLowerCase()))
                     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")).slice(0, 14).map((j) => (
                     <button key={j.nome} onClick={() => { api({ acao: "lendario", familia: j.nome, valor: true }, `${j.nome} virou lendário`); setBuscaRel(""); }} style={chip(false)}>+ {j.nome}</button>
                   ))}
@@ -294,9 +302,9 @@ export default function ConfigBoard({
               style={{ ...input, minWidth: 200, padding: "6px 10px", fontSize: 12.5 }} />
           </div>
           <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 10 }}>
-            {comFuncao} de {jogadores.length} jogadores com função atribuída
+            {comFuncao} de {ativos.length} jogadores ativos com função atribuída
             {busca && ` · ${listaJogadores.length} no filtro`}
-            {!busca && jogadores.length > TETO && ` · mostrando os ${TETO} primeiros, use a busca`}
+            {!busca && ativos.length > TETO && ` · mostrando os ${TETO} primeiros, use a busca`}
           </div>
           {!funcoes.length ? (
             <div style={{ color: C.amarelo, fontSize: 12.5 }}>Crie ao menos uma função lá em cima pra poder atribuir.</div>
@@ -306,7 +314,8 @@ export default function ConfigBoard({
                 const meus = funcoesPorChave.get(chaveNome(j.nome)) ?? [];
                 return (
                   <div key={j.nome} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, flexWrap: "wrap" }}>
-                    <span style={{ color: meus.length ? C.texto : C.mute, minWidth: 108 }}>{j.nome}</span>
+                    <BrasaoGuilda g={guildaPorId.get(j.guilda ?? "")} />
+                    <span style={{ color: meus.length ? C.texto : C.mute, minWidth: 98 }}>{j.nome}</span>
                     {funcoes.map((f) => {
                       const on = meus.includes(f.id);
                       return (
@@ -327,6 +336,15 @@ export default function ConfigBoard({
       </div>
     </div>
   );
+}
+
+/** Brasão da guilda do jogador. Sem ícone configurado cai na tag; sem guilda, não ocupa espaço. */
+function BrasaoGuilda({ g }: { g?: GuildEntry }) {
+  if (!g) return <span style={{ width: 14, flexShrink: 0 }} />;
+  const u = iconeUrl(g.icone);
+  return u
+    ? <img src={u} alt={g.nome} title={g.nome} width={14} height={14} style={{ flexShrink: 0, borderRadius: 3 }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+    : <span title={g.nome} style={{ flexShrink: 0, width: 14, fontSize: 9, color: g.cor, fontWeight: 700, textAlign: "center" }}>{g.tag}</span>;
 }
 
 const mini = { background: "none", border: "none", cursor: "pointer", color: "#8f8f8f", fontSize: 10, padding: "0 1px", lineHeight: 1 } as const;
