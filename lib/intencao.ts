@@ -3,7 +3,7 @@ import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { rotuloTipo, type Tipo } from "@/lib/participacaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
 import { listFuncoes } from "@/lib/funcao";
-import { getPreset, listPlayerFuncoes } from "@/lib/intencaoPreset";
+import { getPreset, listElencoEsperado } from "@/lib/intencaoPreset";
 import { montarEmbedIntencao, type FuncaoI, type MarcaI, type RespI } from "@/lib/intencaoEmbed";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
@@ -61,7 +61,7 @@ export async function montarPayload(messageId: string, presetId: number): Promis
   if (!info) return null;
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   const [marcas, respostas, membros, perfil, emojis, meta] = await Promise.all([
-    getMarcas(messageId), getRespostasInt(messageId), listPlayerFuncoes(),
+    getMarcas(messageId), getRespostasInt(messageId), listElencoEsperado(),
     perfilGear(), getEmojiMapResolvido(), getGuildMeta(),
   ]);
   return montarEmbedIntencao({
@@ -83,7 +83,7 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
   const canal = info.canalId || (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
   if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloTipo(info.tipo as Tipo)} não configurado` };
 
-  const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listPlayerFuncoes()]);
+  const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listElencoEsperado()]);
   const payload = montarEmbedIntencao({
     presetId, presetNome: info.nome, mensagem: cfg.mensagem, imagem: cfg.imagem,
     funcoes: info.funcoes, marcas: [], respostas: [], membros, perfil, emojis,

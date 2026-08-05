@@ -13,7 +13,7 @@
 export type FuncaoI = { id: number; nome: string; emoji: string | null };
 export type MarcaI = { user_id: string; funcao_id: number };
 export type RespI = { user_id: string; familia: string | null; chave: string | null; resposta: "vai" | "nao" };
-export type MembroI = { chave: string; familia: string; funcao_id: number }; // player_funcao
+export type MembroI = { chave: string; familia: string }; // elenco esperado (registrados + com função)
 export type PerfilI = { guilda: string; classe: string | null; gs: number | null };
 export type EmojiMapI = { classes: Record<string, string>; guildas: Record<string, string> };
 
@@ -40,7 +40,7 @@ export type DadosIntencao = {
   funcoes: FuncaoI[];                 // já na ordem do preset
   marcas: MarcaI[];
   respostas: RespI[];
-  membros?: MembroI[];        // função do jogador (player_funcao) — vira a lista de não decididos
+  membros?: MembroI[];        // elenco esperado — vira a lista de não decididos
   nomePorUser?: Map<string, string>; // user_id → nome de família (exibição)
   perfil?: Map<string, PerfilI>;     // chaveNome → guilda/classe/GS
   emojis?: EmojiMapI;
@@ -79,13 +79,13 @@ export function montarEmbedIntencao(d: DadosIntencao) {
   const naoVao = d.respostas.filter((r) => r.resposta === "nao");
   if (naoVao.length) secoes.push(`**❌ Não vão — ${naoVao.length}**\n${naoVao.map((r) => `<@${r.user_id}>`).join(", ")}`);
 
-  // não decididos = quem tem função de casa e não respondeu nada (nem marca, nem ❌)
+  // não decididos = quem é esperado na guerra e não respondeu nada (nem marca, nem ❌)
   if (d.membros?.length) {
     const respondeuChave = new Set(d.respostas.map((r) => r.chave).filter(Boolean) as string[]);
     const vistos = new Set<string>();
     const pendentes: string[] = [];
     for (const m of d.membros) {
-      if (vistos.has(m.chave) || respondeuChave.has(m.chave)) continue; // membro aparece 1x por função
+      if (vistos.has(m.chave) || respondeuChave.has(m.chave)) continue;
       vistos.add(m.chave);
       pendentes.push(m.familia);
     }

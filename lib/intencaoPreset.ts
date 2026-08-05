@@ -15,6 +15,26 @@ import { ehTipo } from "@/lib/participacaoConfig";
 export type PresetParty = { party_id: number; ordem: number };
 export type Preset = { id: number; nome: string; tipo: string; tamanho_max: number | null; canal_id: string | null; parties: PresetParty[] };
 export type PlayerFuncao = { chave: string; familia: string; funcao_id: number };
+export type MembroElenco = { chave: string; familia: string };
+
+/**
+ * Quem se espera na guerra — a base da lista de "não decididos" do bot.
+ *
+ * É gente REGISTRADA no bot (fez a jornada e vinculou o Discord) ou com função de casa atribuída.
+ * Antes a lista saía só de `player_funcao`, mas função é o que a pessoa SABE FAZER, não se ela é
+ * esperada: com um único jogador classificado, "não decididos" mostrava um nome só e todo o resto
+ * do pessoal registrado sumia da cobrança.
+ *
+ * Inativo fica de fora — ex-membro não deve nada.
+ */
+export async function listElencoEsperado(): Promise<MembroElenco[]> {
+  const rows = (await sql`
+    SELECT DISTINCT p.nome_familia AS familia
+    FROM players p
+    WHERE p.ativo AND (p.registro OR EXISTS (SELECT 1 FROM player_funcao pf WHERE pf.familia = p.nome_familia))
+    ORDER BY p.nome_familia`) as { familia: string }[];
+  return rows.map((r) => ({ chave: chaveNome(r.familia), familia: r.familia }));
+}
 
 const nomeOk = (s: unknown) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, 50) : "");
 const famOk = (s: unknown) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, 80) : "");
