@@ -14,6 +14,7 @@ export type EscaladoL = {
   chave: string; familia: string; userId: string | null; partyId: number | null;
   guilda: string | null; classe: string | null; gs: number | null;
   confirmouEscalacao: boolean | null; confirmouIngame: boolean;
+  ordem: number | null;   // posição na fila da chamada (1 = marcou primeiro); null = entrou sem marcar
 };
 export type PerfilEmojis = { classes: Record<string, string>; guildas: Record<string, string> };
 
@@ -41,6 +42,11 @@ export function montarLista(d: DadosLista) {
     a.push(e);
     porParty.set(e.partyId, a);
   }
+  // dentro da PT, quem marcou primeiro vem primeiro — é o critério que a staff usa pra priorizar.
+  // Quem entrou sem passar pela chamada (ordem null) vai pro fim, não pro começo.
+  for (const a of porParty.values()) {
+    a.sort((x, y) => (x.ordem ?? 1e9) - (y.ordem ?? 1e9) || x.familia.localeCompare(y.familia, "pt-BR"));
+  }
 
   const linha = (e: EscaladoL): string => {
     const gEmoji = (e.guilda && d.emojis?.guildas[e.guilda]) || (e.guilda && tags[e.guilda]) || "";
@@ -48,7 +54,10 @@ export function montarLista(d: DadosLista) {
     const nome = e.userId ? `[${safeLink(e.familia)}](https://discord.com/users/${e.userId})` : safeLink(e.familia);
     // ✅ confirmou a escalação · ⏳ ainda não respondeu — o mesmo sinal que a staff vê no site
     const sinal = e.confirmouEscalacao === true ? "✅" : e.confirmouEscalacao === false ? "❌" : "⏳";
-    return [sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
+    // posição na fila em largura fixa pra as linhas alinharem; 🎮 = já apareceu na conferência
+    // in-game, e é a ausência dele que a cobrança de "participar" vai atrás
+    const pos = "`#" + (e.ordem != null ? String(e.ordem).padStart(2, "0") : "--") + "`";
+    return [pos, sinal, e.confirmouIngame ? "🎮" : null, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji].filter(Boolean).join(" · ");
   };
   const moldura = (es: EscaladoL[]) => "> " + es.map(linha).join("\n> ");
 

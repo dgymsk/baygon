@@ -107,6 +107,8 @@ export default function EventoBoard({
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
   const nAguardando = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.convidado).length;
   const nSemConvocar = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && !j.convidado).length;
+  // escalado que ainda não apareceu na conferência in-game — o alvo da cobrança
+  const nSemIngame = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao !== false && !j.confirmouIngame).length;
 
   async function api(body: Record<string, unknown>) {
     const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -162,6 +164,28 @@ export default function EventoBoard({
       const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
       setConvocacao(`${enviados} DM(s) enviada(s)${falhas.length ? ` · ${falhas.length} falharam: ${falhas.map((f) => `${f.familia} (${f.motivo})`).join(", ")}` : ""}`);
       setErro(""); router.refresh();
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
+  /**
+   * Cobra o "participar" in-game de quem está escalado e não apareceu na conferência. Diferente da
+   * convocação: ali a pergunta é "você vai?", aqui a pessoa já disse que vai e só falta apertar o
+   * botão dentro do jogo.
+   */
+  async function pedirIngame() {
+    if (!canEdit || !evento) return;
+    if (!confirm(`Mandar DM pedindo pra marcar participar in-game?
+
+Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}).`)) return;
+    setSalvando(true);
+    try {
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "pedir-ingame", eventoId: evento.eventoId, titulo: evento.titulo }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
+      setConvocacao(`🎮 ${enviados} pedido(s) de participar in-game${falhas.length ? ` · ${falhas.length} falharam: ${falhas.map((x) => `${x.familia} (${x.motivo})`).join(", ")}` : ""}`);
+      setErro("");
     } catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
   }
@@ -252,6 +276,12 @@ export default function EventoBoard({
               onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); convocar(false); } }}
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               📨 Convocar {nSemConvocar + nAguardando > 0 ? `(${nSemConvocar + nAguardando})` : "escalados"}
+            </button>
+          )}
+          {canEdit && nSemIngame > 0 && (
+            <button onClick={pedirIngame} disabled={salvando} title="DM pra quem está escalado e ainda não apareceu na conferência in-game"
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              🎮 Pedir participar ({nSemIngame})
             </button>
           )}
           {canEdit && nEscalados > 0 && evento.messageId && (

@@ -7,6 +7,7 @@ import { listNomesFamilia } from "@/lib/players";
 import { getDiscordConfig } from "@/lib/discordConfig";
 import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
+import { anunciarNaThread } from "@/lib/threadChamada";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
 import { registrarTexto, postarNoLog } from "@/lib/interacaoLog";
@@ -283,6 +284,9 @@ export async function POST(req: Request) {
             : acao === "fn" && funcaoId != null ? await alternarMarca({ ...quem, funcaoId })
             : await marcarNaoVou(quem);
           if (payload) await editarMensagem(tokenInt, payload);
+          // a thread é o registro da ORDEM de chegada. Depois de editar a mensagem de propósito:
+          // se o Discord recusar a thread, a marcação já está gravada e a mensagem já atualizada.
+          if (acao === "fn") await anunciarNaThread({ messageId, userId: userIdInt });
         } catch (e) { console.error("clique intencao erro", e); }
       });
       return json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE

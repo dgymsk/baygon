@@ -102,3 +102,54 @@ export async function responderConvocacao(eventoId: number, userId: string, acei
     RETURNING familia`) as { familia: string }[];
   return rows[0] ? { ok: true, familia: rows[0].familia } : { ok: false };
 }
+
+/**
+ * Cobra o "participar" IN-GAME de quem já está escalado e ainda não apareceu na conferência.
+ *
+ * É uma cobrança diferente da convocação: lá a pergunta é "você vai?", aqui a pessoa já disse que
+ * vai e só falta apertar o botão dentro do jogo. Mandar as duas juntas confundiria — quem já
+ * confirmou na DM ia achar que precisava confirmar de novo.
+ *
+ * Sem botão de propósito: o site não tem como saber que a pessoa marcou no jogo, isso só chega pelo
+ * print da conferência. Um botão aqui daria a impressão de resolver e não resolveria nada.
+ */
+export async function pedirParticiparIngame(eventoId: number, titulo: string): Promise<{ ok: boolean; erro?: string; enviados: number; falhas: { familia: string; motivo: string }[] }> {
+  if (!botConfigurado()) return { ok: false, erro: "bot não configurado", enviados: 0, falhas: [] };
+  await resolverUserIds(eventoId);
+
+  const alvos = (await sql`
+    SELECT e.chave, e.familia, e.user_id, p.nome AS party
+    FROM evento_escalacao e
+    LEFT JOIN party p ON p.id = e.party_id
+    WHERE e.evento_id = ${eventoId} AND e.party_id IS NOT NULL
+      AND e.confirmou IS NOT FALSE                       -- quem recusou já saiu da conta
+      AND NOT EXISTS (SELECT 1 FROM evento_presenca ep
+                      WHERE ep.evento_id = e.evento_id AND ep.chave = e.chave AND ep.participar)
+    ORDER BY e.familia`) as { chave: string; familia: string; user_id: string | null; party: string | null }[];
+  if (!alvos.length) return { ok: true, enviados: 0, falhas: [] };
+
+  const falhas: { familia: string; motivo: string }[] = [];
+  let enviados = 0;
+  for (const a of alvos) {
+    if (!a.user_id) { falhas.push({ familia: a.familia, motivo: "sem Discord vinculado" }); continue; }
+    try {
+      const dm = await botFetch(`/users/@me/channels`, { method: "POST", body: JSON.stringify({ recipient_id: a.user_id }) });
+      if (!dm.ok) { falhas.push({ familia: a.familia, motivo: `DM ${dm.status}` }); continue; }
+      const ch = (await dm.json()) as { id: string };
+      const res = await botFetch(`/channels/${ch.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          allowed_mentions: { parse: [] },
+          embeds: [{
+            title: `🎮 Marque participar in-game — ${titulo}`.slice(0, 256),
+            description: `Você está escalado${a.party ? ` na **${a.party}**` : ""}, mas ainda não apareceu na lista de participantes do jogo.\n\nAbra o Black Desert e marque **participar** na guerra. Quem não marca não entra na conta.`,
+            color: 0xd6b22a,
+          }],
+        }),
+      });
+      if (!res.ok) { falhas.push({ familia: a.familia, motivo: `msg ${res.status}` }); continue; }
+      enviados++;
+    } catch (e) { falhas.push({ familia: a.familia, motivo: (e as Error).message }); }
+  }
+  return { ok: true, enviados, falhas };
+}

@@ -161,10 +161,14 @@ export async function alternarMarca(o: Quem & { funcaoId: number }): Promise<Rec
 
   const restantes = (await sql`SELECT count(*)::int AS n FROM intencao_marca WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`) as { n: number }[];
   if (restantes[0]?.n) {
-    await sql`INSERT INTO intencao_resp (message_id, user_id, username, familia, chave, resposta, atualizado)
-      VALUES (${o.messageId}, ${o.userId}, ${o.username}, ${o.familia}, ${o.chave}, 'vai', now())
+    // vai_em = carimbo do PRIMEIRO "vai". Trocar de função mantém o carimbo (e o lugar na fila);
+    // vir de um "não vou" carimba agora, porque aí a pessoa acabou de entrar.
+    await sql`INSERT INTO intencao_resp (message_id, user_id, username, familia, chave, resposta, vai_em, atualizado)
+      VALUES (${o.messageId}, ${o.userId}, ${o.username}, ${o.familia}, ${o.chave}, 'vai', now(), now())
       ON CONFLICT (message_id, user_id) DO UPDATE SET username = EXCLUDED.username, familia = EXCLUDED.familia,
-        chave = EXCLUDED.chave, resposta = 'vai', atualizado = now()`;
+        chave = EXCLUDED.chave, resposta = 'vai',
+        vai_em = CASE WHEN intencao_resp.resposta = 'vai' THEN COALESCE(intencao_resp.vai_em, now()) ELSE now() END,
+        atualizado = now()`;
   } else {
     await sql`DELETE FROM intencao_resp WHERE message_id = ${o.messageId} AND user_id = ${o.userId}`;
   }
@@ -183,7 +187,7 @@ export async function marcarNaoVou(o: Quem): Promise<Record<string, unknown> | n
       sql`INSERT INTO intencao_resp (message_id, user_id, username, familia, chave, resposta, atualizado)
           VALUES (${o.messageId}, ${o.userId}, ${o.username}, ${o.familia}, ${o.chave}, 'nao', now())
           ON CONFLICT (message_id, user_id) DO UPDATE SET username = EXCLUDED.username, familia = EXCLUDED.familia,
-            chave = EXCLUDED.chave, resposta = 'nao', atualizado = now()`,
+            chave = EXCLUDED.chave, resposta = 'nao', vai_em = NULL, thread_msg_id = NULL, atualizado = now()`,
     ]);
   }
   return montarPayload(o.messageId, o.presetId);

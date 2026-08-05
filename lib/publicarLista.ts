@@ -8,6 +8,7 @@ import { listParties } from "@/lib/party";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
+import { filaDaChamada } from "@/lib/threadChamada";
 import { type Tipo } from "@/lib/participacaoConfig";
 
 /**
@@ -49,12 +50,14 @@ export async function publicarLista(eventoId: number): Promise<{ ok: boolean; er
 
   const presenca = (await sql`SELECT chave FROM evento_presenca WHERE evento_id = ${eventoId} AND participar`) as { chave: string }[];
   const ingame = new Set(presenca.map((p) => p.chave));
+  // ordem de chegada na chamada — é o que decide prioridade dentro da PT
+  const posPorChave = new Map((await filaDaChamada(post.message_id)).map((f) => [f.chave, f.posicao]));
   const escalados: EscaladoL[] = rows.map((r) => {
     const p = perfil.get(r.chave);
     return {
       chave: r.chave, familia: r.familia, userId: r.user_id, partyId: r.party_id,
       guilda: p?.guilda ?? null, classe: p?.classe ?? null, gs: p?.gs ?? null,
-      confirmouEscalacao: r.confirmou, confirmouIngame: ingame.has(r.chave),
+      confirmouEscalacao: r.confirmou, confirmouIngame: ingame.has(r.chave), ordem: posPorChave.get(r.chave) ?? null,
     };
   });
 

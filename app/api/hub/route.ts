@@ -9,7 +9,7 @@ import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
-import { convocar } from "@/lib/convocacao";
+import { convocar, pedirParticiparIngame } from "@/lib/convocacao";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
@@ -120,6 +120,13 @@ export async function POST(req: Request) {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
       const c = await convocar(eid(), typeof b.titulo === "string" ? b.titulo : "Node War", b.soNovos !== false);
       return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
+    }
+
+    // --- cobra o participar IN-GAME de quem está escalado e não apareceu na conferência ---
+    case "pedir-ingame": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const p = await pedirParticiparIngame(eid(), typeof b.titulo === "string" ? b.titulo : "Node War");
+      return p.ok ? NextResponse.json(p) : NextResponse.json({ error: p.erro }, { status: 400 });
     }
 
     // --- redesenha a mensagem no Discord com o estado atual do banco ---
