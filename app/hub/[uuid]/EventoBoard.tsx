@@ -541,7 +541,8 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
           {/* captura das estatísticas de combate — MESMO fluxo do /eventos, trazido pra cá */}
           <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 16, paddingTop: 4 }}>
             <ResultadoExtrair id={evento.eventoId} canEdit={canEdit} players={playersNomes}
-              warIdInicial={evento.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais} />
+              warIdInicial={evento.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
+              ativo={aba === "stats"} />
           </div>
         </div>
       )}</div>
