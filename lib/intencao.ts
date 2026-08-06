@@ -51,7 +51,12 @@ export async function getRespostasInt(messageId: string): Promise<RespI[]> {
 async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string; tier: string | null; exigeRegistro: boolean; canalId: string | null } | null> {
   const [preset, cat] = await Promise.all([getPreset(presetId), listFuncoes()]);
   if (!preset) return null;
-  const funcoes: FuncaoI[] = cat.map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
+  // botões DO PRESET, na ordem dele. Preset sem função configurada cai no catálogo inteiro: é o
+  // comportamento de antes, e evita que um preset recém-criado dispare uma chamada sem botão nenhum.
+  const porId = new Map(cat.map((f) => [f.id, f]));
+  const doPreset = preset.funcoes.map((v) => porId.get(v.funcao_id)).filter((x): x is NonNullable<typeof x> => !!x);
+  const escolhidas = doPreset.length ? doPreset : cat;
+  const funcoes: FuncaoI[] = escolhidas.map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
   return { funcoes, nome: preset.nome, tipo: preset.tipo, tier: preset.tier, exigeRegistro: preset.exige_registro, canalId: preset.canal_id ?? null };
 }
 

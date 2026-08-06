@@ -14,9 +14,11 @@ import { tierOk, type Tier } from "@/lib/tier";
  * dos grupos de função.
  */
 export type PresetParty = { party_id: number; ordem: number };
+/** Quais funções viram BOTÃO nesta chamada. Lista vazia = todas do catálogo (ver getPreset). */
+export type PresetFuncao = { funcao_id: number; ordem: number };
 export type Preset = { id: number; nome: string; tipo: string; tier: Tier | null; tamanho_max: number | null; canal_id: string | null;
   /** só quem fez a jornada do bot pode marcar. Herdado pelo evento no disparo. */
-  exige_registro: boolean; parties: PresetParty[] };
+  exige_registro: boolean; parties: PresetParty[]; funcoes: PresetFuncao[] };
 export type PlayerFuncao = { chave: string; familia: string; funcao_id: number };
 export type MembroElenco = { chave: string; familia: string };
 
@@ -59,15 +61,25 @@ function partiesOk(raw: unknown): number[] {
 export async function listPresets(): Promise<Preset[]> {
   const ps = (await sql`SELECT id::int AS id, nome, tipo, tier, tamanho_max, canal_id, exige_registro FROM intencao_preset ORDER BY nome`) as Omit<Preset, "parties">[];
   if (!ps.length) return [];
-  const vin = (await sql`SELECT preset_id::int AS preset_id, party_id::int AS party_id, ordem FROM intencao_preset_pt ORDER BY ordem, party_id`) as { preset_id: number; party_id: number; ordem: number }[];
-  return ps.map((p) => ({ ...p, parties: vin.filter((v) => v.preset_id === p.id).map((v) => ({ party_id: v.party_id, ordem: v.ordem })) }));
+  const [vin, fns] = (await Promise.all([
+    sql`SELECT preset_id::int AS preset_id, party_id::int AS party_id, ordem FROM intencao_preset_pt ORDER BY ordem, party_id`,
+    sql`SELECT preset_id::int AS preset_id, funcao_id::int AS funcao_id, ordem FROM intencao_preset_funcao ORDER BY ordem, funcao_id`,
+  ])) as [{ preset_id: number; party_id: number; ordem: number }[], { preset_id: number; funcao_id: number; ordem: number }[]];
+  return ps.map((p) => ({
+    ...p,
+    parties: vin.filter((v) => v.preset_id === p.id).map((v) => ({ party_id: v.party_id, ordem: v.ordem })),
+    funcoes: fns.filter((v) => v.preset_id === p.id).map((v) => ({ funcao_id: v.funcao_id, ordem: v.ordem })),
+  }));
 }
 
 export async function getPreset(id: number): Promise<Preset | null> {
   const rows = (await sql`SELECT id::int AS id, nome, tipo, tier, tamanho_max, canal_id, exige_registro FROM intencao_preset WHERE id = ${id}`) as Omit<Preset, "parties">[];
   if (!rows[0]) return null;
-  const parties = (await sql`SELECT party_id::int AS party_id, ordem FROM intencao_preset_pt WHERE preset_id = ${id} ORDER BY ordem, party_id`) as PresetParty[];
-  return { ...rows[0], parties };
+  const [parties, funcoes] = (await Promise.all([
+    sql`SELECT party_id::int AS party_id, ordem FROM intencao_preset_pt WHERE preset_id = ${id} ORDER BY ordem, party_id`,
+    sql`SELECT funcao_id::int AS funcao_id, ordem FROM intencao_preset_funcao WHERE preset_id = ${id} ORDER BY ordem, funcao_id`,
+  ])) as [PresetParty[], PresetFuncao[]];
+  return { ...rows[0], parties, funcoes };
 }
 
 export async function criarPreset(nome: unknown, tipo: unknown, parties: unknown, tamanhoMax?: unknown, tier?: unknown): Promise<Preset | null> {
@@ -80,7 +92,7 @@ export async function criarPreset(nome: unknown, tipo: unknown, parties: unknown
   return getPreset(id);
 }
 
-export async function atualizarPreset(id: unknown, patch: { nome?: unknown; tipo?: unknown; parties?: unknown; tamanhoMax?: unknown; canalId?: unknown; tier?: unknown; exigeRegistro?: unknown }): Promise<void> {
+export async function atualizarPreset(id: unknown, patch: { nome?: unknown; tipo?: unknown; parties?: unknown; funcoes?: unknown; tamanhoMax?: unknown; canalId?: unknown; tier?: unknown; exigeRegistro?: unknown }): Promise<void> {
   const pid = num(id);
   if (pid == null) return;
   const n = nomeOk(patch.nome);
@@ -94,11 +106,21 @@ export async function atualizarPreset(id: unknown, patch: { nome?: unknown; tipo
   if (patch.tier !== undefined) await sql`UPDATE intencao_preset SET tier = ${tierOk(patch.tier)} WHERE id = ${pid}`;
   if (patch.exigeRegistro !== undefined) await sql`UPDATE intencao_preset SET exige_registro = ${!!patch.exigeRegistro} WHERE id = ${pid}`;
   if (patch.parties !== undefined) await gravarParties(pid, partiesOk(patch.parties));
+  if (patch.funcoes !== undefined) await gravarFuncoes(pid, partiesOk(patch.funcoes));
 }
 
 export async function excluirPreset(id: unknown): Promise<void> {
   const pid = num(id);
   if (pid != null) await sql`DELETE FROM intencao_preset WHERE id = ${pid}`;
+}
+
+/** Reescreve os vínculos preset→FUNÇÃO; a ordem é a posição no array (ordem dos botões no bot). */
+async function gravarFuncoes(presetId: number, funcaoIds: number[]): Promise<void> {
+  await sql`DELETE FROM intencao_preset_funcao WHERE preset_id = ${presetId}`;
+  for (let i = 0; i < funcaoIds.length; i++) {
+    await sql`INSERT INTO intencao_preset_funcao (preset_id, funcao_id, ordem) VALUES (${presetId}, ${funcaoIds[i]}, ${i})
+      ON CONFLICT (preset_id, funcao_id) DO UPDATE SET ordem = EXCLUDED.ordem`;
+  }
 }
 
 /** Reescreve os vínculos preset→PT; a ordem é a posição no array (ordem das colunas na escalação). */

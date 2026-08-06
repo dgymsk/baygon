@@ -37,6 +37,7 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
             BAYGON <span style={{ color: C.mute, fontSize: 14, letterSpacing: 2 }}>· HUB DE EVENTOS</span>
           </h1>
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            {canEdit && <Link className="navlink" href="/hub/presets">📣 Chamadas</Link>}
             {canEdit && <Link className="navlink" href="/hub/config">⚙ Definições</Link>}
             <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/painel">← Painel</Link>
@@ -79,7 +80,7 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
         <h2 style={{ color: C.verde, fontSize: 15, margin: "0 0 10px" }}>Eventos</h2>
         {!eventos.length ? (
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 24, color: C.mute, fontSize: 13 }}>
-            Nenhum evento ainda.{canEdit && <> Dispare uma chamada aí em cima, ou crie um evento à mão em <b style={{ color: C.amarelo }}>＋ Novo evento</b>. A chamada se configura em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link>.</>}
+            Nenhum evento ainda.{canEdit && <> Dispare uma chamada aí em cima, ou crie um evento à mão em <b style={{ color: C.amarelo }}>＋ Novo evento</b>. A chamada se configura em <Link href="/hub/presets" style={{ color: C.verde }}>Chamadas</Link>.</>}
           </div>
         ) : (
           <EventosLista eventos={eventos} />

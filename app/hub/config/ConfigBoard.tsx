@@ -32,16 +32,11 @@ export default function ConfigBoard({
   const [tipo, setTipo] = useState<string>("nodewar");
   const [nf, setNf] = useState({ nome: "", emoji: "" });
   const [np, setNp] = useState({ nome: "", icone: "" });
-  const [npreset, setNpreset] = useState("");
   const [busca, setBusca] = useState("");
   const [buscaRel, setBuscaRel] = useState("");
 
   const fById = useMemo(() => new Map(funcoes.map((f) => [f.id, f])), [funcoes]);
   // vários presets por tipo (T1, T2, siege A…) — o selecionado é o que se edita
-  const doTipo = useMemo(() => presets.filter((p) => p.tipo === tipo), [presets, tipo]);
-  const [presetId, setPresetId] = useState<number | null>(null);
-  const preset = useMemo(() => doTipo.find((p) => p.id === presetId) ?? doTipo[0] ?? null, [doTipo, presetId]);
-  const noPreset = useMemo(() => (preset?.parties ?? []).map((v) => v.party_id), [preset]);
   const membrosTipo = membros; // função do jogador é global — não depende de tipo nem de preset
   const funcoesPorChave = useMemo(() => {
     const m = new Map<string, number[]>();
@@ -236,84 +231,16 @@ export default function ConfigBoard({
           )}
         </div>
 
-        {/* PRESET DO BOT */}
+        {/* CHAMADAS — moradia própria em /hub/presets: uma chamada é a soma de função, party,
+            tier, teto e canal, e montar isso num card espremido entre outros seis era o motivo de
+            metade dos campos passar despercebida. Aqui fica só o ponteiro. */}
         <div style={card}>
-          <Titulo>Preset da guerra <Sub>quais PTs entram em campo e quanta gente cabe — o bot mostra <b>todas</b> as funções, independente disto</Sub></Titulo>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            {TIPOS.map((t) => <button key={t} onClick={() => setTipo(t)} style={{ ...chip(tipo === t), cursor: "pointer", textTransform: "capitalize" }}>{t}</button>)}
+          <Titulo>Chamadas <Sub>quais botões e PTs entram em cada guerra</Sub></Titulo>
+          <div style={{ color: C.mute, fontSize: 12.5 }}>
+            As chamadas têm tela própria — lá você escolhe quais das funções abaixo viram botão, quais PTs viram coluna, o tier, o teto e o canal.{" "}
+            <Link href="/hub/presets" style={{ color: C.verde, fontWeight: 700 }}>Abrir Chamadas →</Link>
           </div>
-
-          {/* dá pra ter várias chamadas do mesmo tipo (T1, T2…) — escolha qual editar */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-            {doTipo.map((p) => (
-              <button key={p.id} onClick={() => setPresetId(p.id)} style={chip(preset?.id === p.id)}>{p.nome}</button>
-            ))}
-            {canEdit && (
-              <>
-                <input value={npreset} onChange={(e) => setNpreset(e.target.value)} placeholder={`nova chamada de ${tipo}`}
-                  style={{ ...input, minWidth: 170, padding: "5px 9px", fontSize: 12.5 }} />
-                <button disabled={busy || !npreset.trim()} onClick={async () => { const d = await api({ acao: "preset-criar", nome: npreset, tipo, funcoes: [] }, "chamada criada"); const nid = (d as { id?: number } | null)?.id; if (nid) setPresetId(nid); setNpreset(""); }} style={btn(C.verde)}>+ Criar</button>
-              </>
-            )}
-          </div>
-
-          {!preset ? (
-            <Vazio>Nenhuma chamada de {tipo} ainda — crie uma acima.</Vazio>
-          ) : (
-            <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 13 }}><b style={{ color: C.amarelo }}>{preset.nome}</b> — {noPreset.length} função(ões)</span>
-                <span style={{ display: "flex", gap: 8 }}>
-                  {canEdit && <button disabled={busy} onClick={() => confirm(`Excluir a chamada ${preset.nome}?`) && api({ acao: "preset-excluir", id: preset.id }, "chamada excluída")} style={btn(C.vermelho)}>Excluir</button>}
-                  {canEdit && <button disabled={busy || !noPreset.length} onClick={() => api({ acao: "postar", id: preset.id }, "chamada postada no Discord")} style={{ ...btn(C.verde), background: C.verdeTint }}>📢 Postar chamada</button>}
-                </span>
-              </div>
-              {/* o preset é composto de PTs — elas viram as colunas da escalação */}
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
-                {parties.map((p) => {
-                  const on = noPreset.includes(p.id);
-                  return (
-                    <button key={p.id} disabled={!canEdit} style={chip(on)}
-                      onClick={() => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, parties: on ? noPreset.filter((x) => x !== p.id) : [...noPreset, p.id] })}>
-                      <Icone raw={p.icone} /> {p.nome}
-                    </button>
-                  );
-                })}
-                {!parties.length && <Vazio>Nenhuma party criada ainda — crie acima.</Vazio>}
-                <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: preset.exige_registro ? C.amarelo : C.mute, fontSize: 11.5, cursor: canEdit ? "pointer" : "default" }}
-                    title="só quem fez /register consegue marcar nas chamadas criadas com esta configuração">
-                    <input type="checkbox" checked={!!preset.exige_registro} disabled={!canEdit}
-                      onChange={(e) => api({ acao: "preset-editar", id: preset.id, exigeRegistro: e.target.checked }, e.target.checked ? "só registrados" : "aberto a todos")} />
-                    só registrados
-                  </label>
-                  <span style={{ color: C.mute, fontSize: 11.5 }}>tier:</span>
-                  <select defaultValue={preset.tier ?? ""} disabled={!canEdit}
-                    onChange={(e) => api({ acao: "preset-editar", id: preset.id, tier: e.target.value || null }, "tier salvo")}
-                    title="T1/T2/T3 — porte da guerra; o evento nasce com este valor e pode ser trocado depois"
-                    style={{ ...input, width: 78, padding: "5px 8px", fontSize: 12.5, cursor: canEdit ? "pointer" : "default", color: preset.tier ? corTier[preset.tier] : C.mute }}>
-                    <option value="">—</option>
-                    {TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <span style={{ color: C.mute, fontSize: 11.5 }}>canal:</span>
-                  <input defaultValue={preset.canal_id ?? ""} disabled={!canEdit} placeholder="do tipo"
-                    onBlur={(e) => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, canalId: e.target.value }, "canal do preset salvo")}
-                    title="canal desta chamada específica; vazio = usa o canal do tipo"
-                    style={{ ...input, width: 150, padding: "5px 8px", fontSize: 12.5 }} />
-                  <span style={{ color: C.mute, fontSize: 11.5 }}>máx:</span>
-                  <input type="number" min={1} max={500} defaultValue={preset.tamanho_max ?? ""} disabled={!canEdit} placeholder="—"
-                    onBlur={(e) => api({ acao: "preset-editar", id: preset.id, nome: preset.nome, tipo: preset.tipo, tamanhoMax: e.target.value || null }, "teto salvo")}
-                    title="quantas pessoas cabem nesta guerra — referência da escalação, o bot não corta ninguém"
-                    style={{ ...input, width: 70, padding: "5px 8px", fontSize: 12.5 }} />
-                </span>
-              </div>
-              {!!noPreset.length && <div style={{ color: C.borderSoft, fontSize: 11.5, marginBottom: 12 }}>Colunas da escalação: {noPreset.map((id) => parties.find((x) => x.id === id)?.nome ?? id).join(" → ")}</div>}
-
-            </>
-          )}
         </div>
-
-
         {/* FUNÇÃO DO JOGADOR — card próprio: é atributo da pessoa, não depende de preset nem de
             tipo. Ficava aninhado no bloco do preset, então sumia quando não havia preset de siege. */}
         <div style={card}>

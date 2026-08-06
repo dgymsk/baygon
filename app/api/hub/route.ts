@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     // --- preset do bot ---
     case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.parties, b.tamanhoMax, b.tier)) ?? { error: "nome e tipo obrigatórios" });
-    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId, tier: b.tier, exigeRegistro: b.exigeRegistro }); return NextResponse.json({ presets: await listPresets() });
+    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId, tier: b.tier, exigeRegistro: b.exigeRegistro, funcoes: b.funcoes }); return NextResponse.json({ presets: await listPresets() });
     case "preset-excluir":  await excluirPreset(b.id); return NextResponse.json({ presets: await listPresets() });
     case "membro-add":      await addPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
     case "membro-del":      await delPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
