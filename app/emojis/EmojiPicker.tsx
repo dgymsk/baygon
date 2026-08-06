@@ -51,7 +51,7 @@ export default function EmojiPicker({ emojis, value, onPick, titulo = "escolher 
         <div style={{ position: "absolute", top: 34, left: 0, zIndex: 30, width: 268, border: `1px solid ${C.border2}`, borderRadius: 10, background: C.bg0, boxShadow: "0 6px 24px rgba(0,0,0,.5)", padding: 8 }}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); escolher(q.trim()); } }}
-            placeholder="buscar :emoji: ou colar unicode" style={{ ...inp, width: "100%", marginBottom: 6 }} />
+            placeholder="buscar (pt ou nome do Discord: boom, drum…)" style={{ ...inp, width: "100%", marginBottom: 6 }} />
           <div style={{ color: C.mute, fontSize: 10, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Dos servidores</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 3, maxHeight: 150, overflowY: "auto" }}>
             {filt.map((e) => (
@@ -75,7 +75,7 @@ export default function EmojiPicker({ emojis, value, onPick, titulo = "escolher 
             {padrao.length === 0 && <span style={{ color: C.mute, fontSize: 12, padding: 6 }}>nenhum padrão com esse nome — cole o caractere acima e dê Enter</span>}
           </div>
           <div style={{ color: C.mute, fontSize: 10.5, marginTop: 5 }}>
-            {casam.length > filt.length ? `${filt.length} de ${casam.length} custom — refine a busca` : `${casam.length} custom · ${padrao.length} padrão`}
+            {casam.length > filt.length ? `${filt.length} de ${casam.length} custom — refine a busca` : `${casam.length} custom · ${padrao.length} sugeridos — busque pra ver todos`}
           </div>
           <button type="button" onClick={() => escolher("")}
             style={{ marginTop: 6, width: "100%", borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute, padding: "4px", fontSize: 12, cursor: "pointer" }}>

@@ -1,16 +1,24 @@
+import { search as buscarEmoji } from "node-emoji";
+
 /**
  * Emojis PADRÃO do Discord (unicode), pro seletor.
  *
  * Os custom vêm da API (lib/discordApi.listarEmojisGuild), mas os padrão não: o Discord não expõe
- * lista, e `:microphone2:` só vira 🎙️ dentro do cliente dele — no nosso banco fica texto cru. Por
- * isso a lista é daqui, e o que se GRAVA é o caractere em si, que renderiza em qualquer lugar (site,
- * embed do bot, mensagem) sem depender de servidor nenhum.
+ * lista. E `:microphone2:` só vira 🎙️ dentro do cliente dele — no nosso banco ficaria texto cru.
+ * Por isso o que se GRAVA é o caractere em si, que renderiza em qualquer lugar (site, embed do bot,
+ * mensagem) sem depender de servidor nenhum.
  *
- * Não é o conjunto completo (são milhares) — é o que uma guilda de war usa pra marcar função, party
- * e chamada. Os termos são de busca, em PT-BR: quem procura "espada" tem que achar ⚔️.
+ * A busca tem DUAS camadas:
+ *  1. o catálogo completo do node-emoji (~1570), pelos nomes OFICIAIS — é o que faz "boom" achar 💥
+ *     e "drum" achar 🥁. Lista curada à mão sempre esquece algum, e foi o que aconteceu.
+ *  2. os apelidos em PT-BR abaixo, porque ninguém aqui procura "crossed_swords": procura "espada".
+ *
+ * Com a busca VAZIA o seletor mostra só os sugeridos — 1570 ícones de uma vez não é escolha, é
+ * parede. Digitou qualquer coisa, vale o catálogo inteiro.
  */
 export type EmojiPadrao = { char: string; nome: string; termos: string };
 
+/** Os que uma guilda de war usa — aparecem primeiro, e antes de qualquer busca. */
 export const EMOJIS_PADRAO: EmojiPadrao[] = [
   // guerra
   { char: "⚔️", nome: "espadas", termos: "espada guerra ataque pvp duelo combate" },
@@ -110,9 +118,22 @@ export const EMOJIS_PADRAO: EmojiPadrao[] = [
   { char: "🫡", nome: "continencia", termos: "continencia salute respeito" },
 ];
 
-/** Casa por nome OU pelos termos de busca — "espada" tem que achar ⚔️. */
+/**
+ * Sem busca devolve os sugeridos; com busca, os apelidos PT-BR primeiro (mais prováveis de ser o
+ * que a pessoa quer) e depois o catálogo oficial inteiro, sem repetir caractere.
+ */
 export function filtrarPadrao(q: string): EmojiPadrao[] {
   const t = q.trim().toLowerCase();
   if (!t) return EMOJIS_PADRAO;
-  return EMOJIS_PADRAO.filter((e) => e.nome.includes(t) || e.termos.includes(t) || e.char === t);
+
+  const out: EmojiPadrao[] = [];
+  const vistos = new Set<string>();
+  const por = (e: EmojiPadrao) => { if (!vistos.has(e.char)) { vistos.add(e.char); out.push(e); } };
+
+  for (const e of EMOJIS_PADRAO) if (e.nome.includes(t) || e.termos.includes(t) || e.char === t) por(e);
+  // o catálogo oficial: nomes em inglês, que é como o Discord os chama (:boom:, :drum:)
+  try {
+    for (const r of buscarEmoji(t)) por({ char: r.emoji, nome: r.name, termos: r.name });
+  } catch { /* dataset indisponível não pode derrubar o seletor */ }
+  return out;
 }
