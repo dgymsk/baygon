@@ -281,6 +281,12 @@ export default function ConfigBoard({
                 })}
                 {!parties.length && <Vazio>Nenhuma party criada ainda — crie acima.</Vazio>}
                 <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: preset.exige_registro ? C.amarelo : C.mute, fontSize: 11.5, cursor: canEdit ? "pointer" : "default" }}
+                    title="só quem fez /register consegue marcar nas chamadas criadas com esta configuração">
+                    <input type="checkbox" checked={!!preset.exige_registro} disabled={!canEdit}
+                      onChange={(e) => api({ acao: "preset-editar", id: preset.id, exigeRegistro: e.target.checked }, e.target.checked ? "só registrados" : "aberto a todos")} />
+                    só registrados
+                  </label>
                   <span style={{ color: C.mute, fontSize: 11.5 }}>tier:</span>
                   <select defaultValue={preset.tier ?? ""} disabled={!canEdit}
                     onChange={(e) => api({ acao: "preset-editar", id: preset.id, tier: e.target.value || null }, "tier salvo")}

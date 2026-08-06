@@ -9,7 +9,7 @@ import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { anunciarNaThread } from "@/lib/threadChamada";
 import { publicarLista } from "@/lib/publicarLista";
-import { eventoAberto } from "@/lib/intencao";
+import { eventoAberto, podeMarcar } from "@/lib/intencao";
 import { roleDaFuncao } from "@/lib/funcao";
 import { eventoExiste } from "@/lib/eventos";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
@@ -330,6 +330,26 @@ export async function POST(req: Request) {
       // chamada de evento apagado/fechado: avisa em vez de aceitar o clique em silêncio. Antes do
       // ACK de propósito — depois dele não há como dizer nada pra quem clicou.
       if (acao !== "sync" && !(await eventoAberto(messageId))) return efemero("🔒 Esta chamada foi encerrada — o evento não existe mais.");
+      /**
+       * Trava de registro. Antes do gate de cargo de propósito: dizer "você não tem o cargo Shai"
+       * pra quem nem se cadastrou é responder a pergunta errada.
+       *
+       * A mensagem precisa dizer ONDE fazer — /register não funciona num canal onde a pessoa não
+       * pode digitar, que é justamente o caso do canal da chamada. Usa o canal de registro
+       * configurado quando existe (vira link clicável), senão explica em texto.
+       */
+      if (acao !== "sync") {
+        const pode = await podeMarcar(messageId, userIdInt);
+        if (!pode.ok) {
+          const canalReg = (await getDiscordConfig()).registerChannel;
+          const onde = canalReg ? `em <#${canalReg}>` : "num canal onde você consiga digitar (ex.: **#chat-ally**)";
+          return efemero(
+            "⛔ Esta chamada é só pra quem já fez o cadastro no bot.\n\n" +
+            `**Como fazer:** digite \`/register\` ${onde} e siga os passos — nick de família, guilda e o link da sua build no Garmoth. Leva menos de um minuto.\n` +
+            "Depois é só voltar aqui e marcar.",
+          );
+        }
+      }
       /**
        * Cargo exigido pela função. Antes do ACK de propósito: depois dele a resposta já foi dada e
        * não há como dizer nada a quem clicou — o botão pareceria simplesmente não funcionar.

@@ -48,11 +48,11 @@ export async function getRespostasInt(messageId: string): Promise<RespI[]> {
 
 /** O bot mostra TODAS as funções do catálogo (o preset não as filtra — ele define PTs e teto).
  *  Do preset vêm só o nome da rodada e o tipo. */
-async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string; tier: string | null; canalId: string | null } | null> {
+async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; nome: string; tipo: string; tier: string | null; exigeRegistro: boolean; canalId: string | null } | null> {
   const [preset, cat] = await Promise.all([getPreset(presetId), listFuncoes()]);
   if (!preset) return null;
   const funcoes: FuncaoI[] = cat.map((p) => ({ id: p.id, nome: p.nome, emoji: p.emoji || null }));
-  return { funcoes, nome: preset.nome, tipo: preset.tipo, tier: preset.tier, canalId: preset.canal_id ?? null };
+  return { funcoes, nome: preset.nome, tipo: preset.tipo, tier: preset.tier, exigeRegistro: preset.exige_registro, canalId: preset.canal_id ?? null };
 }
 
 /** Reconstrói o payload da mensagem a partir do estado atual. Null se o preset sumiu. */
@@ -102,7 +102,7 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
 
   const rows = (await sql`
     WITH ev AS (
-      INSERT INTO evento (tipo, titulo, template_id, preset_id, tier) VALUES (${info.tipo}, ${info.nome}, NULL, ${presetId}, ${info.tier}) RETURNING id, uuid
+      INSERT INTO evento (tipo, titulo, template_id, preset_id, tier, exige_registro) VALUES (${info.tipo}, ${info.nome}, NULL, ${presetId}, ${info.tier}, ${info.exigeRegistro}) RETURNING id, uuid
     ), p AS (
       INSERT INTO intencao_post (message_id, tipo, channel_id, titulo, preset_id, evento_id, criado)
       SELECT ${msg.id}, ${info.tipo}, ${canal}, ${info.nome}, ${presetId}, ev.id, now() FROM ev
@@ -133,6 +133,22 @@ export async function sincronizarMensagem(messageId: string): Promise<{ ok: bool
 type Quem = { messageId: string; userId: string; username: string; familia: string; chave: string; presetId: number };
 
 /** Evento travado/finalizado não aceita mais marcação (mesmo gate do bot antigo). */
+/**
+ * A chamada exige registro? E quem clicou já se registrou?
+ *
+ * Uma consulta só, antes do ACK: depois dele não há como avisar quem clicou, e um botão que não
+ * responde parece quebrado. Devolve o canal de registro junto pra mensagem poder dizer ONDE fazer.
+ */
+export async function podeMarcar(messageId: string, userId: string): Promise<{ ok: true } | { ok: false; motivo: "sem-registro" }> {
+  const rows = (await sql`
+    SELECT e.exige_registro,
+           EXISTS (SELECT 1 FROM players p WHERE p.discord_id = ${userId} AND p.registro) AS registrado
+    FROM intencao_post ip JOIN evento e ON e.id = ip.evento_id
+    WHERE ip.message_id = ${messageId}`) as { exige_registro: boolean; registrado: boolean }[];
+  if (!rows[0] || !rows[0].exige_registro) return { ok: true };   // sem trava, segue como sempre
+  return rows[0].registrado ? { ok: true } : { ok: false, motivo: "sem-registro" };
+}
+
 export async function eventoAberto(messageId: string): Promise<boolean> {
   const rows = (await sql`SELECT p.evento_id, e.status FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${messageId}`) as { evento_id: number | null; status: string | null }[];
   if (!rows[0]) return true;                    // mensagem desconhecida → segue (comportamento antigo)

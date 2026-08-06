@@ -30,14 +30,14 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   // O post, quando existe, é só a origem da chamada — o LATERAL pega o mais recente dele.
   const rows = (await sql`
     SELECT e.id::int AS evento_id, p.message_id, COALESCE(e.preset_id, p.preset_id)::int AS preset_id,
-           e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo, e.tier, e.data::text AS data, e.status,
+           e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo, e.tier, e.exige_registro, e.data::text AS data, e.status,
            r.resultado, r.war_id::int AS war_id
     FROM evento e
     LEFT JOIN LATERAL (SELECT ip.message_id, ip.preset_id FROM intencao_post ip
                        WHERE ip.evento_id = e.id ORDER BY ip.criado DESC LIMIT 1) p ON TRUE
     LEFT JOIN evento_resultado r ON r.evento_id = e.id
     WHERE e.uuid = ${uuid}::uuid LIMIT 1
-  `) as { evento_id: number; message_id: string | null; preset_id: number | null; uuid: string; titulo: string; tipo: string; tier: Tier | null; data: string; status: string; resultado: string | null; war_id: number | null }[];
+  `) as { evento_id: number; message_id: string | null; preset_id: number | null; uuid: string; titulo: string; tipo: string; tier: Tier | null; exige_registro: boolean; data: string; status: string; resultado: string | null; war_id: number | null }[];
 
   const ev = rows[0];
   if (!ev) {
@@ -191,7 +191,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
 
   return (
     <EventoBoard
-      evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, tier: ev.tier, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
+      evento={{ uuid: ev.uuid, titulo: ev.titulo, tipo: ev.tipo, tier: ev.tier, exigeRegistro: ev.exige_registro, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
       canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
       recusaram={recusaram.map((e) => e.familia)}

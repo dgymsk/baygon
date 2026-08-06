@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     // --- preset do bot ---
     case "preset-criar":    return NextResponse.json((await criarPreset(b.nome, b.tipo, b.parties, b.tamanhoMax, b.tier)) ?? { error: "nome e tipo obrigatórios" });
-    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId, tier: b.tier }); return NextResponse.json({ presets: await listPresets() });
+    case "preset-editar":   await atualizarPreset(b.id, { nome: b.nome, tipo: b.tipo, parties: b.parties, tamanhoMax: b.tamanhoMax, canalId: b.canalId, tier: b.tier, exigeRegistro: b.exigeRegistro }); return NextResponse.json({ presets: await listPresets() });
     case "preset-excluir":  await excluirPreset(b.id); return NextResponse.json({ presets: await listPresets() });
     case "membro-add":      await addPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
     case "membro-del":      await delPlayerFuncao(b.familia, b.funcaoId); return NextResponse.json({ ok: true });
@@ -112,6 +112,13 @@ export async function POST(req: Request) {
       await sql`UPDATE evento SET preset_id = ${pid} WHERE id = ${eid()}`;
       // espelha no post pra mensagem do Discord continuar sendo remontável (sincronizarMensagem lê de lá)
       await sql`UPDATE intencao_post SET preset_id = ${pid} WHERE evento_id = ${eid()}`;
+      return NextResponse.json({ ok: true });
+    }
+
+    // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---
+    case "evento-registro": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      await sql`UPDATE evento SET exige_registro = ${!!b.exige} WHERE id = ${eid()}`;
       return NextResponse.json({ ok: true });
     }
 

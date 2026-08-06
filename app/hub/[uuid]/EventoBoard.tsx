@@ -60,7 +60,7 @@ function Pokebola({ size = 13 }: { size?: number }) {
 }
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
-type Ev = { uuid: string; titulo: string; tipo: string; tier: Tier | null; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
+type Ev = { uuid: string; titulo: string; tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
@@ -227,6 +227,16 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
     finally { setSalvando(false); }
   }
 
+  /** Liga/desliga a exigência de cadastro nesta chamada. Vale a partir do próximo clique — quem já
+   *  marcou continua marcado, porque a mensagem é editada e não reprocessada. */
+  async function trocarRegistro(exige: boolean) {
+    if (!canEdit || !evento) return;
+    setSalvando(true);
+    try { await api({ acao: "evento-registro", eventoId: evento.eventoId, exige }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   /** Troca o tier desta guerra. Fica no evento, não no preset: a mesma chamada serve pra T2 e T3,
    *  e o nó que efetivamente caiu só se sabe na hora. */
   async function trocarTier(tier: string) {
@@ -367,6 +377,11 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
 
         {canEdit && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: evento.exigeRegistro ? C.amarelo : C.mute, fontSize: 11.5, cursor: "pointer" }}
+              title="quem não fez /register não consegue marcar nesta chamada">
+              <input type="checkbox" checked={evento.exigeRegistro} disabled={salvando} onChange={(e) => trocarRegistro(e.target.checked)} />
+              só registrados
+            </label>
             <span style={{ color: C.mute, fontSize: 11.5 }}>tier:</span>
             <select value={evento.tier ?? ""} onChange={(e) => trocarTier(e.target.value)} disabled={salvando}
               title="porte da guerra — T1, T2 ou T3"
