@@ -10,6 +10,7 @@ import { chaveNome } from "@/lib/nomes";
 import { anunciarNaThread } from "@/lib/threadChamada";
 import { publicarLista } from "@/lib/publicarLista";
 import { eventoAberto } from "@/lib/intencao";
+import { roleDaFuncao } from "@/lib/funcao";
 import { eventoExiste } from "@/lib/eventos";
 import { getEnquete, registrarVoto, montarComponents } from "@/lib/enquete";
 import { dispatchVotoHook } from "@/lib/enqueteHooks";
@@ -329,6 +330,23 @@ export async function POST(req: Request) {
       // chamada de evento apagado/fechado: avisa em vez de aceitar o clique em silêncio. Antes do
       // ACK de propósito — depois dele não há como dizer nada pra quem clicou.
       if (acao !== "sync" && !(await eventoAberto(messageId))) return efemero("🔒 Esta chamada foi encerrada — o evento não existe mais.");
+      /**
+       * Cargo exigido pela função. Antes do ACK de propósito: depois dele a resposta já foi dada e
+       * não há como dizer nada a quem clicou — o botão pareceria simplesmente não funcionar.
+       *
+       * Só barra quando a função EXIGE cargo; sem role_id, segue aberta como sempre foi. Se a
+       * interação vier sem lista de cargos (fora de servidor), barra também: numa função restrita,
+       * "não consegui verificar" tem que ser não, senão a restrição não vale nada.
+       */
+      if (acao === "fn" && funcaoId != null) {
+        const f = await roleDaFuncao(funcaoId);
+        if (f?.roleId) {
+          const meus = body.member?.roles;
+          if (!Array.isArray(meus) || !meus.includes(f.roleId)) {
+            return efemero(`⛔ **${f.nome}** é restrita a quem tem o cargo <@&${f.roleId}>. Se você faz esse papel, peça o cargo pra staff.`);
+          }
+        }
+      }
       after(async () => {
         try {
           const players = (await listNomesFamilia()).map((nf) => ({ chave: chaveNome(nf), nome: nf }));

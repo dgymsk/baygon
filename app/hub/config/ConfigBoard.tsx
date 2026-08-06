@@ -24,8 +24,8 @@ type Jog = { nome: string; lendario: boolean; ativo: boolean; guilda: string | n
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, guildas, canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], canEdit,
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -124,10 +124,25 @@ export default function ConfigBoard({
         {/* FUNÇÕES */}
         <div style={card}>
           <Titulo>Funções <Sub>o que vira botão no bot — o papel, não a party</Sub></Titulo>
+          <div style={{ color: C.mute, fontSize: 11.5, marginBottom: 8 }}>
+            🔒 = só quem tem o cargo do Discord consegue marcar. Deixe <b style={{ color: C.texto }}>aberta</b> pra qualquer um.
+            {!roles.length && <span style={{ color: C.amarelo }}> · não consegui ler os cargos do servidor (bot sem permissão?)</span>}
+          </div>
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
             {funcoes.map((f) => (
               <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 3, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 6px 3px 10px", background: C.inputBg }}>
                 <Icone raw={f.emoji} /> <span style={{ fontSize: 12.5 }}>{f.nome}</span>
+                {/* cargo exigido: quem não tem, não consegue marcar essa função no bot */}
+                {canEdit && roles.length > 0 && (
+                  <select value={f.role_id ?? ""} disabled={busy}
+                    onChange={(e) => api({ acao: "funcao-editar", id: f.id, roleId: e.target.value || null }, e.target.value ? `${f.nome}: só quem tem o cargo` : `${f.nome}: aberta a todos`)}
+                    title="só quem tem este cargo consegue marcar esta função no bot; vazio = aberta a todos"
+                    style={{ background: "transparent", border: "none", color: f.role_id ? C.amarelo : C.borderSoft, fontSize: 11, fontFamily: "inherit", cursor: "pointer", maxWidth: 130, outline: "none" }}>
+                    <option value="">🔓 aberta</option>
+                    {roles.map((r) => <option key={r.id} value={r.id}>🔒 {r.name}</option>)}
+                  </select>
+                )}
+                {!canEdit && f.role_id && <span title="restrita por cargo" style={{ color: C.amarelo, fontSize: 10 }}>🔒</span>}
                 {canEdit && <>
                   <button onClick={() => mover(funcoes, f.id, -1, "funcao-ordenar")} style={mini} title="esquerda">◀</button>
                   <button onClick={() => mover(funcoes, f.id, 1, "funcao-ordenar")} style={mini} title="direita">▶</button>

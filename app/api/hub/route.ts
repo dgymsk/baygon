@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   switch (String(b.acao ?? "")) {
     // --- funções (o que vira botão no bot) ---
     case "funcao-criar":   return NextResponse.json((await criarFuncao(b.nome, b.emoji)) ?? { error: "nome obrigatório" });
-    case "funcao-editar":  await atualizarFuncao(b.id, { nome: b.nome, emoji: b.emoji }); return NextResponse.json({ funcoes: await listFuncoes() });
+    case "funcao-editar":  await atualizarFuncao(b.id, { nome: b.nome, emoji: b.emoji, roleId: b.roleId }); return NextResponse.json({ funcoes: await listFuncoes() });
     case "funcao-excluir": await excluirFuncao(b.id); return NextResponse.json({ funcoes: await listFuncoes() });
     case "funcao-ordenar": await ordenarFuncoes(b.ids); return NextResponse.json({ funcoes: await listFuncoes() });
 
