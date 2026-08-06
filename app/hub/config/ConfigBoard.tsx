@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
-import { TIERS, corTier } from "@/lib/tier";
+import EmojiPicker from "@/app/emojis/EmojiPicker";
+import type { EmojiGuild } from "@/lib/discordApi";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { chaveNome } from "@/lib/nomes";
 import type { Funcao } from "@/lib/funcao";
@@ -24,8 +25,8 @@ type Jog = { nome: string; lendario: boolean; ativo: boolean; guilda: string | n
 const TIPOS = ["nodewar", "siege"] as const;
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], emojis = [], canEdit,
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; emojis?: EmojiGuild[]; canEdit: boolean }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -126,7 +127,10 @@ export default function ConfigBoard({
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
             {funcoes.map((f) => (
               <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 3, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 6px 3px 10px", background: C.inputBg }}>
-                <Icone raw={f.emoji} /> <span style={{ fontSize: 12.5 }}>{f.nome}</span>
+                {canEdit
+                  ? <EmojiPicker emojis={emojis} value={f.emoji} titulo="trocar o emoji" onPick={(v) => api({ acao: "funcao-editar", id: f.id, nome: f.nome, emoji: v }, "emoji salvo")} />
+                  : <Icone raw={f.emoji} />}
+                <span style={{ fontSize: 12.5 }}>{f.nome}</span>
                 {/* cargo exigido: quem não tem, não consegue marcar essa função no bot */}
                 {canEdit && roles.length > 0 && (
                   <select value={f.role_id ?? ""} disabled={busy}
@@ -150,7 +154,7 @@ export default function ConfigBoard({
           {canEdit && (
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <input value={nf.nome} onChange={(e) => setNf({ ...nf, nome: e.target.value })} placeholder="Nome (ex.: Flanco)" style={{ ...input, minWidth: 170 }} />
-              <input value={nf.emoji} onChange={(e) => setNf({ ...nf, emoji: e.target.value })} placeholder="Emoji ou :nome:" style={{ ...input, width: 150 }} />
+              <EmojiPicker emojis={emojis} value={nf.emoji} onPick={(v) => setNf({ ...nf, emoji: v })} titulo="emoji da função" />
               <button disabled={busy || !nf.nome.trim()} onClick={() => { api({ acao: "funcao-criar", nome: nf.nome, emoji: nf.emoji }, "função criada"); setNf({ nome: "", emoji: "" }); }} style={btn(C.verde)}>+ Função</button>
             </div>
           )}
@@ -185,7 +189,10 @@ export default function ConfigBoard({
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 10 }}>
             {parties.map((p) => (
               <span key={p.id} style={{ display: "inline-flex", alignItems: "center", gap: 3, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 6px 3px 10px", background: C.inputBg }}>
-                <Icone raw={p.icone} /> <span style={{ fontSize: 12.5 }}>{p.nome}</span>
+                {canEdit
+                  ? <EmojiPicker emojis={emojis} value={p.icone} titulo="trocar o ícone" onPick={(v) => api({ acao: "party-editar", id: p.id, nome: p.nome, icone: v }, "ícone salvo")} />
+                  : <Icone raw={p.icone} />}
+                <span style={{ fontSize: 12.5 }}>{p.nome}</span>
                 {canEdit && <>
                   <button onClick={() => mover(parties, p.id, -1, "party-ordenar")} style={mini} title="esquerda">◀</button>
                   <button onClick={() => mover(parties, p.id, 1, "party-ordenar")} style={mini} title="direita">▶</button>
@@ -198,7 +205,7 @@ export default function ConfigBoard({
           {canEdit && (
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
               <input value={np.nome} onChange={(e) => setNp({ ...np, nome: e.target.value })} placeholder="Nome (ex.: PT1, Defesa)" style={{ ...input, minWidth: 170 }} />
-              <input value={np.icone} onChange={(e) => setNp({ ...np, icone: e.target.value })} placeholder="Ícone ou :nome:" style={{ ...input, width: 150 }} />
+              <EmojiPicker emojis={emojis} value={np.icone} onPick={(v) => setNp({ ...np, icone: v })} titulo="ícone da party" />
               <button disabled={busy || !np.nome.trim()} onClick={() => { api({ acao: "party-criar", nome: np.nome, icone: np.icone }, "party criada"); setNp({ nome: "", icone: "" }); }} style={btn(C.verde)}>+ Party</button>
             </div>
           )}
