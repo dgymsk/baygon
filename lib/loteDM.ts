@@ -138,6 +138,61 @@ function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: strin
   };
 }
 
+/**
+ * Histórico de chamadas do evento — cada disparo com o placar e a lista de quem recebeu ou não.
+ *
+ * O relatório do canal de log é bom pra staff inteira ver na hora, mas some no meio das outras
+ * mensagens. Aqui fica preso ao evento: dá pra abrir a guerra de semana passada e responder "essa
+ * pessoa foi chamada?" e "quando?" sem depender de rolar canal.
+ */
+export type AlvoLote = { familia: string; userId: string | null; status: string; motivo: string | null; tentado: string | null };
+export type LoteResumo = {
+  id: number; tipo: TipoLote; rotulo: string; criadoPor: string | null;
+  criado: string; concluido: string | null; status: string;
+  total: number; enviados: number; falhas: number; pendentes: number;
+  logOk: boolean | null; logErro: string | null;
+  alvos: AlvoLote[];
+};
+
+export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
+  const lotes = (await sql`
+    SELECT l.id::int AS id, l.tipo, l.criado_por, l.status, l.total::int AS total,
+           l.criado::text AS criado, l.concluido::text AS concluido, l.log_ok, l.log_erro,
+           count(a.*) FILTER (WHERE a.status = 'ok')::int AS enviados,
+           count(a.*) FILTER (WHERE a.status = 'falha')::int AS falhas,
+           count(a.*) FILTER (WHERE a.status NOT IN ('ok', 'falha'))::int AS pendentes
+    FROM dm_lote l LEFT JOIN dm_lote_alvo a ON a.lote_id = l.id
+    WHERE l.evento_id = ${eventoId}
+    GROUP BY l.id ORDER BY l.criado DESC`) as {
+      id: number; tipo: TipoLote; criado_por: string | null; status: string; total: number;
+      criado: string; concluido: string | null; log_ok: boolean | null; log_erro: string | null;
+      enviados: number; falhas: number; pendentes: number;
+    }[];
+  if (!lotes.length) return [];
+
+  // uma consulta só pros alvos de todos os lotes — um SELECT por lote seria N+1 numa tela que
+  // recarrega sozinha a cada 20 segundos
+  const ids = lotes.map((l) => l.id);
+  const alvos = (await sql`
+    SELECT lote_id::int AS lote_id, familia, user_id, status, erro, tentado::text AS tentado
+    FROM dm_lote_alvo WHERE lote_id = ANY(${ids as unknown as number[]})
+    ORDER BY familia`) as { lote_id: number; familia: string; user_id: string | null; status: string; erro: string | null; tentado: string | null }[];
+  const porLote = new Map<number, AlvoLote[]>();
+  for (const a of alvos) {
+    porLote.set(a.lote_id, [...(porLote.get(a.lote_id) ?? []), {
+      familia: a.familia, userId: a.user_id, status: a.status,
+      motivo: a.status === "falha" ? rotuloMotivo(a.erro) : null, tentado: a.tentado,
+    }]);
+  }
+
+  return lotes.map((l) => ({
+    id: l.id, tipo: l.tipo, rotulo: ROTULO[l.tipo] ?? l.tipo, criadoPor: l.criado_por,
+    criado: l.criado, concluido: l.concluido, status: l.status,
+    total: l.total, enviados: l.enviados, falhas: l.falhas, pendentes: l.pendentes,
+    logOk: l.log_ok, logErro: l.log_erro, alvos: porLote.get(l.id) ?? [],
+  }));
+}
+
 /** Placar atual do lote. */
 async function contar(loteId: number): Promise<{ total: number; ok: number; falha: number; pend: number }> {
   const rows = (await sql`

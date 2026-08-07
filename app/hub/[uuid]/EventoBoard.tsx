@@ -9,6 +9,8 @@ import { TIERS, corTier, type Tier } from "@/lib/tier";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
 import StatsWar from "./StatsWar";
 import ApagarEvento from "./ApagarEvento";
+import ChamadasLog from "./ChamadasLog";
+import type { LoteResumo } from "@/lib/loteDM";
 import AutoSync from "@/app/confirmados/AutoSync";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
 import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
@@ -70,7 +72,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
-  catalogoParties = [], partiesProprias = false,
+  catalogoParties = [], partiesProprias = false, chamadas = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -80,9 +82,10 @@ export default function EventoBoard({
   vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
   catalogoParties?: PartyVM[];   // TODAS as PTs cadastradas — as colunas são um subconjunto disto
   partiesProprias?: boolean;     // o evento tem lista própria, ou está seguindo a da chamada?
+  chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
 }) {
   const router = useRouter();
-  const [aba, setAba] = useState<"escalacao" | "presenca" | "stats">("escalacao");
+  const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
   const [local, setLocal] = useState<Record<string, number | null>>({});
   const [sobre, setSobre] = useState<number | "pool" | null>(null);
   const [erro, setErro] = useState("");
@@ -93,6 +96,7 @@ export default function EventoBoard({
   const [renomeando, setRenomeando] = useState<string | null>(null); // null = não está editando o nome
   const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
   const [salvandoNome, setSalvandoNome] = useState(false);
+  const [ptsOtimista, setPtsOtimista] = useState<number[] | null>(null);
   const [busca, setBusca] = useState("");
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
   const [ordemLocal, setOrdemLocal] = useState<Record<string, number>>({});
@@ -132,8 +136,11 @@ export default function EventoBoard({
     return n;
   }, [ordemLocal, todos]);
   const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
-  // as colunas de hoje: é o que o toggle marca/desmarca
-  const ptsAtuais = parties.map((p) => p.id);
+  /** As colunas de hoje, na ordem. A ordem otimista só vale enquanto DISCORDA do servidor —
+   *  descartar na leitura (e não num efeito) evita que ela sobreviva ao auto-refresh de 20s. */
+  const ptsServidor = parties.map((p) => p.id);
+  const ptsAtuais = ptsOtimista && ptsOtimista.join() !== ptsServidor.join() ? ptsOtimista : ptsServidor;
+  const partiesOrdenadas = ptsAtuais.map((id) => parties.find((p) => p.id === id)).filter((p): p is PartyVM => !!p);
   const nPool = grupos.reduce((n, g) => n + g.jogadores.length, 0);
   const casaBusca = (j: JogadorVM) => !busca.trim() || j.familia.toLowerCase().includes(busca.trim().toLowerCase());
   const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id)
@@ -280,18 +287,33 @@ export default function EventoBoard({
   }
 
   /**
-   * Troca as PTs DESTE evento. Lista vazia apaga a lista própria e volta a seguir a chamada.
+   * Grava as PTs DESTE evento NA ORDEM DADA — é a ordem das colunas da escalação e a da lista
+   * publicada no Discord. Lista vazia apaga a lista própria e volta a seguir a chamada.
    *
-   * A ordem importa: é a ordem das colunas na escalação, e é a mesma da lista publicada. Manter a
-   * ordem do catálogo (e não a de clique) evita que a coluna pule de lugar a cada toggle.
+   * A ordem otimista existe porque a coluna precisa pular de lugar no mesmo instante em que se
+   * solta o arraste: esperar o servidor faria a PT voltar pro lugar antigo por um piscar, que é
+   * exatamente o que faz a pessoa achar que não funcionou e arrastar de novo.
    */
   async function trocarParties(ids: number[]) {
     if (!canEdit || !evento) return;
-    const ordenados = catalogoParties.map((x) => x.id).filter((id) => ids.includes(id));
+    setPtsOtimista(ids);
     setSalvando(true);
-    try { await api({ acao: "evento-parties", eventoId: evento.eventoId, ids: ordenados }); setErro(""); router.refresh(); }
-    catch (e) { setErro((e as Error).message); }
+    try { await api({ acao: "evento-parties", eventoId: evento.eventoId, ids }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); setPtsOtimista(null); }
     finally { setSalvando(false); }
+  }
+
+  /** Liga/desliga uma PT nesta guerra. Entrando, vai pro fim — depois é só arrastar pro lugar. */
+  const alternarParty = (id: number) =>
+    trocarParties(ptsAtuais.includes(id) ? ptsAtuais.filter((x) => x !== id) : [...ptsAtuais, id]);
+
+  /** Arrastar a coluna: tira a PT de origem e a enfia NA POSIÇÃO da PT sobre a qual foi solta. */
+  function moverParty(origem: number, destino: number) {
+    if (origem === destino) return;
+    const sem = ptsAtuais.filter((x) => x !== origem);
+    const i = sem.indexOf(destino);
+    if (i < 0) return;
+    trocarParties([...sem.slice(0, i), origem, ...sem.slice(i)]);
   }
 
   async function convocar(soNovos: boolean) {
@@ -413,7 +435,19 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
   const alvo = (id: number | "pool") => ({
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); setSobre(id); },
     onDragLeave: () => setSobre((s) => (s === id ? null : s)),
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); setSobre(null); const c = e.dataTransfer.getData("text/plain"); if (c) mover(c, id === "pool" ? null : id); },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setSobre(null);
+      const c = e.dataTransfer.getData("text/plain");
+      if (!c) return;
+      // uma COLUNA arrastada viaja com o prefixo "pt:" — a chave de jogador é slug (letra e número),
+      // então nunca contém dois-pontos e os dois arrastes não se confundem
+      if (c.startsWith("pt:")) {
+        if (id !== "pool") moverParty(Number(c.slice(3)), id);
+        return;
+      }
+      mover(c, id === "pool" ? null : id);
+    },
   });
   const realce = (id: number | "pool") => (sobre === id ? { borderColor: C.verde, background: C.verdeTint } : {});
 
@@ -531,7 +565,7 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
           {catalogoParties.map((x) => {
             const on = ptsAtuais.includes(x.id);
             return (
-              <button key={x.id} disabled={salvando} onClick={() => trocarParties(on ? ptsAtuais.filter((y) => y !== x.id) : [...ptsAtuais, x.id])}
+              <button key={x.id} disabled={salvando} onClick={() => alternarParty(x.id)}
                 title={on ? `tirar ${x.nome} desta guerra` : `adicionar ${x.nome} nesta guerra`}
                 style={{ cursor: "pointer", borderRadius: 999, border: `1px solid ${on ? C.verde : C.borderSoft}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "2px 9px", fontSize: 11.5, fontFamily: "inherit" }}>
                 {x.icone ? `${x.icone} ` : ""}{x.nome}
@@ -554,7 +588,7 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
       {envio && <PainelEnvio envio={envio} onFechar={() => setEnvio(null)} />}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Confirmação"], ["stats", "📊 Estatísticas"]] as const).map(([k, t]) => (
+        {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Confirmação"], ["stats", "📊 Estatísticas"], ["chamadas", chamadas.length ? `📨 Chamadas (${chamadas.length})` : "📨 Chamadas"]] as const).map(([k, t]) => (
           <button key={k} onClick={() => setAba(k)} style={{ cursor: "pointer", borderRadius: 8, border: `1px solid ${aba === k ? C.verde : C.border2}`, background: aba === k ? C.verdeTint : "transparent", color: aba === k ? C.verde : C.mute, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit" }}>{t}</button>
         ))}
       </div>
@@ -631,14 +665,22 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
 
               {/* colunas = PARTIES IN-GAME */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
-                {parties.map((p) => {
+                {partiesOrdenadas.map((p) => {
                   const dentro = naParty(p.id);
                   const gss = dentro.map((j) => j.gs).filter((x): x is number => x != null);
                   const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
                   return (
                     <div key={p.id} {...alvo(p.id)} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: 12, minHeight: 92, ...realce(p.id) }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6 }}>
-                        <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}><Icone raw={p.icone} nome={p.nome} /> {p.nome}</span>
+                      {/* o CABEÇALHO é a alça de arrastar a coluna. Fica fora da área dos cards de
+                          propósito: assim arrastar jogador e arrastar PT nunca disputam o mesmo gesto */}
+                      <div draggable={canEdit}
+                        onDragStart={(e) => { e.dataTransfer.setData("text/plain", `pt:${p.id}`); e.dataTransfer.effectAllowed = "move"; }}
+                        title={canEdit ? "arraste para trocar a ordem das PTs" : undefined}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6, cursor: canEdit ? "grab" : "default" }}>
+                        <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
+                          {canEdit && <span style={{ color: C.borderSoft, fontSize: 11, letterSpacing: -1 }}>⠿</span>}
+                          <Icone raw={p.icone} nome={p.nome} /> {p.nome}
+                        </span>
                         <span style={{ color: C.mute, fontSize: 11 }}>{dentro.length}{media != null ? ` · GS ${media}` : ""}</span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -704,6 +746,9 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
           </div>
         </div>
       )}</div>
+
+      {/* histórico dos disparos de DM deste evento — quem foi chamado, quem não recebeu e quando */}
+      <div style={{ display: aba === "chamadas" ? "block" : "none" }}><ChamadasLog lotes={chamadas} /></div>
 
       {/* fim da página e faixa própria: colar isso no cabeçalho, ao lado do ↺ Limpar, é justamente
           o clique errado que a gente não pode facilitar. Fora do gate de status: evento travado ou
@@ -811,7 +856,9 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         onDrop: (e: React.DragEvent) => {
           e.preventDefault(); e.stopPropagation(); setAlvo(false); setHover(false);
           const c = e.dataTransfer.getData("text/plain");
-          if (c) onSoltarEmCima(c);
+          // "pt:" é COLUNA sendo reordenada, não jogador: soltar em cima de um card não pode virar
+          // um reordenar-dentro-da-PT com uma chave que não existe
+          if (c && !c.startsWith("pt:")) onSoltarEmCima(c);
         },
       } : {})}
       style={{

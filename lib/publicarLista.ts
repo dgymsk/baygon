@@ -4,7 +4,7 @@ import { getIntencaoConfig } from "@/lib/intencaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
 import { montarLista, type EscaladoL, type PartyL } from "@/lib/listaEscalacao";
 import { getPreset } from "@/lib/intencaoPreset";
-import { listParties } from "@/lib/party";
+import { listParties, partiesDoEvento } from "@/lib/party";
 import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { listarEmojisGuild } from "@/lib/discordApi";
@@ -58,8 +58,12 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
   const rows = linhas as { chave: string; familia: string; user_id: string | null; party_id: number | null; ordem_pt: number | null; confirmou: boolean | null }[];
 
   const pById = new Map(cat.map((p) => [p.id, p]));
-  // só as PTs DO PRESET, na ordem dele (mesma coisa que a escalação mostra)
-  const parties: PartyL[] = (preset?.parties ?? []).map((v) => pById.get(v.party_id))
+  // as PTs DESTE evento (na ordem que a staff arrastou), caindo na do preset quando ele não tem
+  // lista própria. Ler do preset aqui e do evento na tela faria a mensagem divergir do site — e
+  // uma PT adicionada só nesta guerra sumiria da lista publicada com todo mundo dentro dela.
+  const proprias = await partiesDoEvento(eventoId);
+  const ordem = proprias ?? (preset?.parties ?? []).map((v) => v.party_id);
+  const parties: PartyL[] = ordem.map((id) => pById.get(id))
     .filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }));
 
   const presenca = (await sql`SELECT chave, familia FROM evento_presenca WHERE evento_id = ${eventoId} AND participar ORDER BY familia`) as { chave: string; familia: string }[];
