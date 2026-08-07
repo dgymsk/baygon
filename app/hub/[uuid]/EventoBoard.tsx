@@ -108,6 +108,9 @@ export default function EventoBoard({
   const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
   const [salvandoNome, setSalvandoNome] = useState(false);
   const [ptsOtimista, setPtsOtimista] = useState<number[] | null>(null);
+  // grupos dobrados à mão no pool. Sobrevive ao auto-refresh e a escalar gente, ao contrário de
+  // depender do <details> não controlado, que remontava junto com o grupo
+  const [fechados, setFechados] = useState<Record<string, boolean>>({});
   const [busca, setBusca] = useState("");
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
   const [ordemLocal, setOrdemLocal] = useState<Record<string, number>>({});
@@ -722,7 +725,7 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
                   Cabeçalho e busca ficam FORA da área que rola: filtrar é justamente o que se faz
                   quando a lista é longa, e a busca sumindo pra cima seria o pior momento. */}
               <div {...alvo("pool")} style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surface, padding: 12, ...realce("pool"),
-                position: "sticky", top: 8, maxHeight: "calc(100vh - 28px)", display: "flex", flexDirection: "column", gap: 0 }}>
+                position: "sticky", top: 8, maxHeight: "calc(100vh - 34px)", display: "flex", flexDirection: "column", gap: 0 }}>
                 <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 9, flex: "none" }}>{temChamada ? "Marcaram, por função" : "Elenco, por função"}</div>
                 {/* sem chamada o pool é o elenco inteiro; achar alguém rolando 90 nomes numa coluna
                     de 330px não é viável, então a busca aparece quando o pool cresce */}
@@ -732,12 +735,22 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
                 )}
                 {/* minHeight 0: sem isso o item de flex não encolhe abaixo do conteúdo e a rolagem
                     interna nunca aparece — a caixa é que estoura pra fora */}
-                <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden", paddingRight: 4, marginRight: -4 }}>
+                {/* scrollbarGutter stable: a barra clássica do Windows come ~15px de DENTRO da
+                    caixa, e como `auto` a esconde assim que a lista cabe, escalar gente fazia todo
+                    card do pool saltar de largura no meio da sequência de arrastes. Com a calha
+                    sempre reservada, a largura não muda. O marginRight negativo devolve o espaço
+                    comendo o padding do pool, pra coluna não estreitar por causa disso. */}
+                <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable", paddingLeft: 10, marginLeft: -10, paddingRight: 2, marginRight: -10 }}>
                 {grupos.map((g) => {
                   const livres = g.jogadores.filter((j) => partyDe(j) == null && casaBusca(j));
                   // um grupo grande (tipicamente "Sem função", que junta quem não foi classificado)
                   // vira sanfona pra não empurrar os grupos úteis pra fora da tela
-                  const dobra = livres.length > 12 && !busca.trim();
+                  // chave por NOME quando não há função: dois grupos têm funcaoId null ("Sem função"
+                  // e "Filler"), e a chave repetida fazia o React reconciliar o grupo errado
+                  const kg = String(g.funcaoId ?? g.nome);
+                  // buscar FORÇA aberto sem apagar o que a pessoa dobrou; fora da busca vale o mapa,
+                  // e o padrão é grupo grande nascer dobrado
+                  const aberto = busca.trim() ? true : !(fechados[kg] ?? livres.length > 12);
                   const cabeca = (
                     <span style={{ color: C.verde, fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <Icone raw={g.emoji} nome={g.nome} /> {g.nome} <span style={{ color: C.mute, fontWeight: 400 }}>{livres.length}</span>
@@ -750,12 +763,15 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
                     </div>
                   );
                   return (
-                    <div key={g.funcaoId ?? "sem"} style={{ marginBottom: 11 }}>
-                      {dobra ? (
-                        <details><summary style={{ cursor: "pointer", marginBottom: 5 }}>{cabeca}</summary>{corpo}</details>
-                      ) : (
-                        <><div style={{ marginBottom: 5 }}>{cabeca}</div>{corpo}</>
-                      )}
+                    /* SEMPRE <details>, nunca alternando com uma lista crua: trocar o TIPO do
+                       elemento remonta o grupo, e escalar alguém cruza o limiar de 12 no meio do
+                       trabalho — a sanfona fechava sozinha e o grupo pulava na tela. */
+                    <div key={kg} style={{ marginBottom: 11 }}>
+                      <details open={aberto}
+                        onToggle={(e) => { if (!busca.trim()) setFechados((s) => ({ ...s, [kg]: !e.currentTarget.open })); }}>
+                        <summary style={{ cursor: "pointer", marginBottom: 5 }}>{cabeca}</summary>
+                        {corpo}
+                      </details>
                     </div>
                   );
                 })}
@@ -913,10 +929,22 @@ function GuildIcon({ id, byId }: { id: string | null; byId: Map<string, GuildEnt
 }
 
 /** Mini-card do jogador, aberto ao passar o mouse no nome. Resume o que decide a escalação. */
-function MiniCard({ j }: { j: JogadorVM }) {
+/** Onde o mini-card vai aparecer, em coordenadas de TELA (ver o porquê em MiniCard). */
+type PosMini = { left: number; top?: number; bottom?: number };
+
+function MiniCard({ j, pos }: { j: JogadorVM; pos: PosMini }) {
   return (
+  /**
+   * `position: fixed`, e não `absolute`: o pool agora é um container com `overflow`, e um
+   * descendente absoluto cujo bloco contêiner está DENTRO do scroller é recortado por ele — z-index
+   * não fura recorte. Como o card abria PRA CIMA, ele sumia por inteiro nos primeiros nomes da lista,
+   * que é justamente onde se olha GS e faltas pra decidir quem escalar.
+   *
+   * Fixo escapa do recorte (nenhum ancestral tem transform/filter, que criariam bloco contêiner), à
+   * custa de precisar da posição na tela — medida no hover, em `onMouseEnter`.
+   */
   <div style={{
-    position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 60, minWidth: 210,
+    position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom, zIndex: 60, minWidth: 210,
     border: `1px solid ${j.lendario ? C.amarelo : C.border2}`, borderRadius: 10, background: C.bg0,
     boxShadow: "0 8px 26px rgba(0,0,0,.7)", padding: "9px 11px", cursor: "default", pointerEvents: "none",
     display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: C.mute,
@@ -957,17 +985,27 @@ function MiniCard({ j }: { j: JogadorVM }) {
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
   const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima } = ctx;
-  const [hover, setHover] = useState(false);
+  // posição do mini-card na TELA, medida na hora do hover — ele é `fixed` pra escapar do recorte
+  // do pool rolável (ver MiniCard), e fixo não herda a posição do card
+  const [hover, setHover] = useState<PosMini | null>(null);
   const [alvo, setAlvo] = useState(false);   // outro card sendo arrastado por cima deste
+  const setHoverFalse = () => setHover(null);
   return (
     <div
       draggable={canEdit}
       // quem está sendo arrastado viaja no próprio evento (dataTransfer), não num ref: o ref
       // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
-      onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); setHover(false); }}
+      onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); setHoverFalse(); }}
       onDragEnd={onFimArraste}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      onMouseEnter={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        // abre pra cima; sem espaço lá (card no topo da lista), vira pra baixo em vez de sair da tela
+        const paraBaixo = r.top < 250;
+        setHover(paraBaixo
+          ? { left: r.left, top: r.bottom + 6 }
+          : { left: r.left, bottom: window.innerHeight - r.top + 6 });
+      }}
+      onMouseLeave={setHoverFalse}
       // soltar EM CIMA de um card insere antes dele. stopPropagation pra o alvo da coluna não
       // tratar isso como "jogar no fim" logo em seguida.
       //
@@ -984,7 +1022,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         onDragLeave: () => setAlvo(false),
         onDrop: (e: React.DragEvent) => {
           if (arrastandoPT(e)) return;
-          e.preventDefault(); e.stopPropagation(); setAlvo(false); setHover(false);
+          e.preventDefault(); e.stopPropagation(); setAlvo(false); setHoverFalse();
           const c = e.dataTransfer.getData("text/plain");
           if (c) onSoltarEmCima(c);
         },
@@ -1038,7 +1076,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
           </button>
         )}
       </span>
-      {hover && <MiniCard j={j} />}
+      {hover && <MiniCard j={j} pos={hover} />}
     </div>
   );
 }
