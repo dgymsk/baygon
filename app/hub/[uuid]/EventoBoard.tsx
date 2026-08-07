@@ -633,15 +633,24 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "minmax(250px, 330px) 1fr", gap: 14, alignItems: "start" }}>
-              {/* pool por FUNÇÃO */}
-              <div {...alvo("pool")} style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surface, padding: 12, ...realce("pool") }}>
-                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 9 }}>{temChamada ? "Marcaram, por função" : "Elenco, por função"}</div>
+              {/* Pool por FUNÇÃO — GRUDADO no topo e com rolagem PRÓPRIA.
+                  Com 70 marcados o pool ficava mais alto que a tela, então arrastar os últimos
+                  virava rolar a página até as colunas saírem de vista e soltar às cegas. Preso
+                  aqui, as PTs ficam sempre no campo de visão e a rolagem é só da lista.
+                  Cabeçalho e busca ficam FORA da área que rola: filtrar é justamente o que se faz
+                  quando a lista é longa, e a busca sumindo pra cima seria o pior momento. */}
+              <div {...alvo("pool")} style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surface, padding: 12, ...realce("pool"),
+                position: "sticky", top: 8, maxHeight: "calc(100vh - 28px)", display: "flex", flexDirection: "column", gap: 0 }}>
+                <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 9, flex: "none" }}>{temChamada ? "Marcaram, por função" : "Elenco, por função"}</div>
                 {/* sem chamada o pool é o elenco inteiro; achar alguém rolando 90 nomes numa coluna
                     de 330px não é viável, então a busca aparece quando o pool cresce */}
                 {nPool > 12 && (
                   <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="filtrar por nome…"
-                    style={{ width: "100%", boxSizing: "border-box", background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "5px 9px", fontSize: 12, fontFamily: "inherit", outline: "none", marginBottom: 9 }} />
+                    style={{ width: "100%", boxSizing: "border-box", background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "5px 9px", fontSize: 12, fontFamily: "inherit", outline: "none", marginBottom: 9, flex: "none" }} />
                 )}
+                {/* minHeight 0: sem isso o item de flex não encolhe abaixo do conteúdo e a rolagem
+                    interna nunca aparece — a caixa é que estoura pra fora */}
+                <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden", paddingRight: 4, marginRight: -4 }}>
                 {grupos.map((g) => {
                   const livres = g.jogadores.filter((j) => partyDe(j) == null && casaBusca(j));
                   // um grupo grande (tipicamente "Sem função", que junta quem não foi classificado)
@@ -683,6 +692,7 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
                     <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 4 }}>Já saíram da PT. Pra reescalar, arraste de volta.</div>
                   </div>
                 )}
+                </div>
               </div>
 
               {/* colunas = PARTIES IN-GAME */}
