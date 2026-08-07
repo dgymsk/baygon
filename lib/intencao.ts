@@ -19,14 +19,14 @@ import { nomeDoEvento } from "@/lib/datas";
  * Roda lado a lado com o bot de participação antigo, em tabelas próprias (intencao_*). Da stack
  * antiga só reaproveita a config de canal/mensagem da tela /participacao, de leitura.
  */
-export type PostIntencao = { message_id: string; tipo: string; channel_id: string; titulo: string | null; preset_id: number | null; evento_id: number | null; evento_uuid: string | null; evento_status: string | null; criado: string };
+export type PostIntencao = { message_id: string; tipo: string; channel_id: string; titulo: string | null; preset_id: number | null; evento_id: number | null; evento_uuid: string | null; evento_status: string | null; fechada: boolean; criado: string };
 
 /** Rodada mais recente de cada tipo. */
 export async function postsIntencaoAtivos(): Promise<PostIntencao[]> {
   return (await sql`
     SELECT DISTINCT ON (p.tipo) p.message_id, p.tipo, p.channel_id, p.titulo,
            p.preset_id::int AS preset_id, p.evento_id::int AS evento_id,
-           e.uuid AS evento_uuid, e.status AS evento_status, p.criado::text AS criado
+           e.uuid AS evento_uuid, e.status AS evento_status, p.fechada, p.criado::text AS criado
     FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id
     ORDER BY p.tipo, p.criado DESC`) as PostIntencao[];
 }
@@ -34,7 +34,7 @@ export async function postsIntencaoAtivos(): Promise<PostIntencao[]> {
 export async function getPostIntencao(messageId: string): Promise<PostIntencao | null> {
   const rows = (await sql`
     SELECT p.message_id, p.tipo, p.channel_id, p.titulo, p.preset_id::int AS preset_id, p.evento_id::int AS evento_id,
-           e.uuid AS evento_uuid, e.status AS evento_status, p.criado::text AS criado
+           e.uuid AS evento_uuid, e.status AS evento_status, p.fechada, p.criado::text AS criado
     FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id
     WHERE p.message_id = ${messageId}`) as PostIntencao[];
   return rows[0] ?? null;
@@ -80,35 +80,30 @@ export async function montarPayload(messageId: string, presetId: number): Promis
 }
 
 /**
- * Fecha (ou reabre) a intenção do evento e redesenha a mensagem no canal.
+ * Fecha (ou reabre) A INTENÇÃO — e só ela.
  *
- * Fechar é `status = 'travado'` — o mesmo estado que o resto do sistema já entende como "não aceita
- * mais marcação" (ver `eventoAberto`, que é o gate de verdade). A mensagem vira a versão curta: o
- * paredão de nomes só empurrava pra cima o que ainda importa no canal depois que a lista fechou.
+ * O que muda: o bot para de aceitar marcação e a mensagem no canal vira a versão curta. O que NÃO
+ * muda: escalar, arrastar PT, convocar por DM, conferir presença, gravar estatística. Tudo isso
+ * segue depois que a lista fecha, e é justamente aí que a staff mais trabalha.
  *
- * A GRAVAÇÃO vem primeiro e a mensagem depois: se o Discord recusar a edição, o evento já está
- * fechado de fato e ninguém mais consegue marcar — o inverso deixaria a mensagem dizendo "fechada"
- * com o clique ainda funcionando.
+ * Por isso `fechada` mora no POST e não no `evento.status`: status governa a operação inteira (a
+ * tela libera edição com `status === 'aberto'`), então usá-lo aqui travava a escalação junto — que
+ * foi exatamente o engano da primeira versão disto.
+ *
+ * A GRAVAÇÃO vem primeiro e a mensagem depois: se o Discord recusar a edição, a marcação já está
+ * fechada de fato — o inverso deixaria a mensagem dizendo "encerrada" com o clique funcionando.
  */
-export async function fecharIntencao(eventoId: number, fechar: boolean): Promise<{ ok: boolean; erro?: string; status: string; mensagemAtualizada: boolean }> {
-  const novo = fechar ? "travado" : "aberto";
-  const rows = (await sql`
-    UPDATE evento SET status = ${novo}, travado_em = CASE WHEN ${fechar} THEN now() ELSE travado_em END
-    WHERE id = ${eventoId} AND status <> 'finalizado'
-    RETURNING status`) as { status: string }[];
-  if (!rows[0]) {
-    const atual = (await sql`SELECT status FROM evento WHERE id = ${eventoId}`) as { status: string }[];
-    return { ok: false, erro: atual[0] ? "evento finalizado — não dá pra reabrir por aqui" : "evento não encontrado", status: atual[0]?.status ?? "?", mensagemAtualizada: false };
-  }
-
+export async function fecharIntencao(eventoId: number, fechar: boolean): Promise<{ ok: boolean; erro?: string; fechada: boolean; mensagemAtualizada: boolean }> {
   const posts = (await sql`
-    SELECT message_id, channel_id, preset_id::int AS preset_id FROM intencao_post
-    WHERE evento_id = ${eventoId} ORDER BY criado DESC LIMIT 1`) as { message_id: string; channel_id: string; preset_id: number | null }[];
+    UPDATE intencao_post SET fechada = ${fechar}
+    WHERE message_id = (SELECT message_id FROM intencao_post WHERE evento_id = ${eventoId} ORDER BY criado DESC LIMIT 1)
+    RETURNING message_id, preset_id::int AS preset_id`) as { message_id: string; preset_id: number | null }[];
   const post = posts[0];
-  if (!post?.preset_id) return { ok: true, status: rows[0].status, mensagemAtualizada: false };
+  if (!post) return { ok: false, erro: "este evento não tem chamada do bot — não há intenção pra fechar", fechada: false, mensagemAtualizada: false };
+  if (!post.preset_id) return { ok: true, fechada: fechar, mensagemAtualizada: false, erro: "chamada sem preset — não dá pra remontar a mensagem" };
 
   const r = await sincronizarMensagem(post.message_id);
-  return { ok: true, status: rows[0].status, mensagemAtualizada: r.ok, erro: r.ok ? undefined : r.erro };
+  return { ok: true, fechada: fechar, mensagemAtualizada: r.ok, erro: r.ok ? undefined : r.erro };
 }
 
 /** Posta uma rodada nova a partir do preset. Cria o EVENTO ligado (mesma CTE = sem evento órfão). */
@@ -204,11 +199,14 @@ export async function podeMarcar(messageId: string, userId: string): Promise<{ o
 }
 
 export async function eventoAberto(messageId: string): Promise<boolean> {
-  const rows = (await sql`SELECT p.evento_id, e.status FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${messageId}`) as { evento_id: number | null; status: string | null }[];
+  const rows = (await sql`SELECT p.evento_id, p.fechada, e.status FROM intencao_post p LEFT JOIN evento e ON e.id = p.evento_id WHERE p.message_id = ${messageId}`) as { evento_id: number | null; fechada: boolean; status: string | null }[];
   if (!rows[0]) return true;                    // mensagem desconhecida → segue (comportamento antigo)
   // post ÓRFÃO (evento apagado) trava, igual ao statusPorWarKey do bot antigo: senão a mensagem
   // viva de um evento deletado seguiria registrando marcação que não aparece em lugar nenhum
   if (rows[0].evento_id === null) return false;
+  // `fechada` é da MENSAGEM e só desliga a marcação. O status do EVENTO é outra coisa: ele governa
+  // a operação inteira (escalar, convocar, presença), e fechar a lista não pode encostar nisso.
+  if (rows[0].fechada) return false;
   return rows[0].status === "aberto";
 }
 

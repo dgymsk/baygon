@@ -89,6 +89,8 @@ export type PartyVM = { id: number; nome: string; icone: string | null };
 type Ev = { uuid: string; titulo: string; tituloRaw: string | null;
   /** teto de vagas DESTE evento; null = segue o da chamada (tamanhoMaxPreset) */
   tamanhoMax: number | null; tamanhoMaxPreset: number | null;
+  /** a MENSAGEM do bot está fechada pra novas marcações — nada a ver com o status do evento */
+  intencaoFechada: boolean;
   tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
@@ -445,15 +447,15 @@ export default function EventoBoard({
   async function fecharIntencao(fechar: boolean) {
     if (!podeRenomear || !evento) return;
     if (!confirm(fechar
-      ? "Encerrar a intenção?\n\nO bot para de aceitar marcação e a mensagem no canal vira um aviso curto, sem a lista de participantes. Quem já marcou continua valendo."
+      ? "Encerrar a intenção?\n\nO bot para de aceitar marcação NOVA e a mensagem no canal vira um aviso curto, sem a lista.\n\nO resto continua igual: escalar, arrastar PT, convocar por DM, presença e estatística. Quem já marcou continua valendo."
       : "Reabrir a intenção?\n\nA mensagem volta com a lista e os botões, e o pessoal pode marcar de novo.")) return;
     setSalvando(true);
     try {
       const d = await api({ acao: "evento-fechar", eventoId: evento.eventoId, fechar });
+      const msgOk = (d as { mensagemAtualizada?: boolean }).mensagemAtualizada !== false;
       setErro("");
-      setAviso(fechar
-        ? `🔒 Intenção encerrada.${(d as { mensagemAtualizada?: boolean }).mensagemAtualizada === false ? " (a mensagem no Discord não pôde ser atualizada — use o 🔄)" : " A mensagem no canal foi encurtada."}`
-        : "🔓 Intenção reaberta.");
+      setAviso((fechar ? "🔒 Intenção encerrada — o bot não aceita mais marcação. A escalação segue normal." : "🔓 Intenção reaberta.")
+        + (msgOk ? "" : " ⚠ A mensagem no Discord não pôde ser atualizada — use o 🔄."));
       router.refresh();
     } catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
@@ -639,15 +641,16 @@ export default function EventoBoard({
               🔄 Atualizar no Discord
             </button>
           )}
-          {/* fora do gate de `canEdit` de propósito: canEdit exige evento ABERTO, e é justamente
-              fechado que o botão de reabrir precisa existir */}
-          {podeRenomear && evento.status !== "finalizado" && (
-            <button onClick={() => fecharIntencao(evento.status === "aberto")} disabled={salvando}
-              title={evento.status === "aberto"
-                ? "para de aceitar marcação e encurta a mensagem no canal"
-                : "volta a aceitar marcação e redesenha a mensagem com a lista"}
-              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: evento.status === "aberto" ? C.amarelo : C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-              {evento.status === "aberto" ? "🔒 Encerrar intenção" : "🔓 Reabrir intenção"}
+          {/* fecha só a MARCAÇÃO no bot. Escalar, convocar, presença e estatística seguem — por
+              isso o estado vem de `intencaoFechada` (a mensagem) e não do status do evento, que é
+              o interruptor da operação inteira */}
+          {podeRenomear && evento.messageId && (
+            <button onClick={() => fecharIntencao(!evento.intencaoFechada)} disabled={salvando}
+              title={evento.intencaoFechada
+                ? "volta a aceitar marcação e redesenha a mensagem com a lista"
+                : "o bot para de aceitar marcação e a mensagem no canal encurta; a escalação continua normal"}
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: evento.intencaoFechada ? C.verde : C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              {evento.intencaoFechada ? "🔓 Reabrir intenção" : "🔒 Encerrar intenção"}
             </button>
           )}
           {/* O público fica AO LADO do botão, não escondido num Shift: a diferença entre "não
