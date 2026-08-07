@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+export { diaDaGuerra, nomeDoEvento } from "@/lib/diaGuerra";
 
 /**
  * Agendamento do disparo da chamada. Uma linha por HORÁRIO, com os dias em que vale —
@@ -8,7 +9,9 @@ import { sql } from "@/lib/db";
  * sair na hora certa. Quem bate no endpoint é o worker sempre-ligado (o mesmo que já pinga o
  * Garmoth de 2 em 2h) — ver worker/gateway.mjs.
  */
-export type Agenda = { id: number; preset_id: number; dias: number[]; hora: string; ativo: boolean; ultimo_disparo: string | null };
+export type Agenda = { id: number; preset_id: number; dias: number[]; hora: string; ativo: boolean; ultimo_disparo: string | null;
+  /** modelo do nome do evento; {data} vira o dia da guerra. NULL = nome do preset. */
+  nome_padrao: string | null };
 export type AgendaVM = Agenda & { preset_nome: string; preset_tipo: string };
 
 const num = (v: unknown) => { const n = Math.trunc(Number(v)); return Number.isFinite(n) ? n : null; };
@@ -18,25 +21,31 @@ const diasOk = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map(num).filter
 export async function listAgendas(): Promise<AgendaVM[]> {
   return (await sql`
     SELECT a.id::int AS id, a.preset_id::int AS preset_id, a.dias, a.hora, a.ativo,
-           a.ultimo_disparo::text AS ultimo_disparo, p.nome AS preset_nome, p.tipo AS preset_tipo
+           a.ultimo_disparo::text AS ultimo_disparo, a.nome_padrao, p.nome AS preset_nome, p.tipo AS preset_tipo
     FROM intencao_agenda a JOIN intencao_preset p ON p.id = a.preset_id
     ORDER BY a.hora, p.nome`) as AgendaVM[];
 }
 
-export async function criarAgenda(presetId: unknown, dias: unknown, hora: unknown): Promise<AgendaVM | null> {
+export async function criarAgenda(presetId: unknown, dias: unknown, hora: unknown, nomePadrao?: unknown): Promise<AgendaVM | null> {
   const pid = num(presetId), h = horaOk(hora), d = diasOk(dias);
   if (pid == null || !h || !d.length) return null;
-  await sql`INSERT INTO intencao_agenda (preset_id, dias, hora) VALUES (${pid}, ${d as unknown as number[]}, ${h})`;
+  const n = typeof nomePadrao === "string" ? nomePadrao.trim().slice(0, 200) : "";
+  await sql`INSERT INTO intencao_agenda (preset_id, dias, hora, nome_padrao) VALUES (${pid}, ${d as unknown as number[]}, ${h}, ${n || null})`;
   return (await listAgendas()).find((a) => a.preset_id === pid && a.hora === h) ?? null;
 }
 
-export async function atualizarAgenda(id: unknown, patch: { dias?: unknown; hora?: unknown; ativo?: unknown }): Promise<void> {
+export async function atualizarAgenda(id: unknown, patch: { dias?: unknown; hora?: unknown; ativo?: unknown; nomePadrao?: unknown }): Promise<void> {
   const aid = num(id);
   if (aid == null) return;
   if (patch.dias !== undefined) await sql`UPDATE intencao_agenda SET dias = ${diasOk(patch.dias) as unknown as number[]} WHERE id = ${aid}`;
   const h = horaOk(patch.hora);
   if (h) await sql`UPDATE intencao_agenda SET hora = ${h} WHERE id = ${aid}`;
   if (patch.ativo !== undefined) await sql`UPDATE intencao_agenda SET ativo = ${!!patch.ativo} WHERE id = ${aid}`;
+  // vazio é escolha válida ("volta a usar o nome do preset"), por isso o teste é no campo vir
+  if (patch.nomePadrao !== undefined) {
+    const n = typeof patch.nomePadrao === "string" ? patch.nomePadrao.trim().slice(0, 200) : "";
+    await sql`UPDATE intencao_agenda SET nome_padrao = ${n || null} WHERE id = ${aid}`;
+  }
 }
 
 export async function excluirAgenda(id: unknown): Promise<void> {

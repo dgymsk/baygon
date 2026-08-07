@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { agendasDevidas, marcarDisparo, agoraBR } from "@/lib/agenda";
+import { agendasDevidas, marcarDisparo, agoraBR, diaDaGuerra, nomeDoEvento } from "@/lib/agenda";
 import { postarIntencao } from "@/lib/intencao";
 
 /**
@@ -20,7 +20,10 @@ async function executar() {
     // e o processo morresse no meio, a próxima batida dispararia de novo — e chamada duplicada
     // no canal é pior do que uma que não saiu (esta você reenvia por botão).
     await marcarDisparo(a.id);
-    const r = await postarIntencao(a.preset_id);
+    // a guerra é sempre no dia SEGUINTE ao disparo — a chamada sai na véspera. Por isso o evento
+    // nasce datado de amanhã, e não do dia em que o bot postou.
+    const dia = diaDaGuerra();
+    const r = await postarIntencao(a.preset_id, { titulo: nomeDoEvento(a.nome_padrao, dia), data: dia });
     feitos.push({ preset: a.preset_nome, ok: r.ok, erro: r.erro });
   }
   return { ok: true, agora: agoraBR(), devidas: devidas.length, feitos };

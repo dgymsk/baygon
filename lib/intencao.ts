@@ -77,7 +77,7 @@ export async function montarPayload(messageId: string, presetId: number): Promis
 }
 
 /** Posta uma rodada nova a partir do preset. Cria o EVENTO ligado (mesma CTE = sem evento órfão). */
-export async function postarIntencao(presetId: number): Promise<{ ok: boolean; erro?: string; messageId?: string; eventoUuid?: string }> {
+export async function postarIntencao(presetId: number, o: { titulo?: string | null; data?: string | null } = {}): Promise<{ ok: boolean; erro?: string; messageId?: string; eventoUuid?: string }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
   const info = await funcoesDoPreset(presetId);
   if (!info) return { ok: false, erro: "preset não encontrado" };
@@ -87,6 +87,11 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
   // prioridade: canal do PRESET → canal da chamada do tipo → canal antigo de /participacao
   const canal = info.canalId || (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
   if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloTipo(info.tipo as Tipo)} não configurado` };
+
+  // nome do evento: o que a staff digitou (ou o modelo da agenda já resolvido); senão o do preset,
+  // que era o único comportamento até aqui
+  const tituloEvento = (typeof o.titulo === "string" && o.titulo.trim() ? o.titulo.trim().slice(0, 200) : info.nome);
+  const dataEvento = typeof o.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
 
   const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listElencoEsperado()]);
   const payload = montarEmbedIntencao({
@@ -107,7 +112,10 @@ export async function postarIntencao(presetId: number): Promise<{ ok: boolean; e
 
   const rows = (await sql`
     WITH ev AS (
-      INSERT INTO evento (tipo, titulo, template_id, preset_id, tier, exige_registro) VALUES (${info.tipo}, ${info.nome}, NULL, ${presetId}, ${info.tier}, ${info.exigeRegistro}) RETURNING id, uuid
+      INSERT INTO evento (tipo, titulo, template_id, preset_id, tier, exige_registro, data)
+      VALUES (${info.tipo}, ${tituloEvento}, NULL, ${presetId}, ${info.tier}, ${info.exigeRegistro},
+              COALESCE(${dataEvento}::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date))
+      RETURNING id, uuid
     ), p AS (
       INSERT INTO intencao_post (message_id, tipo, channel_id, titulo, preset_id, evento_id, criado)
       SELECT ${msg.id}, ${info.tipo}, ${canal}, ${info.nome}, ${presetId}, ev.id, now() FROM ev

@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     case "postar": {
       const id = Math.trunc(Number(b.id));
       if (!Number.isFinite(id)) return NextResponse.json({ error: "preset inválido" }, { status: 400 });
-      const r = await postarIntencao(id);
+      const r = await postarIntencao(id, { titulo: typeof b.titulo === "string" ? b.titulo : null, data: typeof b.data === "string" ? b.data : null });
       return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
     }
 
@@ -130,8 +130,8 @@ export async function POST(req: Request) {
     }
 
     // --- agenda de disparo (quem bate no cron é o worker, não o Vercel) ---
-    case "agenda-criar":  return NextResponse.json((await criarAgenda(b.presetId, b.dias, b.hora)) ?? { error: "preset, dias e hora são obrigatórios" });
-    case "agenda-editar": await atualizarAgenda(b.id, { dias: b.dias, hora: b.hora, ativo: b.ativo }); return NextResponse.json({ agendas: await listAgendas() });
+    case "agenda-criar":  return NextResponse.json((await criarAgenda(b.presetId, b.dias, b.hora, b.nomePadrao)) ?? { error: "preset, dias e hora são obrigatórios" });
+    case "agenda-editar": await atualizarAgenda(b.id, { dias: b.dias, hora: b.hora, ativo: b.ativo, nomePadrao: b.nomePadrao }); return NextResponse.json({ agendas: await listAgendas() });
     case "agenda-excluir": await excluirAgenda(b.id); return NextResponse.json({ agendas: await listAgendas() });
 
     // --- canais do bot de intenção (chamada e lista) ---
