@@ -12,7 +12,8 @@ import type { LoteResumo } from "@/lib/loteDM";
  * mensagens. Aqui fica preso ao evento: dá pra abrir a guerra da semana passada e responder "essa
  * pessoa chegou a ser chamada?" sem rolar canal nenhum.
  *
- * Cada disparo começa fechado e mostra só o placar — a lista nominal é o detalhe que se procura
+ * O disparo mais recente abre sozinho (é o que a staff acabou de fazer e quer conferir); os
+ * anteriores ficam fechados, mostrando só o placar — a lista nominal é o detalhe que se procura
  * quando alguém reclama, não o que se lê de relance.
  */
 const hora = (iso: string | null) => {

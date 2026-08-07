@@ -73,15 +73,28 @@ export async function partiesDoEvento(eventoId: number): Promise<number[] | null
   return rows.length ? rows.map((r) => r.party_id) : null;
 }
 
-/** Reescreve a lista do evento. Lista vazia APAGA a lista própria e volta a seguir a chamada. */
+/**
+ * Reescreve a lista do evento. Lista vazia APAGA a lista própria e volta a seguir a chamada.
+ *
+ * Grava em DUAS statements, e não em DELETE-tudo + um INSERT por PT: entre o apagar e o inserir o
+ * evento fica sem lista nenhuma, e quem publicasse a escalação no Discord nesse intervalo cairia no
+ * preset — mensagem com as colunas erradas por causa de uma janela de milissegundos. Aqui o DELETE
+ * já poupa quem vai continuar, então nunca existe um instante com a lista vazia por acidente.
+ */
 export async function setPartiesDoEvento(eventoId: number, ids: unknown): Promise<number[] | null> {
   const limpos = Array.isArray(ids)
     ? [...new Set(ids.map((v) => Math.trunc(Number(v))).filter((n) => Number.isFinite(n) && n > 0))]
     : [];
-  await sql`DELETE FROM evento_party WHERE evento_id = ${eventoId}`;
-  for (let i = 0; i < limpos.length; i++) {
-    await sql`INSERT INTO evento_party (evento_id, party_id, ordem) VALUES (${eventoId}, ${limpos[i]}, ${i})
-      ON CONFLICT (evento_id, party_id) DO UPDATE SET ordem = EXCLUDED.ordem`;
+  if (!limpos.length) {
+    await sql`DELETE FROM evento_party WHERE evento_id = ${eventoId}`;
+    return null;
   }
-  return limpos.length ? limpos : null;
+  await sql`DELETE FROM evento_party WHERE evento_id = ${eventoId} AND party_id <> ALL(${limpos as unknown as number[]}::bigint[])`;
+  // WITH ORDINALITY dá a posição no array — é ela que vira a ordem das colunas
+  await sql`
+    INSERT INTO evento_party (evento_id, party_id, ordem)
+    SELECT ${eventoId}::bigint, x.id, (x.i - 1)::int
+    FROM unnest(${limpos as unknown as number[]}::bigint[]) WITH ORDINALITY AS x(id, i)
+    ON CONFLICT (evento_id, party_id) DO UPDATE SET ordem = EXCLUDED.ordem`;
+  return limpos;
 }

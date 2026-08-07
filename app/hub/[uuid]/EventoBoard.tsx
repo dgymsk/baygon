@@ -60,6 +60,14 @@ function Pokebola({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
+/**
+ * Tipo próprio pro arraste de COLUNA. Existe porque `dataTransfer.getData` não pode ser lido
+ * durante o dragover (só no drop) — mas `types` pode. É o que permite ao card se calar antes de
+ * virar alvo, em vez de descobrir tarde demais que quem estava sendo arrastado era uma PT.
+ */
+const TIPO_PT = "application/x-pt";
+const arrastandoPT = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes(TIPO_PT);
+
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
 // titulo já vem com COALESCE(titulo, tipo) pra exibir; tituloRaw é o valor CRU, que distingue
@@ -153,9 +161,11 @@ export default function EventoBoard({
   // escalado que ainda não apareceu na conferência in-game — o alvo da cobrança
   const nSemIngame = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao !== false && !j.confirmouIngame).length;
 
-  async function api(body: Record<string, unknown>) {
+  async function api(body: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `erro ${res.status}`);
+    const d = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) throw new Error((d.error as string) ?? `erro ${res.status}`);
+    return d;
   }
 
   async function mover(chave: string, partyId: number | null) {
@@ -293,12 +303,22 @@ export default function EventoBoard({
    * A ordem otimista existe porque a coluna precisa pular de lugar no mesmo instante em que se
    * solta o arraste: esperar o servidor faria a PT voltar pro lugar antigo por um piscar, que é
    * exatamente o que faz a pessoa achar que não funcionou e arrastar de novo.
+   *
+   * Depois de gravar, o otimista é RECOLOCADO com o que o servidor devolveu — não com o que a tela
+   * mandou. A diferença é o caso de apagar a lista: aí o servidor devolve null (o evento volta a
+   * seguir a chamada) e a tela precisa largar o override na hora. Mantendo `[]`, ele nunca mais
+   * empataria com a leitura seguinte e a escalação inteira ficava invisível até dar F5.
    */
   async function trocarParties(ids: number[]) {
     if (!canEdit || !evento) return;
     setPtsOtimista(ids);
     setSalvando(true);
-    try { await api({ acao: "evento-parties", eventoId: evento.eventoId, ids }); setErro(""); router.refresh(); }
+    try {
+      const d = await api({ acao: "evento-parties", eventoId: evento.eventoId, ids });
+      setPtsOtimista(Array.isArray(d.ids) ? (d.ids as number[]) : null);
+      setErro("");
+      router.refresh();
+    }
     catch (e) { setErro((e as Error).message); setPtsOtimista(null); }
     finally { setSalvando(false); }
   }
@@ -443,7 +463,9 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
       // uma COLUNA arrastada viaja com o prefixo "pt:" — a chave de jogador é slug (letra e número),
       // então nunca contém dois-pontos e os dois arrastes não se confundem
       if (c.startsWith("pt:")) {
-        if (id !== "pool") moverParty(Number(c.slice(3)), id);
+        const origem = Number(c.slice(3));
+        // id inválido (payload de fora da tela) não pode entrar na lista e virar NaN gravado
+        if (id !== "pool" && Number.isInteger(origem) && origem > 0) moverParty(origem, id);
         return;
       }
       mover(c, id === "pool" ? null : id);
@@ -674,7 +696,13 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
                       {/* o CABEÇALHO é a alça de arrastar a coluna. Fica fora da área dos cards de
                           propósito: assim arrastar jogador e arrastar PT nunca disputam o mesmo gesto */}
                       <div draggable={canEdit}
-                        onDragStart={(e) => { e.dataTransfer.setData("text/plain", `pt:${p.id}`); e.dataTransfer.effectAllowed = "move"; }}
+                        // dois formatos: o tipo próprio (legível já no dragover, ver TIPO_PT) e o
+                        // text/plain com prefixo, que é o que o drop lê
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(TIPO_PT, String(p.id));
+                          e.dataTransfer.setData("text/plain", `pt:${p.id}`);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
                         title={canEdit ? "arraste para trocar a ordem das PTs" : undefined}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6, cursor: canEdit ? "grab" : "default" }}>
                         <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
@@ -850,15 +878,23 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       onMouseLeave={() => setHover(false)}
       // soltar EM CIMA de um card insere antes dele. stopPropagation pra o alvo da coluna não
       // tratar isso como "jogar no fim" logo em seguida.
+      //
+      // Quando o que está sendo arrastado é uma COLUNA, o card se cala inteiro: sem preventDefault
+      // ele deixa de ser alvo de solta e o browser entrega o drop pra coluna, que é quem sabe
+      // reordenar. Cortar a propagação aqui (mesmo checando o payload depois) engolia o arraste —
+      // e como os cards ocupam quase toda a área da coluna, reordenar PT quase nunca funcionava.
+      // O teste é em `types` porque `getData` não é legível durante o dragover.
       {...(onSoltarEmCima ? {
-        onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setAlvo(true); },
+        onDragOver: (e: React.DragEvent) => {
+          if (arrastandoPT(e)) return;
+          e.preventDefault(); e.stopPropagation(); setAlvo(true);
+        },
         onDragLeave: () => setAlvo(false),
         onDrop: (e: React.DragEvent) => {
+          if (arrastandoPT(e)) return;
           e.preventDefault(); e.stopPropagation(); setAlvo(false); setHover(false);
           const c = e.dataTransfer.getData("text/plain");
-          // "pt:" é COLUNA sendo reordenada, não jogador: soltar em cima de um card não pode virar
-          // um reordenar-dentro-da-PT com uma chave que não existe
-          if (c && !c.startsWith("pt:")) onSoltarEmCima(c);
+          if (c) onSoltarEmCima(c);
         },
       } : {})}
       style={{

@@ -145,7 +145,9 @@ function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: strin
  * mensagens. Aqui fica preso ao evento: dá pra abrir a guerra de semana passada e responder "essa
  * pessoa foi chamada?" e "quando?" sem depender de rolar canal.
  */
-export type AlvoLote = { familia: string; userId: string | null; status: string; motivo: string | null; tentado: string | null };
+/** Sem user_id de propósito: a tela não usa, e mandar o Discord de todo escalado pro navegador de
+ *  qualquer membro logado é vazamento gratuito. */
+export type AlvoLote = { familia: string; status: string; motivo: string | null; tentado: string | null };
 export type LoteResumo = {
   id: number; tipo: TipoLote; rotulo: string; criadoPor: string | null;
   criado: string; concluido: string | null; status: string;
@@ -174,15 +176,14 @@ export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
   // recarrega sozinha a cada 20 segundos
   const ids = lotes.map((l) => l.id);
   const alvos = (await sql`
-    SELECT lote_id::int AS lote_id, familia, user_id, status, erro, tentado::text AS tentado
+    SELECT lote_id::int AS lote_id, familia, status, erro, tentado::text AS tentado
     FROM dm_lote_alvo WHERE lote_id = ANY(${ids as unknown as number[]})
-    ORDER BY familia`) as { lote_id: number; familia: string; user_id: string | null; status: string; erro: string | null; tentado: string | null }[];
+    ORDER BY familia`) as { lote_id: number; familia: string; status: string; erro: string | null; tentado: string | null }[];
   const porLote = new Map<number, AlvoLote[]>();
   for (const a of alvos) {
-    porLote.set(a.lote_id, [...(porLote.get(a.lote_id) ?? []), {
-      familia: a.familia, userId: a.user_id, status: a.status,
-      motivo: a.status === "falha" ? rotuloMotivo(a.erro) : null, tentado: a.tentado,
-    }]);
+    const item: AlvoLote = { familia: a.familia, status: a.status, motivo: a.status === "falha" ? rotuloMotivo(a.erro) : null, tentado: a.tentado };
+    const lista = porLote.get(a.lote_id);
+    if (lista) lista.push(item); else porLote.set(a.lote_id, [item]);
   }
 
   return lotes.map((l) => ({
