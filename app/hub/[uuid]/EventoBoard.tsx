@@ -73,7 +73,10 @@ export type PartyVM = { id: number; nome: string; icone: string | null };
 // titulo já vem com COALESCE(titulo, tipo) pra exibir; tituloRaw é o valor CRU, que distingue
 // "sem nome" de "chamado de nodewar" — é ele que abre no campo de renomear, senão o primeiro
 // clique gravaria "nodewar" como nome de verdade e não haveria como voltar a não ter nome.
-type Ev = { uuid: string; titulo: string; tituloRaw: string | null; tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
+type Ev = { uuid: string; titulo: string; tituloRaw: string | null;
+  /** teto de vagas DESTE evento; null = segue o da chamada (tamanhoMaxPreset) */
+  tamanhoMax: number | null; tamanhoMaxPreset: number | null;
+  tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
@@ -155,6 +158,43 @@ export default function EventoBoard({
     .sort((a, x) => (ordemOverrides[a.chave] ?? a.ordemPt ?? 1e9) - (ordemOverrides[x.chave] ?? x.ordemPt ?? 1e9)
       || a.familia.localeCompare(x.familia, "pt-BR"));
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
+
+  /** Teto efetivo: o do EVENTO manda, e sem ele vale o da chamada. */
+  const tetoVagas = evento?.tamanhoMax ?? evento?.tamanhoMaxPreset ?? null;
+  const vagasLivres = tetoVagas != null ? tetoVagas - nEscalados : 0;
+  const corVagas = tetoVagas == null ? C.verde : vagasLivres < 0 ? C.vermelho : vagasLivres === 0 ? C.amarelo : C.verde;
+
+  /**
+   * Quantos escalados cada guilda está pondo na guerra, e quantos deles são lendários.
+   * Calculado na leitura (sem useMemo) porque depende de `partyDe`, que muda com o arraste otimista
+   * — uma lista de dependências aqui erraria em silêncio e o placar ficaria congelado.
+   */
+  const porGuilda = (() => {
+    const m = new Map<string | null, { total: number; lendarios: number }>();
+    for (const j of todos.values()) {
+      if (partyDe(j) == null) continue;
+      const k = j.guilda || null;
+      const v = m.get(k) ?? { total: 0, lendarios: 0 };
+      v.total++;
+      if (j.lendario) v.lendarios++;
+      m.set(k, v);
+    }
+    return [...m.entries()]
+      .map(([id, v]) => ({ id, nome: (id && byId.get(id)?.nome) || "sem guilda", ...v }))
+      .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome, "pt-BR"));
+  })();
+
+  /** Teto de vagas desta guerra. Vazio volta a seguir o da chamada. */
+  async function trocarTeto(valor: string) {
+    if (!podeRenomear || !evento) return;
+    const n = valor.trim() ? Math.trunc(Number(valor)) : null;
+    const alvo = n != null && Number.isFinite(n) && n > 0 ? n : null;
+    if (alvo === evento.tamanhoMax) return;
+    setSalvando(true);
+    try { await api({ acao: "evento-tamanho", eventoId: evento.eventoId, tamanhoMax: alvo }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
   const nAguardando = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.convidado).length;
   const nSemConvocar = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && !j.convidado).length;
@@ -617,8 +657,50 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
 
       <div style={{ display: aba === "escalacao" ? "block" : "none" }}>{(
         <>
+          {/* Placar da guerra: quantas vagas foram preenchidas e de quem são. É a pergunta que a
+              staff faz o tempo todo montando a escalação, e a resposta estava diluída numa linha
+              de texto corrido. O teto é do EVENTO — o nó de hoje não tem o mesmo limite do de
+              ontem, e mexer no da chamada mudaria a régua das guerras passadas. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "10px 14px", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 26, color: corVagas, lineHeight: 1 }}>{nEscalados}</span>
+              <span style={{ color: C.mute, fontSize: 15 }}>/</span>
+              {podeRenomear ? (
+                <input type="number" min={1} max={500} defaultValue={evento.tamanhoMax ?? ""} placeholder={String(tetoVagas ?? "—")}
+                  key={`teto-${evento.tamanhoMax ?? "n"}`}
+                  title={evento.tamanhoMax != null ? "teto desta guerra — vazio volta a seguir a chamada" : "teto desta guerra — hoje segue o da chamada"}
+                  onBlur={(e) => trocarTeto(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  style={{ width: 58, background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: tetoVagas != null ? C.amarelo : C.mute, padding: "2px 6px", fontSize: 17, fontWeight: 700, fontFamily: "'Share Tech Mono', monospace", outline: "none" }} />
+              ) : (
+                <span style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 22, color: C.amarelo }}>{tetoVagas ?? "—"}</span>
+              )}
+              <span style={{ color: C.mute, fontSize: 12 }}>
+                escalados{tetoVagas != null && <> · {vagasLivres > 0 ? `faltam ${vagasLivres}` : vagasLivres === 0 ? "lotado" : `${-vagasLivres} acima do teto`}</>}
+              </span>
+            </div>
+
+            {/* quem cada guilda está colocando na guerra. O lendário conta e é destacado: uma guilda
+                com 8 dos quais 5 lendários não pesa o mesmo que outra com 8 comuns. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginLeft: "auto" }}>
+              {porGuilda.map((g) => (
+                <span key={g.id ?? "sem"} title={`${g.nome}: ${g.total} escalados · ${g.total - g.lendarios} sem lendário`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "2px 9px" }}>
+                  <GuildIcon id={g.id} byId={byId} /><span style={{ color: C.mute, fontSize: 11 }}>{g.id ? byId.get(g.id)?.tag ?? g.nome : "sem guilda"}</span>
+                  <span style={{ color: C.texto, fontWeight: 700 }}>{g.total}</span>
+                  {g.lendarios > 0 && (
+                    <span style={{ color: C.amarelo, display: "inline-flex", alignItems: "center", gap: 2 }} title={`${g.lendarios} lendário(s) — ${g.total - g.lendarios} sem eles`}>
+                      <Pokebola size={11} />{g.lendarios}
+                    </span>
+                  )}
+                </span>
+              ))}
+              {!porGuilda.length && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>ninguém escalado ainda</span>}
+            </div>
+          </div>
+
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
-            <b style={{ color: C.verde }}>{nEscalados}</b> escalados de <b>{nPool}</b> {temChamada ? "que marcaram" : "no elenco"} · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar ·
+            <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar ·
             <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.borderSoft }}>✉ ainda não convocado</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}

@@ -22,10 +22,10 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
 
   const posts = (await sql`
     SELECT p.message_id, p.tipo, p.preset_id::int AS preset_id, p.lista_message_id, p.lista_channel_id,
-           COALESCE(e.titulo, e.tipo) AS titulo, to_char(e.data, 'DD/MM') AS data
+           COALESCE(e.titulo, e.tipo) AS titulo, to_char(e.data, 'DD/MM') AS data, e.tamanho_max::int AS tamanho_max
     FROM intencao_post p JOIN evento e ON e.id = p.evento_id
     WHERE p.evento_id = ${eventoId} ORDER BY p.criado DESC LIMIT 1`) as
-    { message_id: string; tipo: string; preset_id: number | null; lista_message_id: string | null; lista_channel_id: string | null; titulo: string; data: string }[];
+    { message_id: string; tipo: string; preset_id: number | null; lista_message_id: string | null; lista_channel_id: string | null; titulo: string; data: string; tamanho_max: number | null }[];
   const post = posts[0];
   if (!post) return { ok: false, erro: "evento sem chamada de intenção" };
   // atualização automática só EDITA o que já existe: marcar presença não pode fazer aparecer uma
@@ -84,7 +84,8 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
   });
 
   const payload = montarLista({
-    titulo: post.titulo, data: post.data, tamanhoMax: preset?.tamanho_max ?? null,
+    // o teto do EVENTO manda; sem ele, o da chamada
+    titulo: post.titulo, data: post.data, tamanhoMax: post.tamanho_max ?? preset?.tamanho_max ?? null,
     parties, escalados,
     recusaram: rows.filter((r) => r.confirmou === false).map((r) => r.familia),
     emojis, tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),

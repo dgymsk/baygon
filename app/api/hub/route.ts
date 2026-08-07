@@ -145,6 +145,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ids });
     }
 
+    // --- teto de vagas DESTE evento. Vazio volta a seguir o da chamada ---
+    case "evento-tamanho": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const n = Math.trunc(Number(b.tamanhoMax));
+      const val = Number.isFinite(n) && n > 0 ? Math.min(n, 500) : null;
+      await sql`UPDATE evento SET tamanho_max = ${val} WHERE id = ${eid()}`;
+      await espelharLista(); // o rodapé da lista publicada mostra a meta
+      return NextResponse.json({ ok: true, tamanhoMax: val });
+    }
+
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---
     case "evento-registro": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
