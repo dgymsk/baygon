@@ -1,5 +1,5 @@
 import { sql } from "@/lib/db";
-export { hojeBR, amanhaBR, nomeDoEvento } from "@/lib/datas";
+export { hojeBR, amanhaBR, diaDaGuerra, nomeDoEvento } from "@/lib/datas";
 
 /**
  * Agendamento do disparo da chamada. Uma linha por HORÁRIO, com os dias em que vale —
@@ -10,7 +10,7 @@ export { hojeBR, amanhaBR, nomeDoEvento } from "@/lib/datas";
  * Garmoth de 2 em 2h) — ver worker/gateway.mjs.
  */
 export type Agenda = { id: number; preset_id: number; dias: number[]; hora: string; ativo: boolean; ultimo_disparo: string | null;
-  /** modelo do nome do evento; {data} vira o dia do disparo e {amanha} o seguinte. NULL = nome do preset. */
+  /** modelo do nome do evento; {data} vira o dia da GUERRA (o seguinte ao disparo). NULL = nome do preset. */
   nome_padrao: string | null };
 export type AgendaVM = Agenda & { preset_nome: string; preset_tipo: string };
 

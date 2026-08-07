@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { corTier } from "@/lib/tier";
-import { hojeBR } from "@/lib/datas";
+import { diaDaGuerra } from "@/lib/datas";
 import type { Preset } from "@/lib/intencaoPreset";
 
 /**
@@ -15,9 +15,10 @@ import type { Preset } from "@/lib/intencaoPreset";
 export default function Lancar({ presets, partiesPorPreset }: { presets: Preset[]; partiesPorPreset: Record<number, string[]> }) {
   const router = useRouter();
   const [sel, setSel] = useState<number | null>(presets[0]?.id ?? null);
-  // o nome já vem sugerido com a data de hoje, que é como a staff nomeia ("2026-08-07") e o mesmo
-  // que a chamada agendada usa. Dá pra trocar aqui, e depois renomear o evento na página dele.
-  const [nome, setNome] = useState(() => hojeBR());
+  // a chamada sai na véspera, então o nome vem sugerido com o dia da GUERRA (amanhã) — é como a
+  // staff nomeia ("2026-08-07"), e o mesmo que a chamada agendada usa. Dá pra trocar aqui, e
+  // depois renomear o evento na página dele.
+  const [nome, setNome] = useState(() => diaDaGuerra());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
 

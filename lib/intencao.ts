@@ -118,7 +118,10 @@ export async function postarIntencao(presetId: number, o: { titulo?: string | nu
     WITH ev AS (
       INSERT INTO evento (tipo, titulo, template_id, preset_id, tier, exige_registro, data)
       VALUES (${info.tipo}, ${tituloEvento}, NULL, ${presetId}, ${info.tier}, ${info.exigeRegistro},
-              COALESCE(${dataEvento}::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date))
+              -- sem data explícita, o padrão é o DIA DA GUERRA: a chamada sai na véspera, então
+              -- datar pelo disparo erra por um dia. Conta no banco pra não depender do relógio de
+              -- quem chamou (o slash do Discord não manda data nenhuma).
+              COALESCE(${dataEvento}::date, ((now() AT TIME ZONE 'America/Sao_Paulo') + interval '1 day')::date))
       RETURNING id, uuid
     ), p AS (
       INSERT INTO intencao_post (message_id, tipo, channel_id, titulo, preset_id, evento_id, criado)

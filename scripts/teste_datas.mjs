@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { createJiti } from "jiti";
 const raiz = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jiti = createJiti(import.meta.url, { alias: { "@": raiz } });
-const { hojeBR, amanhaBR, nomeDoEvento } = await jiti.import(join(raiz, "lib/datas.ts"));
+const { hojeBR, amanhaBR, diaDaGuerra, nomeDoEvento } = await jiti.import(join(raiz, "lib/datas.ts"));
 
 let falhas = 0;
 const eq = (a, b, msg) => { if (a !== b) { falhas++; console.log(`FALHA ${msg}: ${a} != ${b}`); } };
@@ -27,9 +27,13 @@ eq(hojeBR(new Date("2026-08-08T02:20:00Z")), "2026-08-07", "23:20 SP");
 eq(amanhaBR(new Date("2026-08-31T15:00:00Z")), "2026-09-01", "virada de mês");
 eq(amanhaBR(new Date("2026-12-31T15:00:00Z")), "2027-01-01", "virada de ano");
 
-eq(nomeDoEvento("{data}", "2026-08-07", "2026-08-08"), "2026-08-07", "token data");
-eq(nomeDoEvento("NW {AMANHA}", "2026-08-07", "2026-08-08"), "NW 2026-08-08", "token amanha maiúsculo");
-eq(nomeDoEvento("Guerra {data} · T2", "2026-08-07", "x"), "Guerra 2026-08-07 · T2", "token no meio");
+// a chamada das 20:20 do dia 07 é da guerra do dia 08 — é o dia da GUERRA que batiza o evento
+eq(diaDaGuerra(new Date("2026-08-07T23:20:00Z")), "2026-08-08", "disparo 20:20 SP → guerra de amanhã");
+eq(nomeDoEvento("{data}"), diaDaGuerra(), "sem argumento, {data} é o dia da guerra");
+
+eq(nomeDoEvento("{data}", "2026-08-08", "2026-08-07"), "2026-08-08", "token data = dia da guerra");
+eq(nomeDoEvento("NW {HOJE}", "2026-08-08", "2026-08-07"), "NW 2026-08-07", "token hoje maiúsculo");
+eq(nomeDoEvento("Guerra {data} · T2", "2026-08-08", "x"), "Guerra 2026-08-08 · T2", "token no meio");
 eq(nomeDoEvento("", "a", "b"), null, "modelo vazio → null");
 eq(nomeDoEvento(null, "a", "b"), null, "modelo nulo → null");
 eq(nomeDoEvento("x".repeat(300), "a", "b").length, 200, "corta em 200");

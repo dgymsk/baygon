@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { agendasDevidas, marcarDisparo, agoraBR, hojeBR, nomeDoEvento } from "@/lib/agenda";
+import { agendasDevidas, marcarDisparo, agoraBR, diaDaGuerra, nomeDoEvento } from "@/lib/agenda";
 import { postarIntencao } from "@/lib/intencao";
 
 /**
@@ -22,7 +22,9 @@ async function executar() {
     await marcarDisparo(a.id);
     // a chamada agendada sai NO DIA da guerra ("vai participar da war hoje?"), então o evento nasce
     // com a data e o nome do dia do disparo. Quem dispara na véspera usa o token {amanha} no modelo.
-    const dia = hojeBR();
+    // a chamada sai na VÉSPERA: às 20:20 se pergunta sobre a war de amanhã. O evento é do dia da
+    // GUERRA, não do dia em que o bot postou.
+    const dia = diaDaGuerra();
     // sem modelo configurado o padrão é a DATA, não o nome da chamada: é assim que a staff nomeia
     // ("2026-08-07"), e todo disparo agendado teria o mesmo nome se caísse no nome do preset
     const r = await postarIntencao(a.preset_id, { titulo: nomeDoEvento(a.nome_padrao || "{data}", dia), data: dia });
