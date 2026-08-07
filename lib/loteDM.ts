@@ -42,28 +42,68 @@ async function tituloDoEvento(eventoId: number): Promise<string> {
 }
 
 /**
- * Quem recebe, por tipo.
- *  - convocacao: escalado que ainda não respondeu a DM (ou TODOS, no reenvio);
- *  - ingame: escalado que não recusou e ainda não apareceu na conferência in-game.
+ * Público-alvo do disparo. A distinção que importa é entre NÃO RESPONDEU e NÃO RECEBEU: quem
+ * recebeu a DM e ficou calado já foi cobrado, e reenviar pra ele é spam — o caso vira comum quando
+ * o Discord limita o bot e o lote sai pela metade.
  */
-async function alvosDoTipo(tipo: TipoLote, eventoId: number, soNovos: boolean): Promise<Alvo[]> {
+export type PublicoLote =
+  | "nao_receberam"      // convocação: escalado que nunca recebeu a DM desta chamada
+  | "sem_resposta"       // convocação: escalado que não respondeu (recebendo ou não)
+  | "todos"              // convocação: todo escalado
+  | "confirmou_nao_recebeu" // in-game: disse SIM e ainda não recebeu a cobrança
+  | "confirmou"          // in-game: todo mundo que disse SIM
+  | "faltam_ingame";     // in-game: não recusou e não apareceu na conferência
+
+export const ROTULO_PUBLICO: Record<PublicoLote, string> = {
+  nao_receberam: "quem ainda não recebeu",
+  sem_resposta: "quem não respondeu",
+  todos: "todos os escalados",
+  confirmou_nao_recebeu: "confirmou e não recebeu",
+  confirmou: "quem confirmou o SIM",
+  faltam_ingame: "quem falta aparecer in-game",
+};
+
+const PADRAO: Record<TipoLote, PublicoLote> = { convocacao: "nao_receberam", ingame: "confirmou_nao_recebeu" };
+export const publicoOk = (v: unknown, tipo: TipoLote): PublicoLote =>
+  (typeof v === "string" && v in ROTULO_PUBLICO ? (v as PublicoLote) : PADRAO[tipo]);
+
+/**
+ * Quem recebe. "Não recebeu" é medido pelo HISTÓRICO de lotes deste evento (um alvo com status
+ * 'ok' do mesmo tipo), e não por um carimbo na escalação: `convidado_em` só existe pra convocação,
+ * e a cobrança in-game precisava da mesma conta. Pra convocação o carimbo entra junto, porque as
+ * DMs disparadas antes do sistema de lotes existir só aparecem lá.
+ */
+async function alvosDoTipo(tipo: TipoLote, eventoId: number, publico: PublicoLote): Promise<Alvo[]> {
+  const naoRecebeu = sql`
+    AND NOT EXISTS (SELECT 1 FROM dm_lote_alvo a JOIN dm_lote l ON l.id = a.lote_id
+                    WHERE l.evento_id = ${eventoId} AND l.tipo = ${tipo} AND a.chave = e.chave AND a.status = 'ok')`;
+
   if (tipo === "convocacao") {
+    const filtro = publico === "todos" ? sql``
+      : publico === "sem_resposta" ? sql`AND e.confirmou IS NULL`
+      : sql`AND e.convidado_em IS NULL ${naoRecebeu}`;
     return (await sql`
       SELECT e.chave, e.familia, e.user_id, p.nome AS party
       FROM evento_escalacao e
       LEFT JOIN party p ON p.id = e.party_id
       WHERE e.evento_id = ${eventoId} AND e.party_id IS NOT NULL
-        ${soNovos ? sql`AND e.confirmou IS NULL` : sql``}
+        ${filtro}
       ORDER BY e.familia`) as Alvo[];
   }
+
+  // in-game: quem recusou a convocação nunca entra — ele já avisou que não vem
+  const filtro = publico === "faltam_ingame"
+    ? sql`AND e.confirmou IS NOT FALSE
+          AND NOT EXISTS (SELECT 1 FROM evento_presenca ep
+                          WHERE ep.evento_id = e.evento_id AND ep.chave = e.chave AND ep.participar)`
+    : publico === "confirmou" ? sql`AND e.confirmou IS TRUE`
+    : sql`AND e.confirmou IS TRUE ${naoRecebeu}`;
   return (await sql`
     SELECT e.chave, e.familia, e.user_id, p.nome AS party
     FROM evento_escalacao e
     LEFT JOIN party p ON p.id = e.party_id
     WHERE e.evento_id = ${eventoId} AND e.party_id IS NOT NULL
-      AND e.confirmou IS NOT FALSE                       -- quem recusou já saiu da conta
-      AND NOT EXISTS (SELECT 1 FROM evento_presenca ep
-                      WHERE ep.evento_id = e.evento_id AND ep.chave = e.chave AND ep.participar)
+      ${filtro}
     ORDER BY e.familia`) as Alvo[];
 }
 
@@ -94,26 +134,30 @@ async function resolverUserIds(eventoId: number): Promise<void> {
  * isso, um lote que morreu no meio viraria um segundo lote com a lista inteira, e quem já tinha
  * recebido a DM receberia outra.
  */
-export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; soNovos?: boolean; porQuem?: string | null }):
-  Promise<{ ok: boolean; erro?: string; loteId?: number; total?: number; retomado?: boolean }> {
+export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; publico?: unknown; porQuem?: string | null }):
+  Promise<{ ok: boolean; erro?: string; loteId?: number; total?: number; retomado?: boolean; publico?: PublicoLote }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
+  const publico = publicoOk(o.publico, o.tipo);
 
+  // a retomada exige o MESMO público: reaproveitar um lote de outra audiência ignoraria em silêncio
+  // o que a staff escolheu na tela
   const aberto = (await sql`
     SELECT l.id::int AS id, l.total::int AS total,
            (SELECT count(*)::int FROM dm_lote_alvo a WHERE a.lote_id = l.id AND a.status NOT IN ('ok','falha')) AS pendentes
     FROM dm_lote l
     WHERE l.evento_id = ${o.eventoId} AND l.tipo = ${o.tipo} AND l.status <> 'concluido'
+      AND COALESCE(l.publico, '') = ${publico}
     ORDER BY l.criado DESC LIMIT 1`) as { id: number; total: number; pendentes: number }[];
-  if (aberto[0]?.pendentes) return { ok: true, loteId: aberto[0].id, total: aberto[0].total, retomado: true };
+  if (aberto[0]?.pendentes) return { ok: true, loteId: aberto[0].id, total: aberto[0].total, retomado: true, publico };
 
   const titulo = await tituloDoEvento(o.eventoId);
   await resolverUserIds(o.eventoId);
-  const alvos = await alvosDoTipo(o.tipo, o.eventoId, o.soNovos !== false);
-  if (!alvos.length) return { ok: false, erro: o.tipo === "convocacao" ? "ninguém pra convocar — escale alguém antes" : "todos os escalados já apareceram in-game" };
+  const alvos = await alvosDoTipo(o.tipo, o.eventoId, publico);
+  if (!alvos.length) return { ok: false, erro: `ninguém em "${ROTULO_PUBLICO[publico]}" — nada a enviar` };
 
   const rows = (await sql`
-    INSERT INTO dm_lote (tipo, evento_id, titulo, criado_por, total)
-    VALUES (${o.tipo}, ${o.eventoId}, ${titulo}, ${o.porQuem ?? null}, ${alvos.length})
+    INSERT INTO dm_lote (tipo, evento_id, titulo, criado_por, total, publico)
+    VALUES (${o.tipo}, ${o.eventoId}, ${titulo}, ${o.porQuem ?? null}, ${alvos.length}, ${publico})
     RETURNING id::int AS id`) as { id: number }[];
   const loteId = rows[0].id;
   for (const a of alvos) {
@@ -121,7 +165,7 @@ export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; soNovos
       VALUES (${loteId}, ${a.chave}, ${a.familia}, ${a.user_id}, ${a.party})
       ON CONFLICT (lote_id, chave) DO NOTHING`;
   }
-  return { ok: true, loteId, total: alvos.length };
+  return { ok: true, loteId, total: alvos.length, publico };
 }
 
 /** O corpo da DM, por tipo. Convocar tem botões (a resposta volta pro banco); cobrar in-game não —
@@ -165,7 +209,7 @@ function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: strin
  *  qualquer membro logado é vazamento gratuito. */
 export type AlvoLote = { familia: string; status: string; motivo: string | null; tentado: string | null };
 export type LoteResumo = {
-  id: number; tipo: TipoLote; rotulo: string; criadoPor: string | null;
+  id: number; tipo: TipoLote; rotulo: string; publico: string | null; criadoPor: string | null;
   criado: string; concluido: string | null; status: string;
   total: number; enviados: number; falhas: number; pendentes: number;
   logOk: boolean | null; logErro: string | null;
@@ -174,7 +218,7 @@ export type LoteResumo = {
 
 export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
   const lotes = (await sql`
-    SELECT l.id::int AS id, l.tipo, l.criado_por, l.status, l.total::int AS total,
+    SELECT l.id::int AS id, l.tipo, l.publico, l.criado_por, l.status, l.total::int AS total,
            l.criado::text AS criado, l.concluido::text AS concluido, l.log_ok, l.log_erro,
            count(a.*) FILTER (WHERE a.status = 'ok')::int AS enviados,
            count(a.*) FILTER (WHERE a.status = 'falha')::int AS falhas,
@@ -182,7 +226,7 @@ export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
     FROM dm_lote l LEFT JOIN dm_lote_alvo a ON a.lote_id = l.id
     WHERE l.evento_id = ${eventoId}
     GROUP BY l.id ORDER BY l.criado DESC`) as {
-      id: number; tipo: TipoLote; criado_por: string | null; status: string; total: number;
+      id: number; tipo: TipoLote; publico: string | null; criado_por: string | null; status: string; total: number;
       criado: string; concluido: string | null; log_ok: boolean | null; log_erro: string | null;
       enviados: number; falhas: number; pendentes: number;
     }[];
@@ -204,6 +248,7 @@ export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
 
   return lotes.map((l) => ({
     id: l.id, tipo: l.tipo, rotulo: ROTULO[l.tipo] ?? l.tipo, criadoPor: l.criado_por,
+    publico: l.publico ? ROTULO_PUBLICO[l.publico as PublicoLote] ?? l.publico : null,
     criado: l.criado, concluido: l.concluido, status: l.status,
     total: l.total, enviados: l.enviados, falhas: l.falhas, pendentes: l.pendentes,
     logOk: l.log_ok, logErro: l.log_erro, alvos: porLote.get(l.id) ?? [],

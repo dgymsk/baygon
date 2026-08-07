@@ -191,7 +191,7 @@ export async function POST(req: Request) {
     case "dm-criar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
       const tipo = b.tipo === "ingame" ? "ingame" : "convocacao";
-      const c = await criarLoteDM({ tipo, eventoId: eid(), soNovos: b.soNovos !== false, porQuem: await quemDisparou() });
+      const c = await criarLoteDM({ tipo, eventoId: eid(), publico: b.publico, porQuem: await quemDisparou() });
       return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
     }
     case "dm-processar": {

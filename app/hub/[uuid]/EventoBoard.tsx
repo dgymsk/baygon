@@ -65,6 +65,19 @@ function Pokebola({ size = 13 }: { size?: number }) {
  * durante o dragover (só no drop) — mas `types` pode. É o que permite ao card se calar antes de
  * virar alvo, em vez de descobrir tarde demais que quem estava sendo arrastado era uma PT.
  */
+/** Rótulos do público de disparo — espelham lib/loteDM.ROTULO_PUBLICO, que é quem manda no servidor. */
+const ROTULOS_PUBLICO: Record<string, string> = {
+  nao_receberam: "quem ainda não recebeu",
+  sem_resposta: "quem não respondeu",
+  todos: "todos os escalados",
+  confirmou_nao_recebeu: "confirmou e não recebeu",
+  confirmou: "quem confirmou o SIM",
+  faltam_ingame: "quem falta aparecer in-game",
+};
+const PUBLICOS_CONV = ["nao_receberam", "sem_resposta", "todos"] as const;
+const PUBLICOS_INGAME = ["confirmou_nao_recebeu", "confirmou", "faltam_ingame"] as const;
+const seletorPublico = { background: C.inputBg, color: C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 6px", fontSize: 11.5, fontFamily: "inherit", cursor: "pointer", maxWidth: 175 } as const;
+
 const TIPO_PT = "application/x-pt";
 const arrastandoPT = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes(TIPO_PT);
 
@@ -108,6 +121,8 @@ export default function EventoBoard({
   const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
   const [salvandoNome, setSalvandoNome] = useState(false);
   const [ptsOtimista, setPtsOtimista] = useState<number[] | null>(null);
+  const [publicoConv, setPublicoConv] = useState("nao_receberam");
+  const [publicoIngame, setPublicoIngame] = useState("confirmou_nao_recebeu");
   // grupos dobrados à mão no pool. Sobrevive ao auto-refresh e a escalar gente, ao contrário de
   // depender do <details> não controlado, que remontava junto com o grupo
   const [fechados, setFechados] = useState<Record<string, boolean>>({});
@@ -162,6 +177,28 @@ export default function EventoBoard({
       || a.familia.localeCompare(x.familia, "pt-BR"));
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
 
+  /**
+   * PÚBLICO do disparo. A régua que faltava era NÃO RECEBEU (≠ não respondeu): quem recebeu a DM e
+   * ficou calado já foi cobrado, e reenviar pra ele é spam — o caso vira comum quando o Discord
+   * limita o bot e o lote sai pela metade.
+   *
+   * Quem já recebeu sai do HISTÓRICO de chamadas (`chamadas`), a mesma fonte que o servidor usa —
+   * assim o número no botão é o mesmo que vai ser disparado, e não uma estimativa.
+   */
+  const recebeu = (tipo: "convocacao" | "ingame") =>
+    new Set(chamadas.filter((l) => l.tipo === tipo).flatMap((l) => l.alvos.filter((a) => a.status === "ok").map((a) => a.familia)));
+  const jaRecebeuConv = recebeu("convocacao");
+  const jaRecebeuIngame = recebeu("ingame");
+  const escaladosVivos = [...todos.values()].filter((j) => partyDe(j) != null);
+  const alvosConv = escaladosVivos.filter((j) =>
+    publicoConv === "todos" ? true
+      : publicoConv === "sem_resposta" ? j.confirmouEscalacao == null
+      : !j.convidado && !jaRecebeuConv.has(j.familia));
+  const alvosIngame = escaladosVivos.filter((j) =>
+    publicoIngame === "faltam_ingame" ? j.confirmouEscalacao !== false && !j.confirmouIngame
+      : publicoIngame === "confirmou" ? j.confirmouEscalacao === true
+      : j.confirmouEscalacao === true && !jaRecebeuIngame.has(j.familia));
+
   /** Teto efetivo: o do EVENTO manda, e sem ele vale o da chamada. */
   const tetoVagas = evento?.tamanhoMax ?? evento?.tamanhoMaxPreset ?? null;
   const vagasLivres = tetoVagas != null ? tetoVagas - nEscalados : 0;
@@ -201,8 +238,7 @@ export default function EventoBoard({
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
   const nAguardando = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.convidado).length;
   const nSemConvocar = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && !j.convidado).length;
-  // escalado que ainda não apareceu na conferência in-game — o alvo da cobrança
-  const nSemIngame = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao !== false && !j.confirmouIngame).length;
+  // o contador da cobrança in-game virou `alvosIngame`, que segue o público escolhido no seletor
 
   async function api(body: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -309,13 +345,13 @@ export default function EventoBoard({
    * O estado de cada pessoa fica no banco, então fechar a aba no meio não reenvia pra quem já
    * recebeu: é só disparar de novo que ele continua de onde parou.
    */
-  async function enviarLote(tipo: "convocacao" | "ingame", acao: string, soNovos = true) {
+  async function enviarLote(tipo: "convocacao" | "ingame", acao: string, publico: string) {
     if (!canEdit || !evento) return;
     setSalvando(true);
     setEnvio({ acao, enviados: 0, falhas: [], total: 0, pendentes: 0, concluido: false });
     try {
       const criar = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ acao: "dm-criar", tipo, eventoId: evento.eventoId, soNovos }) });
+        body: JSON.stringify({ acao: "dm-criar", tipo, eventoId: evento.eventoId, publico }) });
       const c = await criar.json().catch(() => ({}));
       if (!criar.ok) throw new Error((c as { error?: string }).error ?? `erro ${criar.status}`);
       const { loteId, total } = c as { loteId: number; total: number };
@@ -398,11 +434,12 @@ export default function EventoBoard({
     trocarParties([...sem.slice(0, i), origem, ...sem.slice(i)]);
   }
 
-  async function convocar(soNovos: boolean) {
+  async function convocar() {
     if (!canEdit || !evento) return;
-    const alvo = soNovos ? "quem ainda não respondeu" : "TODOS os escalados (inclusive quem já respondeu)";
-    if (!confirm(`Enviar DM de confirmação para ${alvo}?`)) return;
-    await enviarLote("convocacao", "Convocação", soNovos);
+    const n = alvosConv.length;
+    if (!n) { setErro(`Ninguém em "${ROTULOS_PUBLICO[publicoConv]}".`); return; }
+    if (!confirm(`Enviar DM de convocação para ${n} pessoa(s) — ${ROTULOS_PUBLICO[publicoConv]}?`)) return;
+    await enviarLote("convocacao", "Convocação", publicoConv);
   }
 
   /**
@@ -412,10 +449,10 @@ export default function EventoBoard({
    */
   async function pedirIngame() {
     if (!canEdit || !evento) return;
-    if (!confirm(`Mandar DM pedindo pra marcar participar in-game?
-
-Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}).`)) return;
-    await enviarLote("ingame", "Pedido de participar in-game");
+    const n = alvosIngame.length;
+    if (!n) { setErro(`Ninguém em "${ROTULOS_PUBLICO[publicoIngame]}".`); return; }
+    if (!confirm(`Mandar DM pedindo pra marcar participar in-game para ${n} pessoa(s) — ${ROTULOS_PUBLICO[publicoIngame]}?`)) return;
+    await enviarLote("ingame", "Pedido de participar in-game", publicoIngame);
   }
 
   /** Publica a escalação no canal da lista. É uma mensagem só por evento, editada a cada vez. */
@@ -577,18 +614,32 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
               🔄 Atualizar no Discord
             </button>
           )}
+          {/* O público fica AO LADO do botão, não escondido num Shift: a diferença entre "não
+              respondeu" e "não recebeu" é a que evita spam, e escolha que ninguém vê ninguém usa.
+              O número no botão é o do público escolhido, contado da mesma fonte que o servidor. */}
           {canEdit && nEscalados > 0 && (
-            <button onClick={() => convocar(true)} disabled={salvando} title="manda DM pros escalados que ainda não responderam; segure Shift pra reenviar a todos"
-              onMouseDown={(e) => { if (e.shiftKey) { e.preventDefault(); convocar(false); } }}
-              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-              📨 Convocar {nSemConvocar + nAguardando > 0 ? `(${nSemConvocar + nAguardando})` : "escalados"}
-            </button>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <select value={publicoConv} onChange={(e) => setPublicoConv(e.target.value)} disabled={salvando} title="para quem a convocação vai"
+                style={seletorPublico}>
+                {PUBLICOS_CONV.map((p) => <option key={p} value={p}>{ROTULOS_PUBLICO[p]}</option>)}
+              </select>
+              <button onClick={convocar} disabled={salvando || !alvosConv.length} title="DM de confirmação da escalação"
+                style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: alvosConv.length ? C.amarelo : C.borderSoft, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: alvosConv.length ? "pointer" : "not-allowed" }}>
+                📨 Convocar ({alvosConv.length})
+              </button>
+            </span>
           )}
-          {canEdit && nSemIngame > 0 && (
-            <button onClick={pedirIngame} disabled={salvando} title="DM pra quem está escalado e ainda não apareceu na conferência in-game"
-              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-              🎮 Pedir participar ({nSemIngame})
-            </button>
+          {canEdit && nEscalados > 0 && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <select value={publicoIngame} onChange={(e) => setPublicoIngame(e.target.value)} disabled={salvando} title="para quem a cobrança do participar in-game vai"
+                style={seletorPublico}>
+                {PUBLICOS_INGAME.map((p) => <option key={p} value={p}>{ROTULOS_PUBLICO[p]}</option>)}
+              </select>
+              <button onClick={pedirIngame} disabled={salvando || !alvosIngame.length} title="DM pedindo pra marcar participar dentro do jogo"
+                style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: alvosIngame.length ? C.amarelo : C.borderSoft, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: alvosIngame.length ? "pointer" : "not-allowed" }}>
+                🎮 Pedir participar ({alvosIngame.length})
+              </button>
+            </span>
           )}
           {canEdit && nEscalados > 0 && evento.messageId && (
             <button onClick={publicar} disabled={salvando} title="posta/atualiza a escalação no canal da lista (uma mensagem só, editada)"

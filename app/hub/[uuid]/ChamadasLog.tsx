@@ -51,6 +51,7 @@ export default function ChamadasLog({ lotes }: { lotes: LoteResumo[] }) {
               <span style={{ color: C.borderSoft, fontSize: 11 }}>{emAberto ? "▾" : "▸"}</span>
               <span style={{ color: cor, fontWeight: 700, fontSize: 13 }}>📨 {l.rotulo}</span>
               <span style={{ color: C.mute, fontSize: 12 }}>{hora(l.criado)}</span>
+              {l.publico && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>· {l.publico}</span>}
               <span style={{ fontSize: 12.5 }}>
                 <span style={{ color: C.verde }}>{l.enviados} recebeu(ram)</span>
                 {l.falhas > 0 && <span style={{ color: C.amarelo, fontWeight: 700 }}> · {l.falhas} não</span>}
