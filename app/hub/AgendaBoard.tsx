@@ -20,7 +20,7 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  // {data} já vem preenchido porque é o padrão que a staff usa: o evento se chama pelo dia da GUERRA
+  // {data} já vem preenchido porque é o padrão que a staff usa: o evento se chama pelo dia do disparo
   const [nova, setNova] = useState<{ presetId: string; hora: string; dias: number[]; nome: string }>({ presetId: "", hora: "20:20", dias: [0, 1, 2, 3, 4, 5, 6], nome: "{data}" });
 
   async function api(body: Record<string, unknown>, ok?: string) {
@@ -64,7 +64,9 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
         de hora em hora no plano atual), então sai na primeira checagem depois da hora — até ~5 min de atraso.
         Cada horário dispara <b>uma vez por dia</b>, mesmo que o worker bata várias.
         O <b>nome</b> batiza o evento criado: <code style={{ color: C.amarelo }}>{"{data}"}</code> vira
-        a data da guerra — que é sempre <b>o dia seguinte</b>, já que a chamada sai na véspera. Vazio usa o nome da chamada.
+        o dia em que a chamada sai, e <code style={{ color: C.amarelo }}>{"{amanha}"}</code> o dia seguinte
+        (pra quem dispara na véspera). Vazio já vale <code style={{ color: C.amarelo }}>{"{data}"}</code>, que é como
+        a staff nomeia — e dá pra renomear o evento depois, na página dele.
       </div>
 
       {agendas.length > 0 && (
@@ -102,7 +104,7 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
             </span>
             {/* sem estado controlado: só grava ao sair do campo, senão seria um POST por tecla */}
             {canEdit
-              ? <input defaultValue={a.nome_padrao ?? ""} placeholder={a.preset_nome} title="nome do evento criado — {data} vira a data da guerra (o dia seguinte)"
+              ? <input defaultValue={a.nome_padrao ?? ""} placeholder="{data}" title="nome do evento criado — {data} = o dia do disparo (o padrão), {amanha} = o dia seguinte"
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (a.nome_padrao ?? "")) api({ acao: "agenda-editar", id: a.id, nomePadrao: v }, "nome salvo"); }}
                   style={{ ...input, width: 120, padding: "3px 7px", fontSize: 12 }} />
               : a.nome_padrao && <span style={{ color: C.mute, fontSize: 11.5 }}>{a.nome_padrao}</span>}
@@ -130,7 +132,7 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
           </select>
           <input type="time" value={nova.hora} onChange={(e) => setNova({ ...nova, hora: e.target.value })} style={{ ...input, width: 105 }} />
           <input value={nova.nome} onChange={(e) => setNova({ ...nova, nome: e.target.value })} placeholder="nome do evento"
-            title="nome do evento criado — {data} vira a data da guerra (o dia seguinte)" style={{ ...input, width: 130 }} />
+            title="nome do evento criado — {data} = o dia do disparo (o padrão), {amanha} = o dia seguinte" style={{ ...input, width: 130 }} />
           <span style={{ display: "inline-flex", gap: 3 }}>
             {DIAS.map((d, i) => (
               <button key={i} onClick={() => setNova({ ...nova, dias: nova.dias.includes(i) ? nova.dias.filter((x) => x !== i) : [...nova.dias, i].sort() })}

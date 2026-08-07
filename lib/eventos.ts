@@ -250,6 +250,21 @@ export async function criarEventoManual(o: { tipo: string; data?: string; titulo
   return map(rows[0]);
 }
 
+/**
+ * Renomeia o evento. Vazio volta pro NULL, e quem lê cai no `COALESCE(titulo, tipo)` de sempre —
+ * apagar o nome é escolha válida, não erro.
+ *
+ * O nome é do EVENTO, não da chamada: a mensagem do bot continua com o nome do preset ("NODEWAR
+ * T2"), que é o que identifica a rodada no canal. Quem acompanha o nome é o site, a lista publicada
+ * (`COALESCE(e.titulo, e.tipo)` em publicarLista) e a DM de convocação.
+ */
+export async function renomearEvento(id: number, titulo: unknown): Promise<{ ok: boolean; titulo: string | null }> {
+  const t = typeof titulo === "string" ? titulo.trim().slice(0, 200) : "";
+  const rows = (await sql`UPDATE evento SET titulo = ${t || null} WHERE id = ${id} RETURNING titulo, tipo`) as { titulo: string | null; tipo: string }[];
+  if (!rows[0]) return { ok: false, titulo: null };
+  return { ok: true, titulo: rows[0].titulo ?? rows[0].tipo };
+}
+
 /** Stats já gravados de uma war (formato longo → agrupado por jogador) — pré-carrega a tabela de revisão
  *  do RESULTADO p/ que "regravar" edite sobre o estado real (senão o replace-all apagaria os ausentes). */
 export async function desempenhoDaWar(warId: number): Promise<{ nome_familia: string; valores: Record<string, number> }[]> {

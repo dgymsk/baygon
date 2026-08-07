@@ -66,7 +66,9 @@ export async function faltasPorChave(limite = 12): Promise<Map<string, Falta>> {
   const chaves = new Set<string>([...marcas.map((m) => m.chave), ...presencas.map((p) => p.chave), ...jogaram.map((d) => chaveNome(d.nome_familia))]);
 
   const hoje = Date.now();
-  const diasAte = (d: string) => Math.max(0, Math.floor((hoje - new Date(d + "T00:00:00Z").getTime()) / 86400000));
+  // âncora em BRASÍLIA, não em UTC: `T00:00:00Z` é 21:00 SP do dia ANTERIOR, e como a war começa
+  // por volta dessa hora o contador virava "faz 1 dia" durante a própria guerra.
+  const diasAte = (d: string) => Math.max(0, Math.floor((hoje - new Date(d + "T00:00:00-03:00").getTime()) / 86400000));
 
   const out = new Map<string, Falta>();
   for (const chave of chaves) {

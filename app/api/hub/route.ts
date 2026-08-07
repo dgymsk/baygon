@@ -4,7 +4,7 @@ import { requireEditor } from "@/lib/requireAuth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
 import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
-import { criarEventoManual, deletarEvento, resumoExclusao } from "@/lib/eventos";
+import { criarEventoManual, deletarEvento, resumoExclusao, renomearEvento } from "@/lib/eventos";
 import { silenciarOrfas } from "@/lib/silenciarEvento";
 import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
@@ -115,6 +115,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    // --- nome do evento: livre e editável a qualquer momento ---
+    case "evento-renomear": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const r = await renomearEvento(eid(), b.titulo);
+      if (!r.ok) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
+      // a lista publicada leva o nome do evento no título — se já está no canal, acompanha
+      await espelharLista();
+      return NextResponse.json(r);
+    }
+
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---
     case "evento-registro": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
@@ -147,14 +157,14 @@ export async function POST(req: Request) {
     // --- dispara a DM de confirmação da escalação ---
     case "convocar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      const c = await convocar(eid(), typeof b.titulo === "string" ? b.titulo : "Node War", b.soNovos !== false);
+      const c = await convocar(eid(), b.soNovos !== false);
       return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
     }
 
     // --- cobra o participar IN-GAME de quem está escalado e não apareceu na conferência ---
     case "pedir-ingame": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      const p = await pedirParticiparIngame(eid(), typeof b.titulo === "string" ? b.titulo : "Node War");
+      const p = await pedirParticiparIngame(eid());
       return p.ok ? NextResponse.json(p) : NextResponse.json({ error: p.erro }, { status: 400 });
     }
 

@@ -9,6 +9,7 @@ import { perfilGear } from "@/lib/players";
 import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
 import { getIntencaoConfig } from "@/lib/intencaoConfig";
+import { nomeDoEvento } from "@/lib/datas";
 
 /**
  * Bot de INTENÇÃO — rodadas em que a pessoa marca EM QUAL FUNÇÃO pretende jogar (uma; marcar
@@ -88,9 +89,12 @@ export async function postarIntencao(presetId: number, o: { titulo?: string | nu
   const canal = info.canalId || (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
   if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloTipo(info.tipo as Tipo)} não configurado` };
 
-  // nome do evento: o que a staff digitou (ou o modelo da agenda já resolvido); senão o do preset,
-  // que era o único comportamento até aqui
-  const tituloEvento = (typeof o.titulo === "string" && o.titulo.trim() ? o.titulo.trim().slice(0, 200) : info.nome);
+  // nome do evento: o que a staff digitou (ou o modelo da agenda já resolvido). Sem nada, o padrão
+  // é a DATA do disparo — é como a staff nomeia, e é o que faz os três caminhos (botão do hub,
+  // agenda e o slash /intencao-nodewar) baterem o mesmo nome em vez de um cair no nome do preset.
+  const tituloEvento = (typeof o.titulo === "string" && o.titulo.trim()
+    ? o.titulo.trim().slice(0, 200)
+    : nomeDoEvento("{data}")) ?? info.nome;
   const dataEvento = typeof o.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
 
   const [perfil, emojis, meta, membros] = await Promise.all([perfilGear(), getEmojiMapResolvido(), getGuildMeta(), listElencoEsperado()]);

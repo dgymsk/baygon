@@ -12,7 +12,9 @@
     "db:seed": "node --env-file=.env.local scripts/seed.mjs",
     "db:seed-history": "node --env-file=.env.local scripts/seed_history.mjs",
     "db:seed-config": "node --env-file=.env.local scripts/seed_config.mjs",
-    "db:reset": "npm run db:migrate && npm run db:seed && npm run db:seed-history && npm run db:seed-config"
+    "db:reset": "npm run db:migrate && npm run db:seed && npm run db:seed-history && npm run db:seed-config",
+    "test:datas": "node scripts/teste_datas.mjs",
+    "test": "node scripts/teste_datas.mjs && node scripts/teste_embed.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

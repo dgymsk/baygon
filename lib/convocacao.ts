@@ -49,11 +49,22 @@ async function resolverUserIds(eventoId: number): Promise<void> {
 const linha = (comps: object[]) => ({ type: 1, components: comps });
 
 /**
+ * O nome do evento pra estampar na DM, lido do BANCO e não recebido do cliente: o título virou
+ * editável a qualquer momento, e a tela que dispara a convocação pode estar com a versão de até
+ * 20 segundos atrás (o auto-refresh). Quem manda é a linha do evento, como já faz a lista publicada.
+ */
+async function nomeDoEventoDM(eventoId: number): Promise<string> {
+  const rows = (await sql`SELECT COALESCE(titulo, tipo) AS titulo FROM evento WHERE id = ${eventoId}`) as { titulo: string }[];
+  return rows[0]?.titulo ?? "Node War";
+}
+
+/**
  * Dispara a DM de convocação. Devolve o que foi enviado e o que falhou — DM fechada é o caso
  * comum e não pode derrubar o lote.
  */
-export async function convocar(eventoId: number, titulo: string, soNovos = true): Promise<{ ok: boolean; erro?: string; enviados: number; falhas: { familia: string; motivo: string }[] }> {
+export async function convocar(eventoId: number, soNovos = true): Promise<{ ok: boolean; erro?: string; enviados: number; falhas: { familia: string; motivo: string }[] }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado", enviados: 0, falhas: [] };
+  const titulo = await nomeDoEventoDM(eventoId);
   await resolverUserIds(eventoId);
   const alvos = await alvosConvocacao(eventoId, soNovos);
   if (!alvos.length) return { ok: true, enviados: 0, falhas: [] };
@@ -113,8 +124,9 @@ export async function responderConvocacao(eventoId: number, userId: string, acei
  * Sem botão de propósito: o site não tem como saber que a pessoa marcou no jogo, isso só chega pelo
  * print da conferência. Um botão aqui daria a impressão de resolver e não resolveria nada.
  */
-export async function pedirParticiparIngame(eventoId: number, titulo: string): Promise<{ ok: boolean; erro?: string; enviados: number; falhas: { familia: string; motivo: string }[] }> {
+export async function pedirParticiparIngame(eventoId: number): Promise<{ ok: boolean; erro?: string; enviados: number; falhas: { familia: string; motivo: string }[] }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado", enviados: 0, falhas: [] };
+  const titulo = await nomeDoEventoDM(eventoId);
   await resolverUserIds(eventoId);
 
   const alvos = (await sql`

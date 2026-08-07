@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
@@ -60,16 +60,20 @@ function Pokebola({ size = 13 }: { size?: number }) {
 }
 export type GrupoVM = { funcaoId: number | null; nome: string; emoji: string | null; jogadores: JogadorVM[] };
 export type PartyVM = { id: number; nome: string; icone: string | null };
-type Ev = { uuid: string; titulo: string; tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
+// titulo já vem com COALESCE(titulo, tipo) pra exibir; tituloRaw é o valor CRU, que distingue
+// "sem nome" de "chamado de nodewar" — é ele que abre no campo de renomear, senão o primeiro
+// clique gravaria "nodewar" como nome de verdade e não haveria como voltar a não ter nome.
+type Ev = { uuid: string; titulo: string; tituloRaw: string | null; tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
-  evento, grupos, parties, envolvidos, canEdit, podeApagar = false, guildas, emojisClasse = {}, temChamada = true,
+  evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
+  podeRenomear?: boolean; // idem: consertar o nome de uma war passada é o caso mais comum de renomear
   emojisClasse?: Record<string, string>; // classe → emoji do Discord (o Shai é o que se procura de relance)
   temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
   vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
@@ -82,6 +86,9 @@ export default function EventoBoard({
   const [salvando, setSalvando] = useState(false);
   const [sincronizou, setSincronizou] = useState(false);
   const [convocacao, setConvocacao] = useState("");
+  const [renomeando, setRenomeando] = useState<string | null>(null); // null = não está editando o nome
+  const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
+  const [salvandoNome, setSalvandoNome] = useState(false);
   const [busca, setBusca] = useState("");
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
   const [ordemLocal, setOrdemLocal] = useState<Record<string, number>>({});
@@ -160,6 +167,56 @@ export default function EventoBoard({
   }
 
   /** Redesenha a mensagem do bot no canal com o estado atual — não muda dado, só reescreve. */
+  /**
+   * Renomear o evento. É um estado de edição explícito (null = não editando) em vez de um input
+   * sempre ligado ao título: esta tela se recarrega sozinha a cada 20s, e um campo controlado pela
+   * prop apagaria o que estivesse sendo digitado no meio do refresh.
+   *
+   * O `editandoRef` existe porque Enter fecha o campo e o blur dispara logo atrás: sem ele, o mesmo
+   * nome seria gravado duas vezes (o state ainda não atualizou dentro do mesmo tique).
+   *
+   * O `baseRef` guarda o nome de quando o campo ABRIU. É contra ele que se decide se houve edição —
+   * comparar com o valor atual da prop transformaria "abri e cliquei fora" numa gravação sempre que
+   * outra pessoa renomeasse no meio, desfazendo o trabalho dela em silêncio.
+   *
+   * `salvandoNome` é separado do `salvando` geral de propósito: o blur dispara no mousedown, e um
+   * estado compartilhado desabilitaria a barra de botões antes do clique chegar — o clique sumia.
+   */
+  const editandoRef = useRef(false);
+  const baseRef = useRef("");
+  const abrirRenome = () => {
+    if (!podeRenomear || !evento) return;
+    editandoRef.current = true;
+    baseRef.current = evento.tituloRaw ?? "";
+    setRenomeando(baseRef.current);
+  };
+  const cancelarRenome = () => { editandoRef.current = false; setRenomeando(null); };
+
+  async function renomear(novo: string) {
+    if (!evento || !editandoRef.current) return;
+    const t = novo.trim();
+    if (t === baseRef.current) { cancelarRenome(); return; } // nada digitado: nem requisição, nem espelho
+    const atual = evento.tituloRaw ?? "";
+    if (atual !== baseRef.current && !confirm(`Outra pessoa renomeou para "${evento.titulo}". Gravar "${t || evento.tipo}" por cima?`)) {
+      cancelarRenome();
+      return;
+    }
+    editandoRef.current = false;
+    setRenomeando(null);
+    setNomeOtimista(t || evento.tipo); // mostra o nome novo na hora: o refresh do servidor demora
+    setSalvandoNome(true);
+    try { await api({ acao: "evento-renomear", eventoId: evento.eventoId, titulo: t }); setErro(""); router.refresh(); }
+    catch (e) {
+      // devolve o texto digitado em vez de engolir: o erro mais provável é sessão vencida, e
+      // perder o nome inteiro por causa disso é o pior desfecho possível
+      setErro((e as Error).message);
+      setNomeOtimista(null);
+      editandoRef.current = true;
+      setRenomeando(novo);
+    }
+    finally { setSalvandoNome(false); }
+  }
+
   async function sincronizar() {
     if (!evento) return;
     setSalvando(true);
@@ -181,7 +238,7 @@ export default function EventoBoard({
     if (!confirm(`Enviar DM de confirmação para ${alvo}?`)) return;
     setSalvando(true);
     try {
-      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "convocar", eventoId: evento.eventoId, titulo: evento.titulo, soNovos }) });
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "convocar", eventoId: evento.eventoId, soNovos }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
       const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
@@ -203,7 +260,7 @@ export default function EventoBoard({
 Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}).`)) return;
     setSalvando(true);
     try {
-      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "pedir-ingame", eventoId: evento.eventoId, titulo: evento.titulo }) });
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "pedir-ingame", eventoId: evento.eventoId }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
       const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
@@ -322,8 +379,25 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
   return (
     <Casca>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 24, letterSpacing: 1, margin: 0, color: C.amarelo }}>{evento.titulo}</h1>
+        {/* minWidth 0: item de flex não encolhe abaixo do min-content por padrão, e um nome comprido
+            sem espaço empurrava os botões pra fora da tela */}
+        <div style={{ minWidth: 0 }}>
+          {renomeando != null ? (
+            // Enter só tira o foco: quem grava é o blur, num caminho só
+            <input autoFocus value={renomeando} onChange={(e) => setRenomeando(e.target.value)} maxLength={200}
+              placeholder={evento.tipo} title="Enter grava · Esc cancela · vazio volta pro nome padrão do tipo"
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") cancelarRenome(); }}
+              // trocar de janela (alt-tab pro Discord) também dispara blur: sem esta guarda o nome
+              // pela metade seria gravado E publicado no canal
+              onBlur={(e) => { if (document.hasFocus()) renomear(e.target.value); }}
+              style={{ ...tituloEstilo, background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "1px 8px", width: 340, maxWidth: "100%", boxSizing: "border-box", outline: "none" }} />
+          ) : (
+            <h1 onClick={abrirRenome} title={podeRenomear ? "clique pra renomear o evento" : undefined}
+              style={{ ...tituloEstilo, cursor: podeRenomear ? "text" : "default", opacity: salvandoNome ? 0.6 : 1 }}>
+              {nomeOtimista ?? evento.titulo}
+              {podeRenomear && <span style={{ color: C.borderSoft, fontSize: 13, marginLeft: 8, verticalAlign: "middle" }}>✎</span>}
+            </h1>
+          )}
           <div style={{ color: C.mute, fontSize: 12.5, marginTop: 3 }}>
             {new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {evento.tipo}
             {evento.tier && <span style={{ color: corTier[evento.tier], fontWeight: 700 }}> · {evento.tier}</span>}
@@ -750,6 +824,9 @@ const Linha = ({ k, v, cor }: { k: string; v: string; cor?: string }) => (
     <span style={{ color: "#8f8f8f" }}>{k}</span><span style={{ color: cor ?? "#e5e5e5" }}>{v}</span>
   </span>
 );
+// o mesmo desenho no <h1> e no campo de renomear — trocar de um pro outro não pode mexer no layout
+const tituloEstilo = { fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 24, letterSpacing: 1, margin: 0, color: C.amarelo, overflowWrap: "anywhere" } as const;
+
 const navBtn = (on: boolean) => ({
   cursor: on ? "pointer" : "not-allowed", opacity: on ? 1 : 0.35,
   borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute,

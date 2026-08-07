@@ -102,6 +102,11 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
     const r = await botFetch(`/channels/${post.lista_channel_id}/messages/${post.lista_message_id}`, { method: "PATCH", body });
     if (r.ok) return { ok: true, editou: true };
     if (r.status !== 404) return { ok: false, erro: `Discord ${r.status}` };
+    // 404 = a mensagem foi apagada no Discord. No espelho automático isso ENCERRA: repostar faria a
+    // escalação de uma war antiga reaparecer hoje no canal só porque alguém corrigiu o nome dela.
+    // Postar de novo é decisão da staff, no botão — que chama sem `soSePublicada`.
+    await sql`UPDATE intencao_post SET lista_message_id = NULL, lista_channel_id = NULL WHERE message_id = ${post.message_id}`;
+    if (o.soSePublicada) return { ok: true, editou: false };
   }
   const res = await botFetch(`/channels/${canal}/messages`, { method: "POST", body });
   if (!res.ok) return { ok: false, erro: `Discord ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}` };
