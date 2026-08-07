@@ -172,10 +172,44 @@ export type MensagensOrfas = {
   threadId: string | null;                                      // thread da ordem de chegada
 };
 
-/** Deleta o evento (facetas caem por CASCADE/SET NULL; os stats em wars/desempenho permanecem).
- *  Devolve TODAS as mensagens que ficariam vivas no Discord — o caller tem que silenciá-las, senão
- *  sobra botão que segue registrando clique num post que não pertence mais a evento nenhum. */
-export async function deletarEvento(id: number): Promise<{ ok: boolean; orfas: MensagensOrfas }> {
+/**
+ * Apaga a ESTATÍSTICA de combate de uma war: o dano cru e tudo que foi derivado dele.
+ *
+ * A ordem não é gosto, é obrigação do banco: `desempenho`, `benchmarks`, `discrepancia` e
+ * `war_guilda` referenciam `wars` SEM regra de exclusão (ou seja, RESTRICT), então apagar a war
+ * antes deles falha. `war_player` cai por CASCADE, mas vai explícito pra contagem ser honesta.
+ *
+ * O que NÃO se toca: `players` (grupo, is_core, classe). A régua do score é calculada POR WAR —
+ * cada linha de `benchmarks` tem seu `war_id` —, então tirar uma war não desloca a média de
+ * nenhuma outra e não há agregado guardado pra recomputar. Mexer em `players` aqui seria apagar o
+ * cadastro por causa de uma guerra.
+ */
+async function apagarEstatisticaDaWar(warId: number): Promise<number> {
+  const [dano] = (await sql`SELECT count(*)::int AS n FROM desempenho WHERE war_id = ${warId}`) as { n: number }[];
+  await sql`DELETE FROM discrepancia WHERE war_id = ${warId}`;
+  await sql`DELETE FROM benchmarks   WHERE war_id = ${warId}`;
+  await sql`DELETE FROM war_guilda   WHERE war_id = ${warId}`;
+  await sql`DELETE FROM desempenho   WHERE war_id = ${warId}`;
+  await sql`DELETE FROM war_player   WHERE war_id = ${warId}`;
+  await sql`DELETE FROM wars         WHERE war_id = ${warId}`;
+  return dano?.n ?? 0;
+}
+
+/**
+ * Deleta o evento e a ESTATÍSTICA da war dele. As demais facetas caem por CASCADE/SET NULL.
+ *
+ * Antes o dano ficava: `evento_resultado` sumia junto com o evento (CASCADE) e as linhas de
+ * `wars`/`desempenho` viravam órfãs — invisíveis no hub, mas ainda contando nas médias e nos
+ * rankings, sem nenhuma tela pra reatá-las. Apagar o evento e deixar o dano era guardar número de
+ * uma guerra que a staff decidiu que não existiu.
+ *
+ * A war só é apagada se NENHUM outro evento apontar pra ela: dois eventos podem referenciar a mesma
+ * war (`evento_resultado.war_id` não é único), e nesse caso o dano ainda tem dono.
+ *
+ * Devolve TODAS as mensagens que ficariam vivas no Discord — o caller tem que silenciá-las, senão
+ * sobra botão que segue registrando clique num post que não pertence mais a evento nenhum.
+ */
+export async function deletarEvento(id: number): Promise<{ ok: boolean; orfas: MensagensOrfas; warsApagadas: number[]; danoApagado: number }> {
   const [leg, cha] = (await Promise.all([
     sql`SELECT message_id, channel_id FROM participacao_post WHERE evento_id = ${id} ORDER BY criado DESC LIMIT 1`,
     sql`SELECT message_id, channel_id, lista_message_id, lista_channel_id, thread_id
@@ -183,11 +217,30 @@ export async function deletarEvento(id: number): Promise<{ ok: boolean; orfas: M
   ])) as [{ message_id: string; channel_id: string }[],
           { message_id: string; channel_id: string; lista_message_id: string | null; lista_channel_id: string | null; thread_id: string | null }[]];
 
+  // as wars deste evento que não são de mais ninguém — resolvido ANTES do DELETE, porque a linha de
+  // evento_resultado que faz esse vínculo cai por cascata junto com o evento
+  const wars = (await sql`
+    SELECT DISTINCT r.war_id::int AS war_id FROM evento_resultado r
+    WHERE r.evento_id = ${id} AND r.war_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM evento_resultado o WHERE o.war_id = r.war_id AND o.evento_id <> ${id})`) as { war_id: number }[];
+
   const rows = (await sql`DELETE FROM evento WHERE id = ${id} RETURNING id`) as { id: number }[];
   const vazio: MensagensOrfas = { legado: null, chamada: null, lista: null, threadId: null };
-  if (rows.length === 0) return { ok: false, orfas: vazio };
+  if (rows.length === 0) return { ok: false, orfas: vazio, warsApagadas: [], danoApagado: 0 };
+
+  // depois do evento sair: se a estatística falhar, o pior caso é o estado de hoje (dano órfão),
+  // e não um evento vivo apontando pra uma war já esvaziada
+  let danoApagado = 0;
+  const warsApagadas: number[] = [];
+  for (const w of wars) {
+    try { danoApagado += await apagarEstatisticaDaWar(w.war_id); warsApagadas.push(w.war_id); }
+    catch (e) { console.error(`falhou apagar a estatística da war ${w.war_id}`, e); }
+  }
+
   return {
     ok: true,
+    warsApagadas,
+    danoApagado,
     orfas: {
       legado: leg[0] ? { messageId: leg[0].message_id, channelId: leg[0].channel_id } : null,
       chamada: cha[0] ? { messageId: cha[0].message_id, channelId: cha[0].channel_id } : null,
@@ -200,7 +253,7 @@ export async function deletarEvento(id: number): Promise<{ ok: boolean; orfas: M
 export type ResumoExclusao = {
   escalacaoLinhas: number; emPt: number; aceitaramDm: number; recusaramDm: number;
   presencas: number; presencaDePrint: number; marcaram: number;
-  warId: number | null; desempenhoOrfanado: number;
+  warId: number | null; desempenhoApagado: number; jogadoresComDano: number;
 };
 
 /**
@@ -222,7 +275,9 @@ export async function resumoExclusao(id: number): Promise<ResumoExclusao> {
       WHERE p.evento_id = ${id} AND r.resposta = 'vai') AS marcaram,
     (SELECT war_id::int FROM evento_resultado WHERE evento_id = ${id}) AS "warId",
     COALESCE((SELECT count(*)::int FROM desempenho d
-      WHERE d.war_id = (SELECT war_id FROM evento_resultado WHERE evento_id = ${id})), 0) AS "desempenhoOrfanado"`) as ResumoExclusao[];
+      WHERE d.war_id = (SELECT war_id FROM evento_resultado WHERE evento_id = ${id})), 0) AS "desempenhoApagado",
+    COALESCE((SELECT count(DISTINCT d.nome_familia)::int FROM desempenho d
+      WHERE d.war_id = (SELECT war_id FROM evento_resultado WHERE evento_id = ${id})), 0) AS "jogadoresComDano"`) as ResumoExclusao[];
   return rows[0];
 }
 

@@ -111,7 +111,7 @@ export async function POST(req: Request) {
       if (!del.ok) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
       // as mensagens do Discord não somem com o evento — calar é parte de apagar
       const restos = await silenciarOrfas(del.orfas);
-      return NextResponse.json({ ok: true, restos });
+      return NextResponse.json({ ok: true, restos, warsApagadas: del.warsApagadas, danoApagado: del.danoApagado });
     }
 
     // --- troca a chamada (preset) que rege o evento: muda como o pool é agrupado ---

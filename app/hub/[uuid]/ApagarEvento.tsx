@@ -15,7 +15,7 @@ import { C } from "@/lib/theme";
  * A palavra digitada é exigida só quando há trabalho manual a perder (escalação, presença,
  * resultado). Evento vazio não merece cerimônia.
  */
-type Resumo = { escalacaoLinhas: number; emPt: number; aceitaramDm: number; recusaramDm: number; presencas: number; presencaDePrint: number; marcaram: number; warId: number | null; desempenhoOrfanado: number };
+type Resumo = { escalacaoLinhas: number; emPt: number; aceitaramDm: number; recusaramDm: number; presencas: number; presencaDePrint: number; marcaram: number; warId: number | null; desempenhoApagado: number; jogadoresComDano: number };
 
 export default function ApagarEvento({ eventoId, titulo, temChamada }: { eventoId: number; titulo: string; temChamada: boolean }) {
   const router = useRouter();
@@ -78,13 +78,21 @@ export default function ApagarEvento({ eventoId, titulo, temChamada }: { eventoI
           <Li>escalação: <b>{resumo!.escalacaoLinhas}</b> linha(s){resumo!.emPt ? `, ${resumo!.emPt} em PT` : ""}</Li>
           <Li>convocação: <b>{resumo!.aceitaramDm}</b> aceitaram, <b>{resumo!.recusaramDm}</b> recusaram</Li>
           <Li>presença in-game: <b>{resumo!.presencas}</b>{resumo!.presencaDePrint ? ` (${resumo!.presencaDePrint} lidas de print)` : ""}</Li>
+          {/* o dano agora vai junto: deixá-lo pra trás guardava número de uma guerra que a staff
+              decidiu que não existiu, contando nas médias sem nenhuma tela pra reatá-lo */}
+          {resumo!.warId != null && (
+            <Li>
+              <b style={{ color: C.amarelo }}>estatística de combate</b> da war <b>#{resumo!.warId}</b>:
+              {" "}<b>{resumo!.desempenhoApagado}</b> linha(s) de dano{resumo!.jogadoresComDano ? ` de ${resumo!.jogadoresComDano} jogador(es)` : ""}
+              {" "}— sai das médias, dos rankings e da evolução
+            </Li>
+          )}
           <Li>o link <code>/hub/…</code> deste evento para de funcionar</Li>
         </Bloco>
         <Bloco cor={C.mute} rot="Fica">
-          {resumo!.warId != null
-            ? <Li>estatística da war <b>#{resumo!.warId}</b> ({resumo!.desempenhoOrfanado} linhas) — <b style={{ color: C.amarelo }}>mas sem evento, e não dá pra reatar pela tela</b></Li>
-            : <Li>nenhuma estatística de war ligada</Li>}
+          {resumo!.warId == null && <Li>nenhuma estatística de war ligada a este evento</Li>}
           <Li>as <b>{resumo!.marcaram}</b> marcações da chamada, órfãs de evento</Li>
+          <Li>o cadastro dos jogadores (grupo, core, classe) — nada disso é da guerra</Li>
         </Bloco>
       </div>
 
