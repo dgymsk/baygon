@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { motivoDaFalha, rotuloMotivo } from "@/lib/entregaDM";
 import { chaveNome, distancia } from "@/lib/nomes";
 import { criarEnquete, getEnquete, montarComponents, tally, votos, type OpcaoInput, type ActionRow } from "@/lib/enquete";
 
@@ -141,16 +142,17 @@ async function resolverAudiencia(a: Audiencia): Promise<{ ok: true; alvos: Alvo[
   return { ok: true, alvos: sel.map((m) => ({ userId: m.userId, nome: m.nome })) };
 }
 
-/** Abre a DM e envia a mensagem (com botões de enquete, se houver). Falha (DM fechada/bloqueio) → {ok:false}. */
+/** Abre a DM e envia a mensagem (com botões de enquete, se houver). Falha (DM fechada/bloqueio) → {ok:false}.
+ *  O motivo é gravado em texto humano (lib/entregaDM): "dm 403" não diz à staff o que fazer. */
 async function enviarDM(userId: string, mensagem: string, imagemUrl: string | null, components?: ActionRow[]): Promise<{ ok: boolean; erro?: string }> {
   const dm = await botFetch(`/users/@me/channels`, { method: "POST", body: JSON.stringify({ recipient_id: userId }) });
-  if (!dm.ok) return { ok: false, erro: `dm ${dm.status}` };
+  if (!dm.ok) return { ok: false, erro: await motivoDaFalha(dm, "abrir") };
   const ch = (await dm.json()) as { id: string };
   const body: Record<string, unknown> = { content: mensagem, allowed_mentions: { parse: [] } };
   if (imagemUrl) body.embeds = [{ image: { url: imagemUrl }, color: COR }];
   if (components && components.length) body.components = components;
   const msg = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(body) });
-  if (!msg.ok) return { ok: false, erro: `msg ${msg.status}` };
+  if (!msg.ok) return { ok: false, erro: await motivoDaFalha(msg, "enviar") };
   return { ok: true };
 }
 
@@ -258,8 +260,12 @@ type RelE = { id: number; mensagem: string; criado_por: string | null; enquete_i
 /** Monta o embed do relatório (entrega + votação), respeitando <=25 fields E soma total <=6000 chars.
  * push() só adiciona se couber (reserva 1 slot + margem pro aviso); essenciais entram primeiro. */
 async function montarEmbedRelatorio(e: RelE, c: { ok: number; falha: number; total: number }) {
-  const falhas = (await sql`SELECT user_id, nome FROM buzinador_alvo WHERE envio_id = ${e.id} AND status = 'falha' ORDER BY id`) as { user_id: string; nome: string | null }[];
-  const listaFalhas = falhas.map((f) => (f.nome ? `${f.nome} (<@${f.user_id}>)` : `<@${f.user_id}>`)).join(", ");
+  const falhas = (await sql`SELECT user_id, nome, erro FROM buzinador_alvo WHERE envio_id = ${e.id} AND status = 'falha' ORDER BY id`) as { user_id: string; nome: string | null; erro: string | null }[];
+  const rotulo = (f: { user_id: string; nome: string | null }) => (f.nome ? `${f.nome} (<@${f.user_id}>)` : `<@${f.user_id}>`);
+  // agrupado por MOTIVO: a ação da staff é por motivo — quem bloqueou o bot se resolve avisando no
+  // canal, quem nunca se registrou se resolve mandando rodar /register
+  const porMotivo = new Map<string, typeof falhas>();
+  for (const f of falhas) { const k = rotuloMotivo(f.erro); porMotivo.set(k, [...(porMotivo.get(k) ?? []), f]); }
   const titulo = "📢 Buzinador — relatório de entrega";
   const descricao = `> ${e.mensagem.slice(0, 300)}${e.mensagem.length > 300 ? "…" : ""}`;
   const footerText = e.criado_por ? `disparado por ${e.criado_por}` : "";
@@ -272,11 +278,23 @@ async function montarEmbedRelatorio(e: RelE, c: { ok: number; falha: number; tot
   };
 
   push({ name: "✅ Receberam", value: String(c.ok), inline: true });
-  push({ name: "❌ Falharam (DM fechada)", value: String(c.falha), inline: true });
+  push({ name: "❌ Não receberam", value: String(c.falha), inline: true });
   push({ name: "👥 Total", value: String(c.total), inline: true });
-  if (falhas.length) push({ name: "❌ Não receberam", value: (listaFalhas || "—").slice(0, 1024), inline: false });
-
+  // `omitidas` sobe pra cá: o retorno do push TEM que ser lido também no laço de motivos, senão um
+  // grupo inteiro de falhas some do relatório sem nenhuma marca de que faltou alguém
   let omitidas = 0;
+  for (const [motivo, quem] of porMotivo) {
+    // corte por ITEM, com "… +N": `.slice(1024)` parte a menção ao meio e some com gente calado
+    const teto = 984;
+    const partes: string[] = [];
+    let custo = 0;
+    for (const q of quem) { const s = rotulo(q); if (custo + s.length + 2 > teto) break; partes.push(s); custo += s.length + 2; }
+    const faltam = quem.length - partes.length;
+    const value = (partes.join(", ") || "—") + (faltam > 0 ? ` … +${faltam}` : "");
+    if (push({ name: `⚠ ${motivo} — ${quem.length}`.slice(0, 256), value, inline: false })) omitidas += Math.max(0, faltam);
+    else omitidas += quem.length;
+  }
+
   if (e.enquete_id != null) {
     const [t, vs] = await Promise.all([tally(e.enquete_id), votos(e.enquete_id)]);
     const totalVotos = t.reduce((s, o) => s + o.votos, 0);
@@ -292,7 +310,8 @@ async function montarEmbedRelatorio(e: RelE, c: { ok: number; falha: number; tot
       if (!push({ name: nome, value: (idsPorIdx.get(o.idx)?.join(" ") || "_(ninguém)_").slice(0, 1024), inline: true })) omitidas++;
     }
   }
-  if (omitidas > 0) fields.push({ name: "…", value: `+${omitidas} opção(ões) não exibida(s) (limite do Discord).`, inline: false });
+  // o aviso cobre os DOIS cortes (gente e opção de enquete): sem ele o relatório mentiria no total
+  if (omitidas > 0) fields.push({ name: "…", value: `+${omitidas} não exibido(s) (limite do Discord).`, inline: false });
 
   return { title: titulo, description: descricao, color: COR, fields, footer: footerText ? { text: footerText } : undefined, timestamp: new Date().toISOString() };
 }

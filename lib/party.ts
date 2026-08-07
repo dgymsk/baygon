@@ -59,3 +59,29 @@ export async function listLendarios(): Promise<string[]> {
   const rows = (await sql`SELECT nome_familia FROM players WHERE lendario ORDER BY nome_familia`) as { nome_familia: string }[];
   return rows.map((r) => r.nome_familia);
 }
+
+/**
+ * As PTs DESTE evento. Vazio = o evento não tem lista própria e segue a da chamada.
+ *
+ * Existe porque as colunas da escalação vinham do preset lidas AO VIVO: tirar uma PT da chamada
+ * hoje apagava a coluna nas guerras já realizadas — e sumia com quem estava escalado nela, que
+ * continua gravado apontando pra uma coluna que não é mais desenhada. Com lista própria, mexer na
+ * chamada vale pros PRÓXIMOS eventos, e mexer aqui vale só nesta guerra.
+ */
+export async function partiesDoEvento(eventoId: number): Promise<number[] | null> {
+  const rows = (await sql`SELECT party_id::int AS party_id FROM evento_party WHERE evento_id = ${eventoId} ORDER BY ordem, party_id`) as { party_id: number }[];
+  return rows.length ? rows.map((r) => r.party_id) : null;
+}
+
+/** Reescreve a lista do evento. Lista vazia APAGA a lista própria e volta a seguir a chamada. */
+export async function setPartiesDoEvento(eventoId: number, ids: unknown): Promise<number[] | null> {
+  const limpos = Array.isArray(ids)
+    ? [...new Set(ids.map((v) => Math.trunc(Number(v))).filter((n) => Number.isFinite(n) && n > 0))]
+    : [];
+  await sql`DELETE FROM evento_party WHERE evento_id = ${eventoId}`;
+  for (let i = 0; i < limpos.length; i++) {
+    await sql`INSERT INTO evento_party (evento_id, party_id, ordem) VALUES (${eventoId}, ${limpos[i]}, ${i})
+      ON CONFLICT (evento_id, party_id) DO UPDATE SET ordem = EXCLUDED.ordem`;
+  }
+  return limpos.length ? limpos : null;
+}

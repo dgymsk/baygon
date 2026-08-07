@@ -70,6 +70,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
+  catalogoParties = [], partiesProprias = false,
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -77,6 +78,8 @@ export default function EventoBoard({
   emojisClasse?: Record<string, string>; // classe → emoji do Discord (o Shai é o que se procura de relance)
   temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
   vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
+  catalogoParties?: PartyVM[];   // TODAS as PTs cadastradas — as colunas são um subconjunto disto
+  partiesProprias?: boolean;     // o evento tem lista própria, ou está seguindo a da chamada?
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats">("escalacao");
@@ -85,7 +88,8 @@ export default function EventoBoard({
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [sincronizou, setSincronizou] = useState(false);
-  const [convocacao, setConvocacao] = useState("");
+  const [envio, setEnvio] = useState<EnvioVM | null>(null);   // relatório de entrega das DMs
+  const [aviso, setAviso] = useState("");                      // recado simples (mensagem de canal)
   const [renomeando, setRenomeando] = useState<string | null>(null); // null = não está editando o nome
   const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
   const [salvandoNome, setSalvandoNome] = useState(false);
@@ -128,6 +132,8 @@ export default function EventoBoard({
     return n;
   }, [ordemLocal, todos]);
   const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
+  // as colunas de hoje: é o que o toggle marca/desmarca
+  const ptsAtuais = parties.map((p) => p.id);
   const nPool = grupos.reduce((n, g) => n + g.jogadores.length, 0);
   const casaBusca = (j: JogadorVM) => !busca.trim() || j.familia.toLowerCase().includes(busca.trim().toLowerCase());
   const naParty = (id: number) => [...todos.values()].filter((j) => partyDe(j) === id)
@@ -232,20 +238,67 @@ export default function EventoBoard({
    * Manda a DM de convocação pros escalados. Por padrão só pra quem ainda não respondeu, pra
    * reenviar não incomodar quem já confirmou.
    */
+  /**
+   * Dispara um envio de DM em LOTE e acompanha até o fim.
+   *
+   * O envio é fatiado no servidor (lib/loteDM): esta função abre o lote e chama o processamento em
+   * laço, cada rodada mandando um punhado. É o que permite mostrar o placar enquanto acontece — e o
+   * que impede a requisição única de morrer no meio numa escalação grande, deixando parte das DMs
+   * enviadas sem relatório nenhum.
+   *
+   * O estado de cada pessoa fica no banco, então fechar a aba no meio não reenvia pra quem já
+   * recebeu: é só disparar de novo que ele continua de onde parou.
+   */
+  async function enviarLote(tipo: "convocacao" | "ingame", acao: string, soNovos = true) {
+    if (!canEdit || !evento) return;
+    setSalvando(true);
+    setEnvio({ acao, enviados: 0, falhas: [], total: 0, pendentes: 0, concluido: false });
+    try {
+      const criar = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: "dm-criar", tipo, eventoId: evento.eventoId, soNovos }) });
+      const c = await criar.json().catch(() => ({}));
+      if (!criar.ok) throw new Error((c as { error?: string }).error ?? `erro ${criar.status}`);
+      const { loteId, total } = c as { loteId: number; total: number };
+      setEnvio({ acao, enviados: 0, falhas: [], total, pendentes: total, concluido: false });
+
+      // teto de segurança no laço: um lote de 8 dá 1000×8 = 8000 pessoas, muito além do real
+      for (let i = 0; i < 1000; i++) {
+        const pr = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ acao: "dm-processar", loteId }) });
+        const p = await pr.json().catch(() => ({}));
+        if (!pr.ok) throw new Error((p as { error?: string }).error ?? `erro ${pr.status}`);
+        const prog = p as { total: number; enviados: number; pendentes: number; concluido: boolean; falhasDetalhe: EnvioVM["falhas"]; log?: EnvioVM["log"] };
+        setEnvio({ acao, enviados: prog.enviados, falhas: prog.falhasDetalhe ?? [], total: prog.total, pendentes: prog.pendentes, concluido: prog.concluido, log: prog.log });
+        if (prog.concluido) break;
+      }
+      setErro(""); router.refresh();
+    } catch (e) {
+      // preserva o que já foi enviado na tela: o lote continua no banco e pode ser retomado
+      setEnvio((v) => (v ? { ...v, concluido: true, erro: (e as Error).message } : v));
+    }
+    finally { setSalvando(false); }
+  }
+
+  /**
+   * Troca as PTs DESTE evento. Lista vazia apaga a lista própria e volta a seguir a chamada.
+   *
+   * A ordem importa: é a ordem das colunas na escalação, e é a mesma da lista publicada. Manter a
+   * ordem do catálogo (e não a de clique) evita que a coluna pule de lugar a cada toggle.
+   */
+  async function trocarParties(ids: number[]) {
+    if (!canEdit || !evento) return;
+    const ordenados = catalogoParties.map((x) => x.id).filter((id) => ids.includes(id));
+    setSalvando(true);
+    try { await api({ acao: "evento-parties", eventoId: evento.eventoId, ids: ordenados }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   async function convocar(soNovos: boolean) {
     if (!canEdit || !evento) return;
     const alvo = soNovos ? "quem ainda não respondeu" : "TODOS os escalados (inclusive quem já respondeu)";
     if (!confirm(`Enviar DM de confirmação para ${alvo}?`)) return;
-    setSalvando(true);
-    try {
-      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "convocar", eventoId: evento.eventoId, soNovos }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
-      const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
-      setConvocacao(`${enviados} DM(s) enviada(s)${falhas.length ? ` · ${falhas.length} falharam: ${falhas.map((f) => `${f.familia} (${f.motivo})`).join(", ")}` : ""}`);
-      setErro(""); router.refresh();
-    } catch (e) { setErro((e as Error).message); }
-    finally { setSalvando(false); }
+    await enviarLote("convocacao", "Convocação", soNovos);
   }
 
   /**
@@ -258,16 +311,7 @@ export default function EventoBoard({
     if (!confirm(`Mandar DM pedindo pra marcar participar in-game?
 
 Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}).`)) return;
-    setSalvando(true);
-    try {
-      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "pedir-ingame", eventoId: evento.eventoId }) });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
-      const { enviados = 0, falhas = [] } = d as { enviados?: number; falhas?: { familia: string; motivo: string }[] };
-      setConvocacao(`🎮 ${enviados} pedido(s) de participar in-game${falhas.length ? ` · ${falhas.length} falharam: ${falhas.map((x) => `${x.familia} (${x.motivo})`).join(", ")}` : ""}`);
-      setErro("");
-    } catch (e) { setErro((e as Error).message); }
-    finally { setSalvando(false); }
+    await enviarLote("ingame", "Pedido de participar in-game");
   }
 
   /** Publica a escalação no canal da lista. É uma mensagem só por evento, editada a cada vez. */
@@ -278,7 +322,8 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
       const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ acao: "publicar-lista", eventoId: evento.eventoId }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
-      setConvocacao((d as { editou?: boolean }).editou ? "📋 lista atualizada no canal" : "📋 lista publicada no canal");
+      // publicar é mensagem de canal, não DM: não existe "quem não recebeu", então é só um recado
+      setAviso((d as { editou?: boolean }).editou ? "📋 lista atualizada no canal" : "📋 lista publicada no canal");
       setErro("");
     } catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
@@ -478,11 +523,35 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
         )}
       </div>
 
+      {/* PTs DESTA guerra: adicionar ou tirar uma PT amanhã não pode reescrever as guerras de
+          ontem, então o evento carrega a própria lista. Sem lista própria, segue a da chamada. */}
+      {canEdit && catalogoParties.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          <span style={{ color: C.mute, fontSize: 11.5 }}>PTs desta guerra:</span>
+          {catalogoParties.map((x) => {
+            const on = ptsAtuais.includes(x.id);
+            return (
+              <button key={x.id} disabled={salvando} onClick={() => trocarParties(on ? ptsAtuais.filter((y) => y !== x.id) : [...ptsAtuais, x.id])}
+                title={on ? `tirar ${x.nome} desta guerra` : `adicionar ${x.nome} nesta guerra`}
+                style={{ cursor: "pointer", borderRadius: 999, border: `1px solid ${on ? C.verde : C.borderSoft}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "2px 9px", fontSize: 11.5, fontFamily: "inherit" }}>
+                {x.icone ? `${x.icone} ` : ""}{x.nome}
+              </button>
+            );
+          })}
+          <span style={{ color: C.borderSoft, fontSize: 11 }}>
+            {partiesProprias
+              ? <>só neste evento · <button onClick={() => trocarParties([])} disabled={salvando} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 11, textDecoration: "underline", fontFamily: "inherit" }}>voltar a seguir a chamada</button></>
+              : "seguindo a chamada — mexer aqui vale só nesta guerra"}
+          </span>
+        </div>
+      )}
+
       {/* releitura periódica: as respostas da DM chegam pelo Discord, não por esta aba */}
       {evento.status === "aberto" && <AutoSync ms={20000} />}
 
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
-      {convocacao && <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", background: C.inputBg }}>📨 {convocacao}</div>}
+      {aviso && <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", background: C.inputBg }}>{aviso}</div>}
+      {envio && <PainelEnvio envio={envio} onFechar={() => setEnvio(null)} />}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Confirmação"], ["stats", "📊 Estatísticas"]] as const).map(([k, t]) => (
@@ -824,6 +893,81 @@ const Linha = ({ k, v, cor }: { k: string; v: string; cor?: string }) => (
     <span style={{ color: "#8f8f8f" }}>{k}</span><span style={{ color: cor ?? "#e5e5e5" }}>{v}</span>
   </span>
 );
+export type EnvioVM = {
+  acao: string; enviados: number;
+  falhas: { familia: string; userId: string | null; motivo: string }[];
+  log?: { postou: boolean; erro?: string };
+  total?: number; pendentes?: number; concluido?: boolean; erro?: string;
+};
+
+/** Barra de progresso do envio em lote — enquanto as DMs saem de poucas em poucas. */
+function BarraEnvio({ envio }: { envio: EnvioVM }) {
+  const total = envio.total ?? 0;
+  const feitos = envio.enviados + envio.falhas.length;
+  const pct = total ? Math.round((feitos / total) * 100) : 0;
+  return (
+    <div style={{ marginTop: 7 }}>
+      <div style={{ height: 6, borderRadius: 999, background: C.borderSoft, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: C.verde, transition: "width .3s" }} />
+      </div>
+      <div style={{ color: C.mute, fontSize: 11.5, marginTop: 4 }}>
+        {feitos}/{total} · <span style={{ color: C.verde }}>{envio.enviados} ok</span>
+        {envio.falhas.length ? <> · <span style={{ color: C.amarelo }}>{envio.falhas.length} falhou</span></> : null}
+        {envio.pendentes ? <> · {envio.pendentes} na fila</> : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Resultado de um envio em lote de DM. O número de enviados não é a informação importante — quem
+ * NÃO recebeu é. DM do Discord falha calado (bloqueou o bot, desligou DM do servidor, nunca rodou
+ * /register), e sem esta lista a staff só descobre na hora da guerra, com a vaga vazia.
+ *
+ * Agrupado por motivo porque a ação é por motivo: "cinco com DM fechada" se resolve avisando no
+ * canal; "dois sem /register" se resolve mandando registrar.
+ */
+function PainelEnvio({ envio, onFechar }: { envio: EnvioVM; onFechar: () => void }) {
+  const falhas = envio.falhas ?? [];
+  const porMotivo = new Map<string, typeof falhas>();
+  for (const f of falhas) porMotivo.set(f.motivo, [...(porMotivo.get(f.motivo) ?? []), f]);
+  const rodando = envio.concluido === false;
+  const cor = envio.erro ? C.vermelho : rodando ? C.mute : falhas.length ? C.amarelo : C.verde;
+
+  return (
+    <div style={{ marginBottom: 8, border: `1px solid ${cor}`, borderRadius: 10, padding: "9px 12px", background: C.inputBg }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ color: cor, fontWeight: 700, fontSize: 13 }}>📨 {envio.acao}</span>
+        <span style={{ color: C.mute, fontSize: 12.5 }}>
+          {rodando
+            ? "enviando…"
+            : <>{envio.enviados} recebeu(ram)
+                {falhas.length ? <span style={{ color: C.amarelo, fontWeight: 700 }}> · {falhas.length} NÃO recebeu(ram)</span> : " · ninguém ficou de fora"}</>}
+        </span>
+        {!rodando && <button onClick={onFechar} style={{ marginLeft: "auto", background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 12 }}>✕ fechar</button>}
+      </div>
+
+      {envio.total != null && <BarraEnvio envio={envio} />}
+      {envio.erro && <div style={{ color: C.vermelho, fontSize: 12.5, marginTop: 6 }}>⚠ {envio.erro}</div>}
+
+      {[...porMotivo.entries()].map(([motivo, quem]) => (
+        <div key={motivo} style={{ marginTop: 6, fontSize: 12.5 }}>
+          <span style={{ color: C.amarelo }}>⚠ {motivo} — {quem.length}</span>
+          <div style={{ color: C.texto, marginTop: 2 }}>{quem.map((q) => q.familia).join(" · ")}</div>
+        </div>
+      ))}
+
+      {!rodando && (
+        <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 7 }}>
+          {envio.log?.postou
+            ? "registrado no canal de log do Discord"
+            : `⚠ NÃO foi registrado no log${envio.log?.erro ? ` — ${envio.log.erro}` : ""}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // o mesmo desenho no <h1> e no campo de renomear — trocar de um pro outro não pode mexer no layout
 const tituloEstilo = { fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 24, letterSpacing: 1, margin: 0, color: C.amarelo, overflowWrap: "anywhere" } as const;
 

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { requireEditor } from "@/lib/requireAuth";
+import { auth } from "@/auth";
 import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoes } from "@/lib/funcao";
-import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario } from "@/lib/party";
+import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario, setPartiesDoEvento } from "@/lib/party";
 import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
 import { criarEventoManual, deletarEvento, resumoExclusao, renomearEvento } from "@/lib/eventos";
 import { silenciarOrfas } from "@/lib/silenciarEvento";
@@ -10,10 +11,15 @@ import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao, reordenarParty } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
-import { convocar, pedirParticiparIngame } from "@/lib/convocacao";
+import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
+
+// Convocar manda DM uma a uma (2 chamadas ao Discord por pessoa): uma escalação de 50 leva
+// dezenas de segundos, e no default da Vercel a rota morreria no meio — com parte das DMs enviadas
+// e nenhum relatório. 60s é o teto do plano Hobby.
+export const maxDuration = 60;
 
 // Central do hub: funções, parties, lendários, preset do bot, escalação e presença. Staff.
 // Uma rota só porque são todas ações curtas da mesma tela — o `acao` diz qual.
@@ -31,6 +37,11 @@ export async function POST(req: Request) {
   let b: Record<string, unknown>;
   try { b = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
   const eid = () => Math.trunc(Number(b.eventoId));
+  // quem apertou o botão, pro registro do envio no canal de log — a permissão já foi checada acima
+  const quemDisparou = async () => {
+    const s = await auth();
+    return s?.user?.name ?? s?.user?.email ?? null;
+  };
   /** Reflete no Discord o que acabou de mudar. Só EDITA lista já publicada, e nunca derruba a ação:
    *  a gravação no banco é o que importa; a mensagem é espelho. */
   const espelharLista = async () => {
@@ -125,6 +136,15 @@ export async function POST(req: Request) {
       return NextResponse.json(r);
     }
 
+    // --- PTs DESTE evento. Lista vazia volta a seguir a chamada; mexer aqui não toca no preset,
+    // que rege os PRÓXIMOS eventos (era o mesmo objeto, então tirar uma PT reescrevia o passado) ---
+    case "evento-parties": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const ids = await setPartiesDoEvento(eid(), b.ids);
+      await espelharLista(); // a lista publicada é desenhada por PT — some/entra coluna, ela acompanha
+      return NextResponse.json({ ok: true, ids });
+    }
+
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---
     case "evento-registro": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
@@ -154,17 +174,20 @@ export async function POST(req: Request) {
       return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
     }
 
-    // --- dispara a DM de confirmação da escalação ---
-    case "convocar": {
+    // --- envio de DM em lote (convocação da escalação e cobrança do participar in-game) ---
+    // São DUAS ações porque o envio é fatiado: `dm-criar` resolve quem recebe e grava o lote,
+    // `dm-processar` manda um punhado por vez. A tela chama a segunda em laço, mostrando o placar —
+    // numa requisição só, uma escalação grande estouraria o tempo da função no meio.
+    case "dm-criar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      const c = await convocar(eid(), b.soNovos !== false);
+      const tipo = b.tipo === "ingame" ? "ingame" : "convocacao";
+      const c = await criarLoteDM({ tipo, eventoId: eid(), soNovos: b.soNovos !== false, porQuem: await quemDisparou() });
       return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
     }
-
-    // --- cobra o participar IN-GAME de quem está escalado e não apareceu na conferência ---
-    case "pedir-ingame": {
-      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      const p = await pedirParticiparIngame(eid());
+    case "dm-processar": {
+      const lid = Math.trunc(Number(b.loteId));
+      if (!Number.isFinite(lid)) return NextResponse.json({ error: "lote inválido" }, { status: 400 });
+      const p = await processarLoteDM(lid);
       return p.ok ? NextResponse.json(p) : NextResponse.json({ error: p.erro }, { status: 400 });
     }
 

@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import { listFuncoes } from "@/lib/funcao";
-import { listParties } from "@/lib/party";
+import { listParties, partiesDoEvento } from "@/lib/party";
 import { getPreset, listPresets, listPlayerFuncoes } from "@/lib/intencaoPreset";
 import { desempenhoDaWar, aliancasDaWar } from "@/lib/eventos";
 import { getMarcas, getRespostasInt } from "@/lib/intencao";
@@ -45,9 +45,9 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   }
   const temChamada = ev.message_id != null;
 
-  const [preset, funcoes, parties, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes, fila] = await Promise.all([
+  const [preset, funcoes, parties, partiesProprias, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, vizinhos, playerFuncoes, fila] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
-    listFuncoes(), listParties(),
+    listFuncoes(), listParties(), partiesDoEvento(ev.evento_id),
     // sem chamada não há mensagem pra consultar — o tipo vazio precisa vir anotado, senão vira never[]
     ev.message_id ? getMarcas(ev.message_id) : Promise.resolve([] as Awaited<ReturnType<typeof getMarcas>>),
     ev.message_id ? getRespostasInt(ev.message_id) : Promise.resolve([] as Awaited<ReturnType<typeof getRespostasInt>>),
@@ -172,9 +172,11 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     .map((p) => vmFam(p.familia));
   if (fillers.length) grupos.push({ funcaoId: null, nome: "Filler — vieram sem marcar", emoji: null, jogadores: fillers });
 
-  // colunas da escalação = as PTs DO PRESET, na ordem dele (não o catálogo inteiro)
+  // colunas da escalação = as PTs DESTE evento, se ele tiver lista própria; senão as da chamada,
+  // na ordem dela. Mexer na chamada passa a valer só pros próximos eventos.
   const pById = new Map(parties.map((x) => [x.id, x]));
-  const partiesVM: PartyVM[] = (preset?.parties ?? []).map((v) => pById.get(v.party_id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }));
+  const ordemParties = partiesProprias ?? (preset?.parties ?? []).map((v) => v.party_id);
+  const partiesVM: PartyVM[] = ordemParties.map((id) => pById.get(id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }));
 
   /**
    * Todo mundo que o evento já tocou e que o pool não cobre: escalado, quem apareceu no print de
@@ -193,6 +195,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     <EventoBoard
       evento={{ uuid: ev.uuid, titulo: ev.titulo, tituloRaw: ev.titulo_raw, tipo: ev.tipo, tier: ev.tier, exigeRegistro: ev.exige_registro, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
+      catalogoParties={parties.map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }))} partiesProprias={partiesProprias != null}
       canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} podeRenomear={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
       recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
