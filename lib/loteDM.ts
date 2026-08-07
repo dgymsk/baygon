@@ -86,10 +86,26 @@ async function resolverUserIds(eventoId: number): Promise<void> {
       AND pl.nome_familia = e.familia AND pl.discord_id IS NOT NULL`;
 }
 
-/** Abre o lote: resolve os alvos e grava um por linha, todos pendentes. */
+/**
+ * Abre o lote: resolve os alvos e grava um por linha, todos pendentes.
+ *
+ * Se já existe um lote NÃO concluído do mesmo tipo neste evento, ele é RETOMADO em vez de um novo
+ * ser criado. É o que faz "clicar de novo" depois de um erro de rede continuar de onde parou — sem
+ * isso, um lote que morreu no meio viraria um segundo lote com a lista inteira, e quem já tinha
+ * recebido a DM receberia outra.
+ */
 export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; soNovos?: boolean; porQuem?: string | null }):
-  Promise<{ ok: boolean; erro?: string; loteId?: number; total?: number }> {
+  Promise<{ ok: boolean; erro?: string; loteId?: number; total?: number; retomado?: boolean }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };
+
+  const aberto = (await sql`
+    SELECT l.id::int AS id, l.total::int AS total,
+           (SELECT count(*)::int FROM dm_lote_alvo a WHERE a.lote_id = l.id AND a.status NOT IN ('ok','falha')) AS pendentes
+    FROM dm_lote l
+    WHERE l.evento_id = ${o.eventoId} AND l.tipo = ${o.tipo} AND l.status <> 'concluido'
+    ORDER BY l.criado DESC LIMIT 1`) as { id: number; total: number; pendentes: number }[];
+  if (aberto[0]?.pendentes) return { ok: true, loteId: aberto[0].id, total: aberto[0].total, retomado: true };
+
   const titulo = await tituloDoEvento(o.eventoId);
   await resolverUserIds(o.eventoId);
   const alvos = await alvosDoTipo(o.tipo, o.eventoId, o.soNovos !== false);
@@ -220,7 +236,8 @@ async function falhasDoLote(loteId: number): Promise<FalhaDM[]> {
  * O `FOR UPDATE SKIP LOCKED` no claim é o que impede que duas abas processando o mesmo lote mandem
  * a mesma DM duas vezes.
  */
-export async function processarLoteDM(loteId: number, tamanho = 8): Promise<ProgressoLote> {
+export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15000): Promise<ProgressoLote> {
+  const t0 = Date.now();
   const lotes = (await sql`SELECT id::int AS id, tipo, evento_id::int AS evento_id, titulo, criado_por, status FROM dm_lote WHERE id = ${loteId}`) as
     { id: number; tipo: TipoLote; evento_id: number; titulo: string; criado_por: string | null; status: string }[];
   const lote = lotes[0];
@@ -234,16 +251,22 @@ export async function processarLoteDM(loteId: number, tamanho = 8): Promise<Prog
     WHERE id IN (SELECT id FROM dm_lote_alvo WHERE lote_id = ${loteId} AND status = 'pendente' ORDER BY id LIMIT ${tamanho} FOR UPDATE SKIP LOCKED)
     RETURNING id::int AS id, chave, familia, user_id, party`) as { id: number; chave: string; familia: string; user_id: string | null; party: string | null }[];
 
+  // ORÇAMENTO DE TEMPO: o Discord limita a criação de DM com força, e `botFetch` espera o
+  // retry-after de um 429 — com azar, poucos destinatários consomem a requisição inteira e o
+  // gateway devolve 504 sem ter enviado nada. Passado o orçamento, o que sobrou volta pra fila e a
+  // tela chama de novo; o progresso já gravado permanece.
+  const devolver: number[] = [];
   for (const a of pend) {
+    if (Date.now() - t0 > msLimite) { devolver.push(a.id); continue; }
     let erro: string | null = null;
     if (!a.user_id) erro = SEM_DISCORD;
     else {
       try {
-        const dm = await botFetch(`/users/@me/channels`, { method: "POST", body: JSON.stringify({ recipient_id: a.user_id }) });
+        const dm = await botFetch(`/users/@me/channels`, { method: "POST", body: JSON.stringify({ recipient_id: a.user_id }) }, 2);
         if (!dm.ok) erro = await motivoDaFalha(dm, "abrir");
         else {
           const ch = (await dm.json()) as { id: string };
-          const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party)) });
+          const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party)) }, 2);
           if (!res.ok) erro = await motivoDaFalha(res, "enviar");
         }
       } catch (e) { erro = (e as Error).message; }
@@ -255,6 +278,8 @@ export async function processarLoteDM(loteId: number, tamanho = 8): Promise<Prog
     }
     await new Promise((r) => setTimeout(r, 150)); // respiro entre DMs, como no Buzinador: 429 em rajada custa mais
   }
+  // devolve na hora o que não deu tempo — sem isso ficariam 2 minutos presos em 'enviando'
+  if (devolver.length) await sql`UPDATE dm_lote_alvo SET status = 'pendente' WHERE id = ANY(${devolver as unknown as number[]})`;
 
   const c = await contar(loteId);
   let log: { postou: boolean; erro?: string } | undefined;

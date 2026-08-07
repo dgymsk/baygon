@@ -321,15 +321,34 @@ export default function EventoBoard({
       const { loteId, total } = c as { loteId: number; total: number };
       setEnvio({ acao, enviados: 0, falhas: [], total, pendentes: total, concluido: false });
 
-      // teto de segurança no laço: um lote de 8 dá 1000×8 = 8000 pessoas, muito além do real
+      // uma rodada, com retentativa: 502/504 do gateway são passageiros e o lote é retomável — o
+      // que já saiu está gravado, então insistir nunca reenvia pra quem recebeu
+      const rodada = async () => {
+        let ultimo = "";
+        for (let t = 0; t < 3; t++) {
+          try {
+            const pr = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ acao: "dm-processar", loteId }) });
+            const p = await pr.json().catch(() => ({}));
+            if (pr.ok) return p as { total: number; enviados: number; pendentes: number; concluido: boolean; falhasDetalhe: EnvioVM["falhas"]; log?: EnvioVM["log"] };
+            ultimo = (p as { error?: string }).error ?? `erro ${pr.status}`;
+          } catch (e) { ultimo = (e as Error).message; }
+          await new Promise((r) => setTimeout(r, 1500 * (t + 1)));
+        }
+        throw new Error(ultimo || "falha no envio");
+      };
+
+      // teto de segurança no laço; e um freio se o envio parar de andar, pra não girar à toa
+      let feitosAntes = -1, parado = 0;
       for (let i = 0; i < 1000; i++) {
-        const pr = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ acao: "dm-processar", loteId }) });
-        const p = await pr.json().catch(() => ({}));
-        if (!pr.ok) throw new Error((p as { error?: string }).error ?? `erro ${pr.status}`);
-        const prog = p as { total: number; enviados: number; pendentes: number; concluido: boolean; falhasDetalhe: EnvioVM["falhas"]; log?: EnvioVM["log"] };
+        const prog = await rodada();
         setEnvio({ acao, enviados: prog.enviados, falhas: prog.falhasDetalhe ?? [], total: prog.total, pendentes: prog.pendentes, concluido: prog.concluido, log: prog.log });
         if (prog.concluido) break;
+        const feitos = prog.total - prog.pendentes;
+        if (feitos === feitosAntes) {
+          if (++parado >= 4) throw new Error("o envio travou sem avançar — o Discord deve estar limitando o bot. O que já saiu está salvo; tente de novo em alguns minutos.");
+        } else parado = 0;
+        feitosAntes = feitos;
       }
       setErro(""); router.refresh();
     } catch (e) {
@@ -633,7 +652,9 @@ Vai pra quem está escalado e ainda não apareceu na conferência (${nSemIngame}
               <button key={x.id} disabled={salvando} onClick={() => alternarParty(x.id)}
                 title={on ? `tirar ${x.nome} desta guerra` : `adicionar ${x.nome} nesta guerra`}
                 style={{ cursor: "pointer", borderRadius: 999, border: `1px solid ${on ? C.verde : C.borderSoft}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "2px 9px", fontSize: 11.5, fontFamily: "inherit" }}>
-                {x.icone ? `${x.icone} ` : ""}{x.nome}
+                {/* <Icone>, não interpolação: o ícone é `<:sata:1483…>` e como texto cru vira o
+                    código na tela em vez do emoji */}
+                <Icone raw={x.icone} nome={x.nome} /> {x.nome}
               </button>
             );
           })}
