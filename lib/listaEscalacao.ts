@@ -8,7 +8,14 @@
  *
  * A diferença pro bot antigo é o que cada seção significa: lá era PT do template, aqui é a PARTY
  * in-game já escalada pela staff.
+ *
+ * ORÇAMENTO: uma linha cheia custa ~100 caracteres (emoji custom são ~28 cada, menção ~21), então
+ * uma escalação de 10 PTs de 5 não cabia nos 4096 de uma descrição e as últimas PTs sumiam. Agora
+ * o corpo transborda pros embeds seguintes (lib/embedLimite) e, se ainda não couber, a lista
+ * inteira é redesenhada num nível de detalhe mais barato — ver `linha`.
  */
+import { LIM_TOTAL, custoLinhas, cortarAteCaber, empacotarDescricoes, linhasDeNomes } from "@/lib/embedLimite";
+
 export type PartyL = { id: number; nome: string; icone: string | null };
 export type EscaladoL = {
   chave: string; familia: string; userId: string | null; partyId: number | null;
@@ -21,6 +28,7 @@ export type EscaladoL = {
 export type PerfilEmojis = { classes: Record<string, string>; guildas: Record<string, string> };
 
 const COR = 0xcc0000;
+const NIVEL_MIN = 5; // último nível de detalhe (nome de família seco)
 /** Reserva o slot da coroa em quem não é líder.
  *
  *  O certo é um emoji transparente do servidor (`:vazio:`), porque emoji tem largura fixa no
@@ -58,13 +66,25 @@ export function montarLista(d: DadosLista) {
     a.sort((x, y) => (x.ordemPt ?? x.ordem ?? 1e9) - (y.ordemPt ?? y.ordem ?? 1e9) || x.familia.localeCompare(y.familia, "pt-BR"));
   }
 
-  const linha = (e: EscaladoL, i: number): string => {
-    const gEmoji = (e.guilda && d.emojis?.guildas[e.guilda]) || (e.guilda && tags[e.guilda]) || "";
-    const cEmoji = (e.classe && d.emojis?.classes[e.classe]) || (e.classe ? `(${safeLink(e.classe)})` : "");
+  /**
+   * Linha de uma pessoa, por NÍVEL de detalhe. O nível 0 é o desenho de sempre; cada nível seguinte
+   * corta o que custa mais caractere por informação, na ordem em que menos dói:
+   *   0  👑 · sinal · {guilda} · @menção · GS · {classe} · 🔴   (~100 chars)
+   *   1  sem o ícone de classe (−28)
+   *   2  o `:vazio:` que reserva a coroa vira espaço ideográfico (−26): o alinhamento piora um
+   *      pouco, mas é enfeite, e ícone de guilda é informação — enfeite sai primeiro
+   *   3  guilda vira tag textual (−23)   4  sem guilda (−8)
+   *   5  menção vira nome de família e cai o GS
+   * A menção é a última a sair de propósito: é ela que faz a pessoa se achar na lista.
+   */
+  const linha = (e: EscaladoL, i: number, n = 0): string => {
+    const gEmoji = n <= 2 ? (e.guilda && d.emojis?.guildas[e.guilda]) || (e.guilda && tags[e.guilda]) || ""
+      : n === 3 ? (e.guilda && tags[e.guilda]) || "" : "";
+    const cEmoji = n === 0 ? (e.classe && d.emojis?.classes[e.classe]) || (e.classe ? `(${safeLink(e.classe)})` : "") : "";
     // menção de verdade (<@id>) em vez de link mascarado: vira o chip do Discord, com avatar no
     // hover, e a pessoa se acha na lista pelo próprio nome do servidor. Sem user_id vinculado
     // (escalado à mão, sem registro) sobra o nome de família em texto.
-    const nome = e.userId ? `<@${e.userId}>` : safeLink(e.familia);
+    const nome = e.userId && n <= 4 ? `<@${e.userId}>` : safeLink(e.familia);
     // um sinal só, e o IN-GAME tem prioridade: quem já apareceu no jogo respondeu na prática a
     // pergunta que o ⏳ fazia. "Aguardando resposta" ao lado de "está no jogo" era contradição na
     // mesma linha.
@@ -74,42 +94,63 @@ export function montarLista(d: DadosLista) {
     // 👑 = líder (quem a staff pôs em primeiro). Quem não é líder recebe o espaço no lugar da
     // coroa: sem isso a linha de baixo começava deslocada, e o olho perde a coluna do nome.
     // O Discord usa fonte proporcional fora de code block, então isso aproxima — não casa ao pixel.
-    const marca = i === 0 ? "👑" : (d.vazio || VAZIO_FALLBACK);
+    const marca = i === 0 ? "👑" : (n <= 1 && d.vazio) || VAZIO_FALLBACK;
     // 🔴 filler: entrou na PT sem ter marcado na chamada. Fica na própria linha, junto de quem
     // ele está jogando — separá-lo numa seção dizia "tem alguém sobrando" sem dizer onde.
-    return [marca, sinal, gEmoji, nome, e.gs != null ? String(e.gs) : null, cEmoji, e.filler ? "🔴" : null].filter(Boolean).join(" · ");
+    return [marca, sinal, gEmoji, nome, n <= 4 && e.gs != null ? String(e.gs) : null, cEmoji, e.filler ? "🔴" : null].filter(Boolean).join(" · ");
   };
   // índice explícito: `es.map(linha)` passaria o índice como 2º argumento por acidente, e aqui ele
   // decide quem leva a coroa — melhor deixar à vista
-  const moldura = (es: EscaladoL[]) => "> " + es.map((e, i) => linha(e, i)).join("\n> ");
+  const moldura = (es: EscaladoL[], n: number) => es.map((e, i) => "> " + linha(e, i, n));
 
-  const secoes: string[] = [];
-  for (const p of d.parties) {
-    const dentro = porParty.get(p.id) ?? [];
-    const gss = dentro.map((e) => e.gs).filter((x): x is number => x != null);
-    const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
-    const cab = `${p.icone ? p.icone + " " : ""}**${p.nome}** — ${dentro.length}${media != null ? ` · GS ${media}` : ""}`;
-    secoes.push(`${cab}\n${dentro.length ? moldura(dentro) : "> _(vazia)_"}`);
-  }
-  if (d.recusaram?.length) secoes.push(`**❌ Não vão — ${d.recusaram.length}**\n${d.recusaram.join(", ")}`);
+  const rodape = "👑 líder da PT · 🔴 filler · 🎮 está no jogo · ✅ confirmou na DM · ⏳ aguardando · ❌ recusou";
+
+  /** O corpo inteiro num nível, linha a linha ("" separa seções) — refeito a cada tentativa. */
+  const corpoEm = (n: number): string[] => {
+    const L: string[] = [];
+    const sep = () => { if (L.length) L.push(""); };
+    for (const p of d.parties) {
+      const dentro = porParty.get(p.id) ?? [];
+      const gss = dentro.map((e) => e.gs).filter((x): x is number => x != null);
+      const media = gss.length ? Math.round(gss.reduce((a, b) => a + b, 0) / gss.length) : null;
+      sep();
+      L.push(`${p.icone ? p.icone + " " : ""}**${p.nome}** — ${dentro.length}${media != null ? ` · GS ${media}` : ""}`);
+      L.push(...(dentro.length ? moldura(dentro, n) : ["> _(vazia)_"]));
+    }
+    if (d.recusaram?.length) {
+      sep();
+      L.push(`**❌ Não vão — ${d.recusaram.length}**`);
+      // em blocos, nunca uma linha só: linha atômica grande some INTEIRA no corte
+      L.push(...linhasDeNomes(d.recusaram.map(safeLink)));
+    }
+    return L;
+  };
 
   const total = d.escalados.filter((e) => e.partyId != null).length;
   const ok = d.escalados.filter((e) => e.partyId != null && e.confirmouEscalacao === true).length;
-  const topo = d.nota ? d.nota.trim().slice(0, 1000) + "\n\n" : "";
-  let corpo = "", cortou = false;
-  for (const s of secoes) {
-    if ((topo + corpo + (corpo ? "\n\n" : "") + s).length > 3900) { cortou = true; break; }
-    corpo += (corpo ? "\n\n" : "") + s;
-  }
-  const rodape = "\n\n👑 líder da PT · 🔴 filler · 🎮 está no jogo · ✅ confirmou na DM · ⏳ aguardando · ❌ recusou";
-  const desc = (topo + corpo + (cortou ? "\n\n⚠ +itens não exibidos (limite do Discord)." : "") + rodape).slice(0, 4096);
+  const titulo = `📋 Escalação — ${d.titulo}${d.data ? ` · ${d.data}` : ""}`.slice(0, 256);
+  const footer = { text: `${ok}/${total} confirmados${d.tamanhoMax ? ` · meta ${d.tamanhoMax}` : ""}` };
+  const topo = d.nota ? [d.nota.trim().slice(0, 1000), ""] : [];
+  const legenda = ["", rodape];
+  // título e footer também contam no teto de 6000 da mensagem
+  const orcamento = LIM_TOTAL - titulo.length - footer.text.length - 40;
+  const custo = (L: string[]) => custoLinhas([...topo, ...L, ...legenda]);
+
+  // desce de nível até a escalação INTEIRA caber; completa e simples vale mais que bonita e cortada
+  let nivel = 0;
+  let linhas = corpoEm(0);
+  while (nivel < NIVEL_MIN && custo(linhas) > orcamento) { nivel++; linhas = corpoEm(nivel); }
+  const corte = cortarAteCaber([...topo, ...linhas], orcamento - custoLinhas(legenda));
+
+  const usadas = empacotarDescricoes([...corte.linhas, ...legenda]);
+  if (!usadas.length) usadas.push(rodape);
 
   return {
-    embeds: [{
-      title: `📋 Escalação — ${d.titulo}${d.data ? ` · ${d.data}` : ""}`.slice(0, 256),
+    embeds: usadas.map((desc, i) => ({
+      ...(i === 0 ? { title: titulo } : {}),
       description: desc,
-      color: COR,
-      footer: { text: `${ok}/${total} confirmados${d.tamanhoMax ? ` · meta ${d.tamanhoMax}` : ""}` },
-    }],
+      color: COR, // em todos, pra barra vermelha ficar contínua e parecer um bloco só
+      ...(i === usadas.length - 1 ? { footer } : {}),
+    })),
   };
 }
