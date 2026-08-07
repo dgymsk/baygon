@@ -329,7 +329,7 @@ export async function POST(req: Request) {
       if (acao === "sync" && !(await ehStaff(body.member?.roles))) return efemero("⛔ Só staff atualiza a mensagem.");
       // chamada de evento apagado/fechado: avisa em vez de aceitar o clique em silêncio. Antes do
       // ACK de propósito — depois dele não há como dizer nada pra quem clicou.
-      if (acao !== "sync" && !(await eventoAberto(messageId))) return efemero("🔒 Esta chamada foi encerrada — o evento não existe mais.");
+      if (acao !== "sync" && !(await eventoAberto(messageId))) return efemero("🔒 A intenção desta chamada foi **encerrada** — não dá mais pra marcar. Se você já tinha marcado, sua marcação continua valendo; a escalação sai por DM.");
       /**
        * Trava de registro. Antes do gate de cargo de propósito: dizer "você não tem o cargo Shai"
        * pra quem nem se cadastrou é responder a pergunta errada.

@@ -8,7 +8,7 @@ import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, ad
 import { criarEventoManual, deletarEvento, resumoExclusao, renomearEvento } from "@/lib/eventos";
 import { silenciarOrfas } from "@/lib/silenciarEvento";
 import { tierOk } from "@/lib/tier";
-import { postarIntencao, sincronizarMensagem } from "@/lib/intencao";
+import { postarIntencao, sincronizarMensagem, fecharIntencao } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao, reordenarParty } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
@@ -153,6 +153,13 @@ export async function POST(req: Request) {
       await sql`UPDATE evento SET tamanho_max = ${val} WHERE id = ${eid()}`;
       await espelharLista(); // o rodapé da lista publicada mostra a meta
       return NextResponse.json({ ok: true, tamanhoMax: val });
+    }
+
+    // --- fecha (ou reabre) a intenção: para de aceitar marcação e encurta a mensagem no canal ---
+    case "evento-fechar": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const r = await fecharIntencao(eid(), b.fechar !== false);
+      return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
     }
 
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---

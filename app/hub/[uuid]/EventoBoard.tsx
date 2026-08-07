@@ -434,6 +434,31 @@ export default function EventoBoard({
     trocarParties([...sem.slice(0, i), origem, ...sem.slice(i)]);
   }
 
+  /**
+   * Fecha (ou reabre) a intenção. Fechado, o bot recusa marcação e a mensagem no canal vira a
+   * versão curta — sem a lista nominal e sem botões.
+   *
+   * O gate é `podeRenomear` (staff, sem o filtro de status) e não `canEdit`: `canEdit` já exige
+   * evento aberto, então usar ele aqui deixaria o botão de REABRIR fora do alcance justamente
+   * quando é preciso.
+   */
+  async function fecharIntencao(fechar: boolean) {
+    if (!podeRenomear || !evento) return;
+    if (!confirm(fechar
+      ? "Encerrar a intenção?\n\nO bot para de aceitar marcação e a mensagem no canal vira um aviso curto, sem a lista de participantes. Quem já marcou continua valendo."
+      : "Reabrir a intenção?\n\nA mensagem volta com a lista e os botões, e o pessoal pode marcar de novo.")) return;
+    setSalvando(true);
+    try {
+      const d = await api({ acao: "evento-fechar", eventoId: evento.eventoId, fechar });
+      setErro("");
+      setAviso(fechar
+        ? `🔒 Intenção encerrada.${(d as { mensagemAtualizada?: boolean }).mensagemAtualizada === false ? " (a mensagem no Discord não pôde ser atualizada — use o 🔄)" : " A mensagem no canal foi encurtada."}`
+        : "🔓 Intenção reaberta.");
+      router.refresh();
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   async function convocar() {
     if (!canEdit || !evento) return;
     const n = alvosConv.length;
@@ -612,6 +637,17 @@ export default function EventoBoard({
             <button onClick={sincronizar} disabled={salvando} title="redesenha a mensagem do bot no canal com o estado atual do banco"
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
               🔄 Atualizar no Discord
+            </button>
+          )}
+          {/* fora do gate de `canEdit` de propósito: canEdit exige evento ABERTO, e é justamente
+              fechado que o botão de reabrir precisa existir */}
+          {podeRenomear && evento.status !== "finalizado" && (
+            <button onClick={() => fecharIntencao(evento.status === "aberto")} disabled={salvando}
+              title={evento.status === "aberto"
+                ? "para de aceitar marcação e encurta a mensagem no canal"
+                : "volta a aceitar marcação e redesenha a mensagem com a lista"}
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: evento.status === "aberto" ? C.amarelo : C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              {evento.status === "aberto" ? "🔒 Encerrar intenção" : "🔓 Reabrir intenção"}
             </button>
           )}
           {/* O público fica AO LADO do botão, não escondido num Shift: a diferença entre "não

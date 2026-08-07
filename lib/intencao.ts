@@ -61,10 +61,12 @@ async function funcoesDoPreset(presetId: number): Promise<{ funcoes: FuncaoI[]; 
   return { funcoes, nome: preset.nome, tipo: preset.tipo, tier: preset.tier, exigeRegistro: preset.exige_registro, canalId: preset.canal_id ?? null };
 }
 
-/** Reconstrói o payload da mensagem a partir do estado atual. Null se o preset sumiu. */
+/** Reconstrói o payload da mensagem a partir do estado atual. Null se o preset sumiu.
+ *  Evento não-aberto vira a mensagem curta de encerrada — inclusive no 🔄 da staff. */
 export async function montarPayload(messageId: string, presetId: number): Promise<Record<string, unknown> | null> {
   const info = await funcoesDoPreset(presetId);
   if (!info) return null;
+  const fechada = !(await eventoAberto(messageId));
   const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
   const [marcas, respostas, membros, perfil, emojis, meta] = await Promise.all([
     getMarcas(messageId), getRespostasInt(messageId), listElencoEsperado(),
@@ -72,9 +74,41 @@ export async function montarPayload(messageId: string, presetId: number): Promis
   ]);
   return montarEmbedIntencao({
     presetId, presetNome: info.nome, mensagem: cfg.mensagem, imagem: cfg.imagem,
-    funcoes: info.funcoes, marcas, respostas, membros, perfil, emojis,
+    funcoes: info.funcoes, marcas, respostas, membros, perfil, emojis, fechada,
     tags: Object.fromEntries(meta.guildas.map((g) => [g.id, g.tag])),
   }) as unknown as Record<string, unknown>;
+}
+
+/**
+ * Fecha (ou reabre) a intenção do evento e redesenha a mensagem no canal.
+ *
+ * Fechar é `status = 'travado'` — o mesmo estado que o resto do sistema já entende como "não aceita
+ * mais marcação" (ver `eventoAberto`, que é o gate de verdade). A mensagem vira a versão curta: o
+ * paredão de nomes só empurrava pra cima o que ainda importa no canal depois que a lista fechou.
+ *
+ * A GRAVAÇÃO vem primeiro e a mensagem depois: se o Discord recusar a edição, o evento já está
+ * fechado de fato e ninguém mais consegue marcar — o inverso deixaria a mensagem dizendo "fechada"
+ * com o clique ainda funcionando.
+ */
+export async function fecharIntencao(eventoId: number, fechar: boolean): Promise<{ ok: boolean; erro?: string; status: string; mensagemAtualizada: boolean }> {
+  const novo = fechar ? "travado" : "aberto";
+  const rows = (await sql`
+    UPDATE evento SET status = ${novo}, travado_em = CASE WHEN ${fechar} THEN now() ELSE travado_em END
+    WHERE id = ${eventoId} AND status <> 'finalizado'
+    RETURNING status`) as { status: string }[];
+  if (!rows[0]) {
+    const atual = (await sql`SELECT status FROM evento WHERE id = ${eventoId}`) as { status: string }[];
+    return { ok: false, erro: atual[0] ? "evento finalizado — não dá pra reabrir por aqui" : "evento não encontrado", status: atual[0]?.status ?? "?", mensagemAtualizada: false };
+  }
+
+  const posts = (await sql`
+    SELECT message_id, channel_id, preset_id::int AS preset_id FROM intencao_post
+    WHERE evento_id = ${eventoId} ORDER BY criado DESC LIMIT 1`) as { message_id: string; channel_id: string; preset_id: number | null }[];
+  const post = posts[0];
+  if (!post?.preset_id) return { ok: true, status: rows[0].status, mensagemAtualizada: false };
+
+  const r = await sincronizarMensagem(post.message_id);
+  return { ok: true, status: rows[0].status, mensagemAtualizada: r.ok, erro: r.ok ? undefined : r.erro };
 }
 
 /** Posta uma rodada nova a partir do preset. Cria o EVENTO ligado (mesma CTE = sem evento órfão). */

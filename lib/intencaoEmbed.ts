@@ -61,7 +61,35 @@ export type DadosIntencao = {
   perfil?: Map<string, PerfilI>;     // chaveNome → guilda/classe/GS
   emojis?: EmojiMapI;
   tags?: Record<string, string>;     // id da guilda → tag curta (fallback sem emoji)
+  fechada?: boolean;                 // intenção encerrada: mensagem curta, sem lista e sem botões
 };
+
+/**
+ * A mensagem de uma chamada ENCERRADA.
+ *
+ * Curta de propósito: depois que a intenção fecha, a lista nominal de 70 pessoas não serve mais pra
+ * decidir nada — quem vai jogar é a ESCALAÇÃO, publicada em outra mensagem. Manter o paredão de
+ * nomes ali só empurra pra cima o que ainda importa no canal.
+ *
+ * Sem botões porque o clique não é mais aceito: botão que não faz nada é pior que botão ausente.
+ * (O gate de verdade é no servidor — `custom_id` vive na mensagem pra sempre, e tirar o botão nunca
+ * é trava suficiente.)
+ */
+function embedFechada(d: DadosIntencao, pessoas: number) {
+  const linhas = [
+    `🔒 **A intenção está encerrada.** ${pessoas} ${pessoas === 1 ? "pessoa marcou" : "pessoas marcaram"}.`,
+    "",
+    "A escalação é montada a partir de quem marcou — quem for escalado recebe uma DM do bot pra confirmar.",
+  ];
+  return {
+    embeds: [{
+      title: `🔒 ${d.presetNome} — encerrada`.slice(0, 256),
+      description: linhas.join("\n"),
+      color: 0x6b6b6b, // cinza: a barra vermelha é da chamada viva
+    }],
+    components: [],
+  };
+}
 
 export function montarEmbedIntencao(d: DadosIntencao) {
   const tags = d.tags ?? {};
@@ -146,6 +174,7 @@ export function montarEmbedIntencao(d: DadosIntencao) {
   // o título anunciava "12 marcaram" com 9 nomes na lista.
   const idsFuncao = new Set(d.funcoes.map((f) => f.id));
   const pessoas = new Set(d.marcas.filter((m) => idsFuncao.has(m.funcao_id)).map((m) => m.user_id)).size;
+  if (d.fechada) return embedFechada(d, pessoas);
   const titulo = `📢 ${d.presetNome} — ${pessoas} marcaram`.slice(0, 256);
   const topo = d.mensagem ? d.mensagem.trim().slice(0, 1500) : "";
   // o título conta no teto de 6000. custoLinhas é limite SUPERIOR: cada transbordo descarta o "\n"
