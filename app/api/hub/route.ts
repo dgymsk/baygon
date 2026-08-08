@@ -249,7 +249,7 @@ export async function POST(req: Request) {
     // numa requisição só, uma escalação grande estouraria o tempo da função no meio.
     case "dm-criar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      const tipo = b.tipo === "ingame" ? "ingame" : "convocacao";
+      const tipo = b.tipo === "ingame" ? "ingame" : b.tipo === "intencao" ? "intencao" : "convocacao";
       const c = await criarLoteDM({ tipo, eventoId: eid(), publico: b.publico, porQuem: await quemDisparou() });
       return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
     }

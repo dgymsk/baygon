@@ -75,9 +75,12 @@ const ROTULOS_PUBLICO: Record<string, string> = {
   confirmou_nao_recebeu: "confirmou e não recebeu",
   confirmou: "quem confirmou o SIM",
   faltam_ingame: "quem falta aparecer in-game",
+  calados_nao_receberam: "calados que não receberam",
+  calados: "todos os calados",
 };
 const PUBLICOS_CONV = ["nao_receberam", "sem_resposta", "todos"] as const;
 const PUBLICOS_INGAME = ["confirmou_nao_recebeu", "confirmou", "faltam_ingame"] as const;
+const PUBLICOS_INTENCAO = ["calados_nao_receberam", "calados"] as const;
 const seletorPublico = { background: C.inputBg, color: C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 6px", fontSize: 11.5, fontFamily: "inherit", cursor: "pointer", maxWidth: 175 } as const;
 
 const TIPO_PT = "application/x-pt";
@@ -127,6 +130,7 @@ export default function EventoBoard({
   const [salvandoNome, setSalvandoNome] = useState(false);
   const [ptsOtimista, setPtsOtimista] = useState<number[] | null>(null);
   const [publicoConv, setPublicoConv] = useState("nao_receberam");
+  const [publicoIntencao, setPublicoIntencao] = useState("calados_nao_receberam");
   const [publicoIngame, setPublicoIngame] = useState("confirmou_nao_recebeu");
   // grupos dobrados à mão no pool. Sobrevive ao auto-refresh e a escalar gente, ao contrário de
   // depender do <details> não controlado, que remontava junto com o grupo
@@ -350,7 +354,7 @@ export default function EventoBoard({
    * O estado de cada pessoa fica no banco, então fechar a aba no meio não reenvia pra quem já
    * recebeu: é só disparar de novo que ele continua de onde parou.
    */
-  async function enviarLote(tipo: "convocacao" | "ingame", acao: string, publico: string) {
+  async function enviarLote(tipo: "convocacao" | "ingame" | "intencao", acao: string, publico: string) {
     if (!canEdit || !evento) return;
     setSalvando(true);
     setEnvio({ acao, enviados: 0, falhas: [], total: 0, pendentes: 0, concluido: false });
@@ -478,6 +482,18 @@ export default function EventoBoard({
     try { await api({ acao: "evento-encerrar", eventoId: evento.eventoId, encerrar }); setErro(""); setAviso(encerrar ? "🏁 Evento encerrado — tudo travado, tudo visível." : "↩ Evento reaberto."); router.refresh(); }
     catch (e) { setErro((e as Error).message); }
     finally { setSalvando(false); }
+  }
+
+  /**
+   * Cutuca por DM quem ainda não respondeu a CHAMADA (não a escalação). Diferente dos outros dois
+   * envios: aqui a pessoa nem foi escalada — o que falta é ela dizer se vai. A DM leva o link direto
+   * pra mensagem no canal, senão vira recado ("vai lá marcar") e a pessoa tem que caçar o post.
+   */
+  async function lembrarIntencao() {
+    if (!canEdit || !evento) return;
+    if (!evento.messageId) { setErro("Este evento não tem chamada do bot — não há intenção pra cobrar."); return; }
+    if (!confirm(`Mandar DM pra quem ainda não respondeu a chamada — ${ROTULOS_PUBLICO[publicoIntencao]}?\n\nA mensagem leva um botão que abre a chamada no canal.`)) return;
+    await enviarLote("intencao", "Lembrete de intenção", publicoIntencao);
   }
 
   async function convocar() {
@@ -671,6 +687,21 @@ export default function EventoBoard({
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: evento.intencaoFechada ? C.verde : C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               {evento.intencaoFechada ? "🔓 Reabrir intenção" : "🔒 Encerrar intenção"}
             </button>
+          )}
+          {/* cobrar a INTENÇÃO é o passo anterior à convocação: a chamada está aberta e falta a
+              pessoa dizer se vai. Some quando a intenção é encerrada — aí não há o que responder */}
+          {canEdit && evento.messageId && !evento.intencaoFechada && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <select value={publicoIntencao} onChange={(e) => setPublicoIntencao(e.target.value)} disabled={salvando}
+                title="para quem o lembrete de intenção vai" style={seletorPublico}>
+                {PUBLICOS_INTENCAO.map((p) => <option key={p} value={p}>{ROTULOS_PUBLICO[p]}</option>)}
+              </select>
+              <button onClick={lembrarIntencao} disabled={salvando}
+                title="DM pra quem ainda não respondeu a chamada, com link direto pra mensagem no canal"
+                style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.amarelo, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                ⏳ Cobrar intenção
+              </button>
+            </span>
           )}
           {/* O público fica AO LADO do botão, não escondido num Shift: a diferença entre "não
               respondeu" e "não recebeu" é a que evita spam, e escolha que ninguém vê ninguém usa.

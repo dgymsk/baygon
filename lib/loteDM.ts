@@ -1,6 +1,8 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { motivoDaFalha, registrarEnvio, rotuloMotivo, SEM_DISCORD, type FalhaDM } from "@/lib/entregaDM";
+import { getDiscordConfig } from "@/lib/discordConfig";
+import { chaveNome } from "@/lib/nomes";
 
 /**
  * Envio de DM em LOTE — o mesmo desenho do Buzinador, aplicado à convocação da escalação.
@@ -17,7 +19,7 @@ import { motivoDaFalha, registrarEnvio, rotuloMotivo, SEM_DISCORD, type FalhaDM 
  * A composição da mensagem é por TIPO (ver `montarDM`), porque convocar e cobrar o participar
  * in-game são cobranças diferentes — e mandar as duas juntas confundiria quem já respondeu.
  */
-export type TipoLote = "convocacao" | "ingame";
+export type TipoLote = "convocacao" | "ingame" | "intencao";
 
 export type ProgressoLote = {
   ok: boolean; erro?: string;
@@ -33,7 +35,25 @@ type Alvo = { chave: string; familia: string; user_id: string | null; party: str
 const ROTULO: Record<TipoLote, string> = {
   convocacao: "Convocação",
   ingame: "Pedido de participar in-game",
+  intencao: "Lembrete de intenção",
 };
+
+/**
+ * Link direto pra mensagem da chamada no Discord (`/channels/guild/canal/mensagem`).
+ *
+ * É o que transforma o lembrete de recado em ação: sem ele a DM diz "vai lá marcar" e a pessoa
+ * precisa caçar a mensagem no meio do canal. Null quando falta guild, canal ou mensagem — aí a DM
+ * sai sem o botão, em vez de com um link quebrado.
+ */
+async function linkDaChamada(eventoId: number): Promise<string | null> {
+  const [cfg, posts] = await Promise.all([
+    getDiscordConfig(),
+    sql`SELECT message_id, channel_id FROM intencao_post WHERE evento_id = ${eventoId} ORDER BY criado DESC LIMIT 1` as Promise<unknown>,
+  ]);
+  const p = (posts as { message_id: string; channel_id: string }[])[0];
+  if (!cfg.guildId || !p?.channel_id || !p?.message_id) return null;
+  return `https://discord.com/channels/${cfg.guildId}/${p.channel_id}/${p.message_id}`;
+}
 
 /** Nome do evento lido do banco — o título é editável, e a tela que disparou pode estar atrasada. */
 async function tituloDoEvento(eventoId: number): Promise<string> {
@@ -52,7 +72,9 @@ export type PublicoLote =
   | "todos"              // convocação: todo escalado
   | "confirmou_nao_recebeu" // in-game: disse SIM e ainda não recebeu a cobrança
   | "confirmou"          // in-game: todo mundo que disse SIM
-  | "faltam_ingame";     // in-game: não recusou e não apareceu na conferência
+  | "faltam_ingame"      // in-game: não recusou e não apareceu na conferência
+  | "calados_nao_receberam" // intenção: não respondeu a chamada e ainda não recebeu o lembrete
+  | "calados";           // intenção: todo mundo que não respondeu a chamada
 
 export const ROTULO_PUBLICO: Record<PublicoLote, string> = {
   nao_receberam: "quem ainda não recebeu",
@@ -61,9 +83,11 @@ export const ROTULO_PUBLICO: Record<PublicoLote, string> = {
   confirmou_nao_recebeu: "confirmou e não recebeu",
   confirmou: "quem confirmou o SIM",
   faltam_ingame: "quem falta aparecer in-game",
+  calados_nao_receberam: "calados que não receberam",
+  calados: "todos os calados",
 };
 
-const PADRAO: Record<TipoLote, PublicoLote> = { convocacao: "nao_receberam", ingame: "confirmou_nao_recebeu" };
+const PADRAO: Record<TipoLote, PublicoLote> = { convocacao: "nao_receberam", ingame: "confirmou_nao_recebeu", intencao: "calados_nao_receberam" };
 export const publicoOk = (v: unknown, tipo: TipoLote): PublicoLote =>
   (typeof v === "string" && v in ROTULO_PUBLICO ? (v as PublicoLote) : PADRAO[tipo]);
 
@@ -77,6 +101,37 @@ async function alvosDoTipo(tipo: TipoLote, eventoId: number, publico: PublicoLot
   const naoRecebeu = sql`
     AND NOT EXISTS (SELECT 1 FROM dm_lote_alvo a JOIN dm_lote l ON l.id = a.lote_id
                     WHERE l.evento_id = ${eventoId} AND l.tipo = ${tipo} AND a.chave = e.chave AND a.status = 'ok')`;
+
+  /**
+   * LEMBRETE DE INTENÇÃO — os únicos alvos que NÃO saem da escalação: a chamada ainda está aberta e
+   * ninguém foi escalado. A base é o elenco esperado (o mesmo `listElencoEsperado` que alimenta os
+   * "não decididos" da mensagem), menos quem já respondeu qualquer coisa.
+   *
+   * Só entra quem tem Discord vinculado: sem isso não há pra onde mandar, e a linha viraria uma
+   * falha garantida no relatório todo santo dia.
+   */
+  if (tipo === "intencao") {
+    // a chave é calculada em JS, com o MESMO `chaveNome` do resto do app. Reescrever a normalização
+    // de acentos em SQL criaria duas definições de identidade — e a divergência só apareceria no dia
+    // em que alguém com acento no nome recebesse DM à toa
+    const [elenco, responderam, receberam] = (await Promise.all([
+      sql`SELECT p.nome_familia AS familia, p.discord_id AS user_id
+          FROM players p
+          WHERE p.ativo AND p.discord_id IS NOT NULL
+            AND (p.registro OR EXISTS (SELECT 1 FROM player_funcao pf WHERE pf.familia = p.nome_familia))
+          ORDER BY p.nome_familia`,
+      sql`SELECT ir.chave FROM intencao_resp ir JOIN intencao_post ip ON ip.message_id = ir.message_id
+          WHERE ip.evento_id = ${eventoId}`,
+      sql`SELECT a.chave FROM dm_lote_alvo a JOIN dm_lote l ON l.id = a.lote_id
+          WHERE l.evento_id = ${eventoId} AND l.tipo = 'intencao' AND a.status = 'ok'`,
+    ])) as [{ familia: string; user_id: string }[], { chave: string }[], { chave: string }[]];
+
+    const jaRespondeu = new Set(responderam.map((r) => r.chave));
+    const jaRecebeu = new Set(receberam.map((r) => r.chave));
+    return elenco
+      .map((p) => ({ chave: chaveNome(p.familia), familia: p.familia, user_id: p.user_id, party: null }))
+      .filter((a) => !jaRespondeu.has(a.chave) && (publico === "calados" || !jaRecebeu.has(a.chave)));
+  }
 
   if (tipo === "convocacao") {
     const filtro = publico === "todos" ? sql``
@@ -170,7 +225,21 @@ export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; publico
 
 /** O corpo da DM, por tipo. Convocar tem botões (a resposta volta pro banco); cobrar in-game não —
  *  o site não tem como saber que a pessoa marcou no jogo, e um botão aqui fingiria resolver. */
-function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: string | null): Record<string, unknown> {
+function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: string | null, link: string | null): Record<string, unknown> {
+  if (tipo === "intencao") {
+    return {
+      allowed_mentions: { parse: [] },
+      embeds: [{
+        title: `⏳ Você ainda não respondeu — ${titulo}`.slice(0, 256),
+        description: "A chamada está aberta e a sua resposta ainda não chegou. Marque a função que você pretende jogar, ou diga que não vai — as duas ajudam: a staff monta a escalação com o que sabe, e quem não responde fica de fora dela."
+          + (link ? `\n\n**[→ Abrir a chamada e marcar](${link})**` : "\n\nA chamada está no canal de sempre."),
+        color: 0xd6b22a,
+      }],
+      // botão-link em vez de custom_id: quem responde é a MENSAGEM do canal, e um botão aqui teria
+      // que duplicar toda a lógica de função/cargo/registro que já vive lá
+      ...(link ? { components: [{ type: 1, components: [{ type: 2, style: 5, label: "Ir para a chamada", url: link }] }] } : {}),
+    };
+  }
   if (tipo === "convocacao") {
     return {
       allowed_mentions: { parse: [] },
@@ -302,6 +371,9 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
   // recupera alvo preso em 'enviando' de um lote que morreu no meio — um lote dura poucos segundos,
   // então 2 minutos parado é órfão, e sem isto o envio nunca fecharia
   await sql`UPDATE dm_lote_alvo SET status = 'pendente' WHERE lote_id = ${loteId} AND status = 'enviando' AND (tentado IS NULL OR tentado < now() - interval '2 minutes')`;
+  // link direto pra mensagem da chamada — é o que faz o lembrete ser acionável em vez de recado
+  const link = lote.tipo === "intencao" ? await linkDaChamada(lote.evento_id) : null;
+
   const pend = (await sql`
     UPDATE dm_lote_alvo SET status = 'enviando', tentado = now()
     WHERE id IN (SELECT id FROM dm_lote_alvo WHERE lote_id = ${loteId} AND status = 'pendente' ORDER BY id LIMIT ${tamanho} FOR UPDATE SKIP LOCKED)
@@ -322,7 +394,7 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
         if (!dm.ok) erro = await motivoDaFalha(dm, "abrir");
         else {
           const ch = (await dm.json()) as { id: string };
-          const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party)) }, 2);
+          const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party, link)) }, 2);
           if (!res.ok) erro = await motivoDaFalha(res, "enviar");
         }
       } catch (e) { erro = (e as Error).message; }
