@@ -12,7 +12,7 @@ import ApagarEvento from "./ApagarEvento";
 import ChamadasLog from "./ChamadasLog";
 import type { LoteResumo } from "@/lib/loteDM";
 import AutoSync from "@/app/confirmados/AutoSync";
-import type { EstadoWar, WarHistorico } from "@/lib/historicoSemana";
+import type { EstadoWar, HistoricoJogador, HistoricoSemana } from "@/lib/historicoSemana";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
 import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
 
@@ -48,7 +48,7 @@ export type JogadorVM = {
   ingameEm: string | null;        // apareceu na conferência in-game
   ordemPt: number | null;         // posição DENTRO da PT — 0 é o líder
   filler: boolean;                // apareceu in-game sem ter marcado na chamada
-  semana: EstadoWar[];            // últimas guerras, mais recente primeiro (ver lib/historicoSemana)
+  semana: HistoricoJogador;       // 6 node wars + a siege (ver lib/historicoSemana)
 };
 
 /** Pokébola — só no site, nunca no bot. SVG inline pra não depender de emoji nem de CDN. */
@@ -100,7 +100,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
-  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = [],
+  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() },
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -111,7 +111,7 @@ export default function EventoBoard({
   catalogoParties?: PartyVM[];   // TODAS as PTs cadastradas — as colunas são um subconjunto disto
   partiesProprias?: boolean;     // o evento tem lista própria, ou está seguindo a da chamada?
   chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
-  warsSemana?: WarHistorico[];   // as guerras que as bolinhas do card representam, na mesma ordem
+  warsSemana?: HistoricoSemana;  // quais guerras cada casinha representa, na mesma ordem
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
@@ -1035,7 +1035,7 @@ export default function EventoBoard({
 }
 
 type CardCtx = {
-  warsSemana: WarHistorico[];   // as guerras que as bolinhas representam, na ordem
+  warsSemana: HistoricoSemana;  // quais guerras cada casinha representa
   canEdit: boolean;
   byId: Map<string, GuildEntry>;
   escalado: boolean;                       // já está numa PT — muda os selos de convocação
@@ -1072,49 +1072,84 @@ function GuildIcon({ id, byId }: { id: string | null; byId: Map<string, GuildEnt
 type PosMini = { left: number; top?: number; bottom?: number };
 
 /**
- * A semana do jogador em bolinhas — uma por guerra, da mais recente pra mais antiga.
+ * O histórico recente ao lado do nome: uma BOLA (a siege mais recente) e SEIS QUADRADOS (as últimas
+ * node wars) em duas fileiras de três. A guerra mais recente é sempre o último quadrado de baixo —
+ * a fila anda pra esquerda, então a posição não dança de um dia pro outro.
  *
- * O ponto é decidir escalação com o passado à vista, sem depender da memória de quem monta. Cada
- * estado tem cor E forma (o "−" do recusou, o anel do sem-estatística), porque a paleta do site tem
- * verde e vermelho quase iguais e cor sozinha não distingue.
+ * Desenhado em SVG, e não com divs: a esta altura (7px por casa) borda, X e anel precisam de
+ * controle de subpixel que CSS não dá sem virar borrão.
  *
- * `escalado_sem_war` não é vermelho de propósito: numa guerra sem estatística gravada ninguém
- * faltou — a informação não existe, e pintar de falta seria acusação falsa.
+ * Cada estado tem COR e FORMA. Não é enfeite: a paleta do site tem verde e vermelho no mesmo
+ * carmesim, então cor sozinha não distingue nada — e mesmo com cores próprias, quem enxerga mal
+ * merece o X e o anel.
  */
-const ESTADO: Record<EstadoWar, { cor: string; borda?: string; dentro?: string; rot: string }> = {
-  jogou:            { cor: CorResultado.vitoria.cor, rot: "jogou" },
-  faltou:           { cor: CorResultado.derrota.cor, rot: "escalado e NÃO jogou" },
-  marcou:           { cor: "#e08a3a", rot: "marcou e não foi escalado" },
-  recusou:          { cor: "#6f6f6f", dentro: "−", rot: "recusou a chamada" },
-  escalado_sem_war: { cor: "transparent", borda: "#8f8f8f", rot: "escalado, mas a war não teve estatística gravada" },
-  sem:              { cor: "rgba(143,143,143,.22)", rot: "sem dados" },
+const ESTADO: Record<EstadoWar, { fill: string; stroke?: string; marca?: "x" | "o" | "traco"; rot: string }> = {
+  jogou:           { fill: "#3fbf5f", rot: "escalado e jogou" },
+  jogou_sem_escala:{ fill: "#3f8fe0", rot: "não escalado, mas jogou" },
+  marcou:          { fill: "#e08a3a", rot: "marcou e não foi escalado" },
+  faltou:          { fill: "#2a1414", stroke: "#e04b4b", marca: "x", rot: "escalado e NÃO compareceu" },
+  nao_respondeu:   { fill: "transparent", stroke: "#8f8f8f", marca: "o", rot: "não respondeu a chamada" },
+  recusou:         { fill: "#3a3a3a", stroke: "#8f8f8f", marca: "traco", rot: "recusou — avisou que não ia" },
+  sem_stat:        { fill: "#2e2e2e", stroke: "#5a5a5a", rot: "escalado, mas a war não teve estatística gravada" },
+  sem:             { fill: "#242424", rot: "sem dado" },
 };
 
-function Semana({ estados, wars }: { estados: EstadoWar[]; wars: WarHistorico[] }) {
-  if (!estados.length) return null;
+const rotuloWar = (w: { data: string; titulo: string } | null | undefined) =>
+  (w ? `${w.data.slice(8, 10)}/${w.data.slice(5, 7)} · ${w.titulo}` : "sem guerra nesta posição");
+
+/** Uma casa: quadrado (node war) ou círculo (siege), com a marca por cima quando o estado pede. */
+function Casa({ e, x, y, l, circulo }: { e: EstadoWar; x: number; y: number; l: number; circulo?: boolean }) {
+  const s = ESTADO[e] ?? ESTADO.sem;
+  const m = l / 2;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-      {estados.map((e, i) => {
-        const s = ESTADO[e] ?? ESTADO.sem;
-        const w = wars[i];
-        return (
-          <span key={w?.eventoId ?? i}
-            title={`${w ? `${w.data.slice(8, 10)}/${w.data.slice(5, 7)} · ${w.titulo}` : "war"} — ${s.rot}`}
-            style={{
-              width: 11, height: 11, borderRadius: 999, flexShrink: 0,
-              background: s.cor, border: s.borda ? `1px solid ${s.borda}` : "1px solid rgba(0,0,0,.35)",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: 9, lineHeight: 1, color: "#141414", fontWeight: 800,
-            }}>
-            {s.dentro ?? ""}
-          </span>
-        );
-      })}
-    </div>
+    <g>
+      {circulo
+        ? <circle cx={x + m} cy={y + m} r={m - 0.4} fill={s.fill} stroke={s.stroke ?? "rgba(0,0,0,.5)"} strokeWidth={s.stroke ? 1 : 0.6} />
+        : <rect x={x} y={y} width={l} height={l} rx={1.2} fill={s.fill} stroke={s.stroke ?? "rgba(0,0,0,.5)"} strokeWidth={s.stroke ? 1 : 0.6} />}
+      {s.marca === "x" && (
+        <g stroke="#e04b4b" strokeWidth={1.1} strokeLinecap="round">
+          <line x1={x + 1.7} y1={y + 1.7} x2={x + l - 1.7} y2={y + l - 1.7} />
+          <line x1={x + l - 1.7} y1={y + 1.7} x2={x + 1.7} y2={y + l - 1.7} />
+        </g>
+      )}
+      {s.marca === "o" && <circle cx={x + m} cy={y + m} r={m - 2} fill="none" stroke="#8f8f8f" strokeWidth={1} />}
+      {s.marca === "traco" && <line x1={x + 1.8} y1={y + m} x2={x + l - 1.8} y2={y + m} stroke="#8f8f8f" strokeWidth={1.1} strokeLinecap="round" />}
+    </g>
   );
 }
 
-function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: WarHistorico[] }) {
+function Historico({ h, wars }: { h: HistoricoJogador; wars: HistoricoSemana }) {
+  if (!h.nodewars.length) return null;
+  const L = 7, G = 1.6;               // lado da casa e respiro
+  const bola = 11;
+  const x0 = bola + 3;                // os quadrados começam depois da bola
+  const larg = x0 + L * 3 + G * 2;
+  const alt = L * 2 + G;
+  return (
+    <svg width={larg} height={alt} viewBox={`0 0 ${larg} ${alt}`} style={{ flexShrink: 0, display: "block" }}
+      aria-label="histórico recente">
+      <title>
+        {`siege: ${rotuloWar(wars.siege)} — ${h.siege ? ESTADO[h.siege].rot : "sem siege registrada"}`}
+      </title>
+      {h.siege && <Casa e={h.siege} x={0} y={(alt - bola) / 2} l={bola} circulo />}
+      {!h.siege && <circle cx={bola / 2} cy={alt / 2} r={bola / 2 - 0.4} fill={ESTADO.sem.fill} stroke="rgba(0,0,0,.5)" strokeWidth={0.6} />}
+      {h.nodewars.map((e, i) => {
+        const col = i % 3, lin = Math.floor(i / 3);
+        return (
+          <g key={i}>
+            <Casa e={e} x={x0 + col * (L + G)} y={lin * (L + G)} l={L} />
+            {/* um <title> por casa: o SVG mostra o do elemento sob o cursor */}
+            <rect x={x0 + col * (L + G)} y={lin * (L + G)} width={L} height={L} fill="transparent">
+              <title>{`${rotuloWar(wars.nodewars[i])} — ${(ESTADO[e] ?? ESTADO.sem).rot}`}</title>
+            </rect>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: HistoricoSemana }) {
   return (
   /**
    * `position: fixed`, e não `absolute`: o pool agora é um container com `overflow`, e um
@@ -1134,11 +1169,11 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: WarHisto
     <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.texto, fontSize: 13, fontWeight: 700 }}>
       {j.lendario && <Pokebola size={14} />}{j.familia}
     </div>
-    {/* a semana logo abaixo do nome: é o que se olha ANTES dos números pra decidir escalação */}
-    {j.semana.length > 0 && (
-      <div style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 2 }}>
-        <Semana estados={j.semana} wars={wars} />
-        <span style={{ color: C.borderSoft, fontSize: 10 }}>últimas {j.semana.length}</span>
+    {/* o mesmo histórico do card, em tamanho de leitura, com a legenda do que cada casa quer dizer */}
+    {j.semana.nodewars.length > 0 && (
+      <div style={{ display: "flex", alignItems: "center", gap: 7, paddingBottom: 2 }}>
+        <Historico h={j.semana} wars={wars} />
+        <span style={{ color: C.borderSoft, fontSize: 10 }}>bola = siege · quadrados = node wars</span>
       </div>
     )}
     <Linha k="Classe" v={j.classe ?? "—"} />
@@ -1237,6 +1272,9 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
       <GuildIcon id={j.guilda} byId={byId} />
       <span style={{ color: C.texto, fontWeight: 600, whiteSpace: "nowrap" }}>{j.familia}</span>
+      {/* o passado recente encostado no nome: é a informação que decide a escalação, e escondê-la no
+          hover obrigava a passar o mouse em 70 cards um por um */}
+      {j.semana.nodewars.length > 0 && <Historico h={j.semana} wars={ctx.warsSemana} />}
       {emojiClasse
         ? <IconeClasse raw={emojiClasse} nome={j.classe ?? ""} />
         : j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}

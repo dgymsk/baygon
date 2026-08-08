@@ -130,8 +130,8 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       ingameEm: ingamePorChave.get(chave) ?? null,
       ordemPt: ordemPtPorChave.get(chave) ?? null,
       filler: fillerChaves.has(chave),
-      // uma bolinha por war das últimas 7, pra decidir escalação com o passado à vista
-      semana: semana.porChave.get(chave) ?? [],
+      // 6 quadrados (node wars) + 1 bola (siege), pra decidir escalação com o passado à vista
+      semana: semana.porChave.get(chave) ?? { nodewars: [], siege: null },
     };
   };
 
@@ -201,7 +201,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       evento={{ uuid: ev.uuid, titulo: ev.titulo, tituloRaw: ev.titulo_raw, tamanhoMax: ev.tamanho_max, tamanhoMaxPreset: preset?.tamanho_max ?? null, intencaoFechada: ev.intencao_fechada, tipo: ev.tipo, tier: ev.tier, exigeRegistro: ev.exige_registro, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
       catalogoParties={parties.map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }))} partiesProprias={partiesProprias != null}
-      chamadas={chamadas} warsSemana={semana.wars}
+      chamadas={chamadas} warsSemana={semana}
       canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} podeRenomear={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
       recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}

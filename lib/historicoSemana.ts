@@ -2,66 +2,63 @@ import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
 
 /**
- * As últimas guerras de cada jogador, em uma bolinha por war — o "histórico da semana" que aparece
- * no card ao passar o mouse na escalação.
+ * O histórico recente de cada jogador, do jeito que aparece ao lado do nome no card: SEIS quadrados
+ * (as últimas node wars) e UMA bola (a siege mais recente). Serve pra montar escalação com o
+ * passado à vista, sem depender da memória de quem está montando.
  *
- * Serve pra decidir escalação com o passado à vista: quem vem jogando, quem marca e não aparece,
- * quem avisou que não podia. Sem isso a decisão depende da memória de quem está montando.
+ * Duas decisões que o desenho impõe:
  *
- * A distinção que mais importa é entre FALTOU e NÃO DÁ PRA SABER: numa guerra sem estatística
- * gravada ninguém "faltou" — a informação não existe, e pintar de vermelho seria acusação falsa.
- * Por isso `escalado_sem_war` é um estado próprio, e não um vermelho mais claro.
+ * 1. "NÃO RESPONDEU" ≠ "SEM DADO". Silêncio só é silêncio de quem estava lá pra responder. Quem se
+ *    registrou depois da guerra não tem culpa nenhuma, e pintá-lo de cinza seria acusação
+ *    retroativa — a pior espécie, porque parece dado. Por isso a elegibilidade vem de
+ *    `players.registrado_em` (NULL = já estava antes deste controle).
+ *
+ * 2. "ESCALADO E NÃO JOGOU" exige que a war TENHA estatística. Sem o print gravado ninguém faltou:
+ *    a informação não existe, e o X vermelho seria acusação igualmente falsa. Esse caso vira
+ *    `sem_stat`.
  */
 export type EstadoWar =
-  | "sem"               // não marcou, não foi escalado, não jogou — passou longe
-  | "recusou"           // disse que não vai no bot
-  | "marcou"            // marcou e NÃO foi escalado
-  | "jogou"             // está na estatística final da war
-  | "faltou"            // foi escalado e não apareceu na estatística
-  | "escalado_sem_war"; // foi escalado, mas a war não teve estatística gravada
+  | "jogou"          // escalado e jogou — verde
+  | "faltou"         // escalado e não apareceu na estatística — X de borda vermelha
+  | "jogou_sem_escala" // não escalado e jogou — azul
+  | "marcou"         // marcou e não foi escalado — laranja
+  | "nao_respondeu"  // estava no elenco e não respondeu a chamada — O cinza
+  | "recusou"        // disse que não ia — traço cinza
+  | "sem_stat"       // escalado, mas a war não teve estatística gravada
+  | "sem"            // não estava no sistema nessa data, ou não houve guerra nesse espaço
+  ;
 
-export type WarHistorico = { eventoId: number; data: string; titulo: string; temWar: boolean };
-export type HistoricoSemana = { wars: WarHistorico[]; porChave: Map<string, EstadoWar[]> };
+export type WarHistorico = { eventoId: number; data: string; titulo: string; tipo: string; temWar: boolean };
+export type HistoricoJogador = { nodewars: EstadoWar[]; siege: EstadoWar | null };
+export type HistoricoSemana = {
+  /** SEMPRE 6 posições, da mais antiga pra mais recente. `null` = não houve guerra nesse espaço. */
+  nodewars: (WarHistorico | null)[];
+  siege: WarHistorico | null;
+  porChave: Map<string, HistoricoJogador>;
+};
 
-/**
- * Monta o histórico das últimas `limite` guerras ANTERIORES ao evento aberto (ele não entra: o
- * card está sendo usado justamente pra decidir esta guerra, e ela ainda não aconteceu).
- *
- * A ordem do array é a mesma de `wars` — mais recente primeiro —, então a posição da bolinha
- * significa a mesma war pra todo mundo.
- */
-export async function historicoSemana(eventoAtualId: number, limite = 7): Promise<HistoricoSemana> {
-  const wars = (await sql`
-    SELECT e.id::int AS evento_id, e.data::text AS data, COALESCE(e.titulo, e.tipo) AS titulo,
-           r.war_id::int AS war_id
-    FROM evento e
-    LEFT JOIN evento_resultado r ON r.evento_id = e.id
-    WHERE e.id <> ${eventoAtualId}
-      AND e.data <= COALESCE((SELECT data FROM evento WHERE id = ${eventoAtualId}), e.data)
-    ORDER BY e.data DESC, e.id DESC
-    LIMIT ${limite}`) as { evento_id: number; data: string; titulo: string; war_id: number | null }[];
+const QUADRADOS = 6;
 
-  if (!wars.length) return { wars: [], porChave: new Map() };
-  const ids = wars.map((w) => w.evento_id);
-
+/** Junta as 4 fontes de sinal de um conjunto de eventos, como chaves "eventoId|chaveNome". */
+async function sinais(ids: number[]) {
+  if (!ids.length) return { marcou: new Set<string>(), recusou: new Set<string>(), escalado: new Set<string>(), jogou: new Set<string>() };
+  const arr = ids as unknown as number[];
   const [marcas, recusas, escalados, jogaram] = await Promise.all([
     sql`SELECT ip.evento_id::int AS evento_id, im.chave
         FROM intencao_marca im JOIN intencao_post ip ON ip.message_id = im.message_id
-        WHERE ip.evento_id = ANY(${ids as unknown as number[]})` as Promise<unknown>,
+        WHERE ip.evento_id = ANY(${arr})` as Promise<unknown>,
     sql`SELECT ip.evento_id::int AS evento_id, ir.chave
         FROM intencao_resp ir JOIN intencao_post ip ON ip.message_id = ir.message_id
-        WHERE ip.evento_id = ANY(${ids as unknown as number[]}) AND ir.resposta = 'nao'` as Promise<unknown>,
+        WHERE ip.evento_id = ANY(${arr}) AND ir.resposta = 'nao'` as Promise<unknown>,
     sql`SELECT evento_id::int AS evento_id, chave FROM evento_escalacao
-        WHERE evento_id = ANY(${ids as unknown as number[]}) AND party_id IS NOT NULL` as Promise<unknown>,
-    // a estatística guarda nome de família; a identidade do resto do app é a chaveNome — o casamento
-    // é feito aqui, e não no SQL, pra usar exatamente a mesma função das outras telas
+        WHERE evento_id = ANY(${arr}) AND party_id IS NOT NULL` as Promise<unknown>,
+    // a estatística guarda nome de família; a identidade do resto do app é chaveNome — o casamento
+    // é feito aqui, com a MESMA função das outras telas, e não com um LOWER() paralelo no SQL
     sql`SELECT r.evento_id::int AS evento_id, d.nome_familia
         FROM evento_resultado r JOIN desempenho d ON d.war_id = r.war_id
-        WHERE r.evento_id = ANY(${ids as unknown as number[]})
-        GROUP BY r.evento_id, d.nome_familia` as Promise<unknown>,
+        WHERE r.evento_id = ANY(${arr}) GROUP BY r.evento_id, d.nome_familia` as Promise<unknown>,
   ]);
-
-  const setDe = (linhas: unknown, campo: "chave" | "nome_familia") => {
+  const monta = (linhas: unknown, campo: "chave" | "nome_familia") => {
     const s = new Set<string>();
     for (const l of linhas as Record<string, string | number>[]) {
       const bruto = String(l[campo] ?? "");
@@ -69,31 +66,77 @@ export async function historicoSemana(eventoAtualId: number, limite = 7): Promis
     }
     return s;
   };
-  const sMarcou = setDe(marcas, "chave");
-  const sRecusou = setDe(recusas, "chave");
-  const sEscalado = setDe(escalados, "chave");
-  const sJogou = setDe(jogaram, "nome_familia");
-
-  // todo mundo que aparece em qualquer estágio de qualquer uma das wars
-  const chaves = new Set<string>();
-  for (const s of [sMarcou, sRecusou, sEscalado, sJogou]) for (const k of s) chaves.add(k.split("|")[1]);
-
-  const porChave = new Map<string, EstadoWar[]>();
-  for (const chave of chaves) {
-    porChave.set(chave, wars.map((w) => {
-      const k = `${w.evento_id}|${chave}`;
-      // a ordem do teste É a regra de precedência: quem jogou jogou, independente do que marcou;
-      // e "escalado sem estatística" nunca vira falta
-      if (sJogou.has(k)) return "jogou";
-      if (sEscalado.has(k)) return w.war_id != null ? "faltou" : "escalado_sem_war";
-      if (sRecusou.has(k)) return "recusou";
-      if (sMarcou.has(k)) return "marcou";
-      return "sem";
-    }));
-  }
-
   return {
-    wars: wars.map((w) => ({ eventoId: w.evento_id, data: w.data, titulo: w.titulo, temWar: w.war_id != null })),
-    porChave,
+    marcou: monta(marcas, "chave"), recusou: monta(recusas, "chave"),
+    escalado: monta(escalados, "chave"), jogou: monta(jogaram, "nome_familia"),
   };
+}
+
+export async function historicoSemana(eventoAtualId: number): Promise<HistoricoSemana> {
+  const dataAtual = (await sql`SELECT data::text AS data FROM evento WHERE id = ${eventoAtualId}`) as { data: string }[];
+  const corte = dataAtual[0]?.data ?? null;
+
+  // node wars: as 6 últimas ANTES desta (o evento aberto não entra — é ele que está sendo decidido)
+  const nw = (await sql`
+    SELECT e.id::int AS evento_id, e.data::text AS data, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo,
+           r.war_id::int AS war_id
+    FROM evento e LEFT JOIN evento_resultado r ON r.evento_id = e.id
+    WHERE e.id <> ${eventoAtualId} AND e.tipo = 'nodewar'
+      AND (${corte}::date IS NULL OR e.data <= ${corte}::date)
+    ORDER BY e.data DESC, e.id DESC LIMIT ${QUADRADOS}`) as { evento_id: number; data: string; titulo: string; tipo: string; war_id: number | null }[];
+
+  const sg = (await sql`
+    SELECT e.id::int AS evento_id, e.data::text AS data, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo,
+           r.war_id::int AS war_id
+    FROM evento e LEFT JOIN evento_resultado r ON r.evento_id = e.id
+    WHERE e.id <> ${eventoAtualId} AND e.tipo = 'siege'
+      AND (${corte}::date IS NULL OR e.data <= ${corte}::date)
+    ORDER BY e.data DESC, e.id DESC LIMIT 1`) as { evento_id: number; data: string; titulo: string; tipo: string; war_id: number | null }[];
+
+  const vm = (w: (typeof nw)[number]): WarHistorico =>
+    ({ eventoId: w.evento_id, data: w.data, titulo: w.titulo, tipo: w.tipo, temWar: w.war_id != null });
+
+  // ordem da tela: mais ANTIGA primeiro. Com menos de 6 guerras, os espaços vazios ficam no começo —
+  // assim a guerra mais recente é sempre o último quadrado, e a posição não dança de um dia pro outro
+  const nodewars: (WarHistorico | null)[] = [
+    ...Array(Math.max(0, QUADRADOS - nw.length)).fill(null),
+    ...nw.slice().reverse().map(vm),
+  ];
+  const siege = sg[0] ? vm(sg[0]) : null;
+
+  const eventos = [...nw, ...sg];
+  const s = await sinais(eventos.map((e) => e.evento_id));
+
+  // quem já estava no sistema em cada data. NULL em `registrado_em` = veterano (já estava antes do
+  // controle existir), então vale pra qualquer data.
+  const players = (await sql`
+    SELECT nome_familia, registrado_em::text AS registrado_em FROM players
+  `) as { nome_familia: string; registrado_em: string | null }[];
+  const desde = new Map(players.map((p) => [chaveNome(p.nome_familia), p.registrado_em]));
+
+  const chaves = new Set<string>([...desde.keys()]);
+  for (const st of [s.marcou, s.recusou, s.escalado, s.jogou]) for (const k of st) chaves.add(k.split("|")[1]);
+
+  const estadoDe = (chave: string, w: WarHistorico | null): EstadoWar => {
+    if (!w) return "sem";
+    const k = `${w.eventoId}|${chave}`;
+    // a ordem dos testes É a regra: quem jogou jogou, e quem não tinha estatística nunca "faltou"
+    if (s.jogou.has(k)) return s.escalado.has(k) ? "jogou" : "jogou_sem_escala";
+    if (s.escalado.has(k)) return w.temWar ? "faltou" : "sem_stat";
+    if (s.recusou.has(k)) return "recusou";
+    if (s.marcou.has(k)) return "marcou";
+    // silêncio só conta contra quem já estava aqui pra responder
+    const reg = desde.get(chave);
+    if (reg && reg.slice(0, 10) > w.data) return "sem";
+    return desde.has(chave) ? "nao_respondeu" : "sem";
+  };
+
+  const porChave = new Map<string, HistoricoJogador>();
+  for (const chave of chaves) {
+    porChave.set(chave, {
+      nodewars: nodewars.map((w) => estadoDe(chave, w)),
+      siege: siege ? estadoDe(chave, siege) : null,
+    });
+  }
+  return { nodewars, siege, porChave };
 }

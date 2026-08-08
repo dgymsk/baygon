@@ -97,10 +97,13 @@ async function aplicar(userId: string, guildId: string, familiaTyped: string, ap
   // 1) DADO — atômico. Se isto falhar, nada foi salvo. Manual (garmothId null) NÃO apaga um link Garmoth existente.
   await sql.transaction([
     sql`UPDATE players SET discord_id = NULL WHERE discord_id = ${userId} AND nome_familia <> ${familia}`, // 1 conta = 1 player
-    sql`INSERT INTO players (nome_familia, grupo, guilda, classe_bdo, classe_tipo, registro, discord_id, garmoth_id)
-        VALUES (${familia}, 'Indefinido', ${guilda}, ${g.classeBdo}, ${g.classeTipo}, TRUE, ${userId}, ${g.garmothId})
+    // `registrado_em` só é carimbado na PRIMEIRA vez (COALESCE): reregistrar não pode empurrar a data
+    // pra frente, senão o histórico de quem já estava aqui viraria "sem dado" retroativamente
+    sql`INSERT INTO players (nome_familia, grupo, guilda, classe_bdo, classe_tipo, registro, discord_id, garmoth_id, registrado_em)
+        VALUES (${familia}, 'Indefinido', ${guilda}, ${g.classeBdo}, ${g.classeTipo}, TRUE, ${userId}, ${g.garmothId}, now())
         ON CONFLICT (nome_familia) DO UPDATE SET classe_bdo = EXCLUDED.classe_bdo, classe_tipo = EXCLUDED.classe_tipo,
-          guilda = EXCLUDED.guilda, registro = TRUE, discord_id = EXCLUDED.discord_id, garmoth_id = COALESCE(EXCLUDED.garmoth_id, players.garmoth_id)`,
+          guilda = EXCLUDED.guilda, registro = TRUE, discord_id = EXCLUDED.discord_id, garmoth_id = COALESCE(EXCLUDED.garmoth_id, players.garmoth_id),
+          registrado_em = COALESCE(players.registrado_em, now())`,
     sql`INSERT INTO garmoth_build (nome_familia, garmoth_id, fonte, char_name, char_class, spec, level, ap, aap, dp, acc, dados, atualizado)
         VALUES (${familia}, ${g.garmothId}, ${g.garmothId ? "garmoth" : "manual"}, ${g.charName}, ${g.charClass}, ${g.spec}, ${g.level}, ${g.ap}, ${g.aap}, ${g.dp}, ${g.acc}, ${dadosJson}::jsonb, now())
         ON CONFLICT (nome_familia) DO UPDATE SET garmoth_id = COALESCE(EXCLUDED.garmoth_id, garmoth_build.garmoth_id),
