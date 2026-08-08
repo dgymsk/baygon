@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { C } from "@/lib/theme";
+import { C, CorResultado } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
@@ -12,6 +12,7 @@ import ApagarEvento from "./ApagarEvento";
 import ChamadasLog from "./ChamadasLog";
 import type { LoteResumo } from "@/lib/loteDM";
 import AutoSync from "@/app/confirmados/AutoSync";
+import type { EstadoWar, WarHistorico } from "@/lib/historicoSemana";
 // captura das estatísticas de combate: o MESMO componente do /eventos, reaproveitado no hub
 import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/ResultadoExtrair";
 
@@ -47,6 +48,7 @@ export type JogadorVM = {
   ingameEm: string | null;        // apareceu na conferência in-game
   ordemPt: number | null;         // posição DENTRO da PT — 0 é o líder
   filler: boolean;                // apareceu in-game sem ter marcado na chamada
+  semana: EstadoWar[];            // últimas guerras, mais recente primeiro (ver lib/historicoSemana)
 };
 
 /** Pokébola — só no site, nunca no bot. SVG inline pra não depender de emoji nem de CDN. */
@@ -98,7 +100,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
-  catalogoParties = [], partiesProprias = false, chamadas = [],
+  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -109,6 +111,7 @@ export default function EventoBoard({
   catalogoParties?: PartyVM[];   // TODAS as PTs cadastradas — as colunas são um subconjunto disto
   partiesProprias?: boolean;     // o evento tem lista própria, ou está seguindo a da chamada?
   chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
+  warsSemana?: WarHistorico[];   // as guerras que as bolinhas do card representam, na mesma ordem
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
@@ -587,7 +590,7 @@ export default function EventoBoard({
   // `partyId` só vem quando o card está DENTRO de uma PT: no pool não há ordem a reordenar,
   // e o card não deve virar alvo de solta.
   const ctx = (j: JogadorVM, partyId?: number, lider?: boolean): CardCtx => ({
-    canEdit, byId, escalado: partyDe(j) != null, lider,
+    canEdit, byId, escalado: partyDe(j) != null, lider, warsSemana,
     emojiClasse: (j.classe && emojisClasse[j.classe]) || null,
     onFimArraste: () => setSobre(null),
     onTogglePresenca: togglePresenca,
@@ -1032,6 +1035,7 @@ export default function EventoBoard({
 }
 
 type CardCtx = {
+  warsSemana: WarHistorico[];   // as guerras que as bolinhas representam, na ordem
   canEdit: boolean;
   byId: Map<string, GuildEntry>;
   escalado: boolean;                       // já está numa PT — muda os selos de convocação
@@ -1067,7 +1071,50 @@ function GuildIcon({ id, byId }: { id: string | null; byId: Map<string, GuildEnt
 /** Onde o mini-card vai aparecer, em coordenadas de TELA (ver o porquê em MiniCard). */
 type PosMini = { left: number; top?: number; bottom?: number };
 
-function MiniCard({ j, pos }: { j: JogadorVM; pos: PosMini }) {
+/**
+ * A semana do jogador em bolinhas — uma por guerra, da mais recente pra mais antiga.
+ *
+ * O ponto é decidir escalação com o passado à vista, sem depender da memória de quem monta. Cada
+ * estado tem cor E forma (o "−" do recusou, o anel do sem-estatística), porque a paleta do site tem
+ * verde e vermelho quase iguais e cor sozinha não distingue.
+ *
+ * `escalado_sem_war` não é vermelho de propósito: numa guerra sem estatística gravada ninguém
+ * faltou — a informação não existe, e pintar de falta seria acusação falsa.
+ */
+const ESTADO: Record<EstadoWar, { cor: string; borda?: string; dentro?: string; rot: string }> = {
+  jogou:            { cor: CorResultado.vitoria.cor, rot: "jogou" },
+  faltou:           { cor: CorResultado.derrota.cor, rot: "escalado e NÃO jogou" },
+  marcou:           { cor: "#e08a3a", rot: "marcou e não foi escalado" },
+  recusou:          { cor: "#6f6f6f", dentro: "−", rot: "recusou a chamada" },
+  escalado_sem_war: { cor: "transparent", borda: "#8f8f8f", rot: "escalado, mas a war não teve estatística gravada" },
+  sem:              { cor: "rgba(143,143,143,.22)", rot: "sem dados" },
+};
+
+function Semana({ estados, wars }: { estados: EstadoWar[]; wars: WarHistorico[] }) {
+  if (!estados.length) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+      {estados.map((e, i) => {
+        const s = ESTADO[e] ?? ESTADO.sem;
+        const w = wars[i];
+        return (
+          <span key={w?.eventoId ?? i}
+            title={`${w ? `${w.data.slice(8, 10)}/${w.data.slice(5, 7)} · ${w.titulo}` : "war"} — ${s.rot}`}
+            style={{
+              width: 11, height: 11, borderRadius: 999, flexShrink: 0,
+              background: s.cor, border: s.borda ? `1px solid ${s.borda}` : "1px solid rgba(0,0,0,.35)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: 9, lineHeight: 1, color: "#141414", fontWeight: 800,
+            }}>
+            {s.dentro ?? ""}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: WarHistorico[] }) {
   return (
   /**
    * `position: fixed`, e não `absolute`: o pool agora é um container com `overflow`, e um
@@ -1087,6 +1134,13 @@ function MiniCard({ j, pos }: { j: JogadorVM; pos: PosMini }) {
     <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.texto, fontSize: 13, fontWeight: 700 }}>
       {j.lendario && <Pokebola size={14} />}{j.familia}
     </div>
+    {/* a semana logo abaixo do nome: é o que se olha ANTES dos números pra decidir escalação */}
+    {j.semana.length > 0 && (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 2 }}>
+        <Semana estados={j.semana} wars={wars} />
+        <span style={{ color: C.borderSoft, fontSize: 10 }}>últimas {j.semana.length}</span>
+      </div>
+    )}
     <Linha k="Classe" v={j.classe ?? "—"} />
     <Linha k="GS" v={j.gs != null ? String(j.gs) : "—"} />
     {(j.ap != null || j.aap != null || j.dp != null) && <Linha k="AP / AAP / DP" v={`${j.ap ?? "—"} / ${j.aap ?? "—"} / ${j.dp ?? "—"}`} />}
@@ -1211,7 +1265,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
           </button>
         )}
       </span>
-      {hover && <MiniCard j={j} pos={hover} />}
+      {hover && <MiniCard j={j} pos={hover} wars={ctx.warsSemana} />}
     </div>
   );
 }
