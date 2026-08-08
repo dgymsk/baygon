@@ -1272,9 +1272,6 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
       <GuildIcon id={j.guilda} byId={byId} />
       <span style={{ color: C.texto, fontWeight: 600, whiteSpace: "nowrap" }}>{j.familia}</span>
-      {/* o passado recente encostado no nome: é a informação que decide a escalação, e escondê-la no
-          hover obrigava a passar o mouse em 70 cards um por um */}
-      {j.semana.nodewars.length > 0 && <Historico h={j.semana} wars={ctx.warsSemana} />}
       {emojiClasse
         ? <IconeClasse raw={emojiClasse} nome={j.classe ?? ""} />
         : j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
@@ -1284,6 +1281,9 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
 
       {/* indicadores à direita: "faz N dias" pesa mais do que a contagem crua de guerras */}
       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5 }}>
+        {/* o passado recente encostado na borda, ao lado do tick de presença: é onde o olho já vai
+            pra conferir quem está pronto, e aqui ele não empurra o nome nem a classe */}
+        {j.semana.nodewars.length > 0 && <Historico h={j.semana} wars={ctx.warsSemana} />}
         {j.diasSemJogar != null && j.diasSemJogar >= 7 && (
           <span title={`Não joga há ${j.diasSemJogar} dias`}
             style={{ fontSize: 10, fontWeight: 700, color: j.diasSemJogar >= 14 ? C.vermelho : C.laranja }}>
