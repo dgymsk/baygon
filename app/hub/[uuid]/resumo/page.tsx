@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { C } from "@/lib/theme";
+import { C, CorResultado, corDoResultado } from "@/lib/theme";
 import { corTier } from "@/lib/tier";
 import { resumoEvento, type LinhaResumo } from "@/lib/resumoEvento";
 
@@ -14,19 +14,27 @@ import { resumoEvento, type LinhaResumo } from "@/lib/resumoEvento";
  */
 export const dynamic = "force-dynamic";
 
+// a paleta tem verde e vermelho iguais; pra "aceitou/recusou" e "jogou/não" isso apagaria a
+// diferença, então estes dois vêm do semáforo de resultado
+const OK = CorResultado.vitoria.cor;
+const RUIM = CorResultado.derrota.cor;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const fmtData = (d: string) =>
   new Date(d).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
 
-const COR_RESULTADO: Record<string, string> = { vitoria: C.verde, participacao: C.amarelo, derrota: C.vermelho };
+
 
 // a proteção de sessão é do middleware, como no resto de /hub — aqui não há escrita nenhuma
 export default async function ResumoPage({ params }: { params: Promise<{ uuid: string }> }) {
   const { uuid } = await params;
+  // uuid malformado vai pro 404 aqui: o ::uuid do Postgres estouraria 500 antes de qualquer coisa
+  if (!UUID_RE.test(uuid)) notFound();
   const r = await resumoEvento(uuid);
   if (!r) notFound();
 
   const { evento: e, totais: t } = r;
-  const corRes = e.resultado ? COR_RESULTADO[e.resultado.toLowerCase()] ?? C.mute : C.mute;
+  const corRes = corDoResultado(e.resultado)?.cor ?? C.mute;
 
   return (
     <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
@@ -56,12 +64,16 @@ export default async function ResumoPage({ params }: { params: Promise<{ uuid: s
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
           <Numero rot="marcaram" n={t.marcaram} cor={C.texto} />
           <Numero rot="não vão" n={t.naoVao} cor={C.mute} />
-          <Numero rot="escalados" n={t.escalados} cor={C.verde} sufixo={e.tamanhoMax ? `/${e.tamanhoMax}` : undefined} />
-          <Numero rot="aceitaram a DM" n={t.aceitaram} cor={C.verde} />
-          <Numero rot="recusaram" n={t.recusaram} cor={C.vermelho} />
+          <Numero rot="escalados" n={t.escalados} cor={OK} sufixo={e.tamanhoMax ? `/${e.tamanhoMax}` : undefined} />
+          <Numero rot="aceitaram a DM" n={t.aceitaram} cor={OK} />
+          {/* quem recusa sai da PT na hora, então some de "escalados" — mostrar só o card faria
+              esses N sumirem da folha inteira, que é a informação que a staff mais cobra depois */}
+          <Numero rot={t.recusaramForaDePt ? "recusaram (saíram da PT)" : "recusaram"}
+            n={t.recusaram + t.recusaramForaDePt} cor={RUIM} />
           <Numero rot="sem responder" n={t.semResposta} cor={C.amarelo} />
-          <Numero rot="apareceram in-game" n={t.ingame} cor={C.verde} />
-          <Numero rot="jogaram (stats)" n={t.jogaram} cor={r.war ? C.verde : C.borderSoft} />
+          <Numero rot="apareceram in-game" n={t.ingame} cor={OK} />
+          {/* sem war gravada não é ZERO, é desconhecido — 0 aqui seria uma acusação falsa */}
+          <Numero rot="jogaram (stats)" n={r.war ? t.jogaram : "—"} cor={r.war ? OK : C.mute} />
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
@@ -105,7 +117,7 @@ export default async function ResumoPage({ params }: { params: Promise<{ uuid: s
         {r.foraDePt.length > 0 && (
           <Bloco titulo={`Fora de PT — ${r.foraDePt.length}`} margem>
             <div style={{ color: C.borderSoft, fontSize: 11, marginBottom: 6 }}>
-              Tem linha no evento (marcou, recusou ou apareceu) mas não entrou em nenhuma party.
+              Tem linha na escalação deste evento mas não está em nenhuma party — recusou a convocação, foi tirado da PT, ou a PT dele saiu da lista da guerra. Quem só marcou no bot e nunca foi escalado não aparece aqui: veja o número de “marcaram” acima.
             </div>
             <Tabela linhas={r.foraDePt} temWar={!!r.war} />
           </Bloco>
@@ -128,15 +140,15 @@ function Tabela({ linhas, temWar }: { linhas: LinhaResumo[]; temWar: boolean }) 
           {linhas.map((l) => (
             <tr key={l.chave} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
               <Td cor={C.texto}>{l.lendario ? "★ " : ""}{l.familia}</Td>
-              <Td>{l.guilda ?? "—"}</Td>
+              <Td>{l.guildaNome ?? "—"}</Td>
               <Td>{l.classe ?? "—"}</Td>
               <Td>{l.gs ?? "—"}</Td>
               <Td>{l.funcao ?? "—"}</Td>
-              <Td cor={l.confirmouDm === true ? C.verde : l.confirmouDm === false ? C.vermelho : C.amarelo}>
+              <Td cor={l.confirmouDm === true ? OK : l.confirmouDm === false ? RUIM : C.mute}>
                 {l.confirmouDm === true ? "aceitou" : l.confirmouDm === false ? "recusou" : "sem resposta"}
               </Td>
-              <Td cor={l.ingame ? C.verde : C.mute}>{l.ingame ? "sim" : "não"}</Td>
-              {temWar && <Td cor={l.jogou ? C.verde : C.vermelho}>{l.jogou ? "sim" : "não"}</Td>}
+              <Td cor={l.ingame ? OK : C.mute}>{l.ingame ? "sim" : "não"}</Td>
+              {temWar && <Td cor={l.jogou ? OK : RUIM}>{l.jogou ? "sim" : "não"}</Td>}
             </tr>
           ))}
         </tbody>
@@ -145,7 +157,7 @@ function Tabela({ linhas, temWar }: { linhas: LinhaResumo[]; temWar: boolean }) 
   );
 }
 
-const Numero = ({ rot, n, cor, sufixo }: { rot: string; n: number; cor: string; sufixo?: string }) => (
+const Numero = ({ rot, n, cor, sufixo }: { rot: string; n: number | string; cor: string; sufixo?: string }) => (
   <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, padding: "8px 14px", minWidth: 104 }}>
     <div style={{ fontFamily: "'Share Tech Mono', monospace", fontWeight: 800, fontSize: 21, color: cor, lineHeight: 1.1 }}>
       {n}{sufixo && <span style={{ color: C.mute, fontSize: 14 }}>{sufixo}</span>}

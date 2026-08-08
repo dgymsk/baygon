@@ -216,7 +216,20 @@ export type LoteResumo = {
   alvos: AlvoLote[];
 };
 
-export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
+type LoteRow = {
+  id: number; tipo: TipoLote; publico: string | null; criado_por: string | null; status: string; total: number;
+  criado: string; concluido: string | null; log_ok: boolean | null; log_erro: string | null;
+  enviados: number; falhas: number; pendentes: number;
+};
+const montar = (l: LoteRow, alvos: AlvoLote[]): LoteResumo => ({
+  id: l.id, tipo: l.tipo, rotulo: ROTULO[l.tipo] ?? l.tipo, criadoPor: l.criado_por,
+  publico: l.publico ? ROTULO_PUBLICO[l.publico as PublicoLote] ?? l.publico : null,
+  criado: l.criado, concluido: l.concluido, status: l.status,
+  total: l.total, enviados: l.enviados, falhas: l.falhas, pendentes: l.pendentes,
+  logOk: l.log_ok, logErro: l.log_erro, alvos,
+});
+
+export async function historicoLotes(eventoId: number, o: { comAlvos?: boolean } = {}): Promise<LoteResumo[]> {
   const lotes = (await sql`
     SELECT l.id::int AS id, l.tipo, l.publico, l.criado_por, l.status, l.total::int AS total,
            l.criado::text AS criado, l.concluido::text AS concluido, l.log_ok, l.log_erro,
@@ -232,6 +245,10 @@ export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
     }[];
   if (!lotes.length) return [];
 
+  // quem só quer o PLACAR (o resumo do evento) para aqui: a lista nominal de todos os alvos de
+  // todos os lotes são centenas de linhas indo pro cliente sem ninguém usar
+  if (o.comAlvos === false) return lotes.map((l) => montar(l, []));
+
   // uma consulta só pros alvos de todos os lotes — um SELECT por lote seria N+1 numa tela que
   // recarrega sozinha a cada 20 segundos
   const ids = lotes.map((l) => l.id);
@@ -246,13 +263,7 @@ export async function historicoLotes(eventoId: number): Promise<LoteResumo[]> {
     if (lista) lista.push(item); else porLote.set(a.lote_id, [item]);
   }
 
-  return lotes.map((l) => ({
-    id: l.id, tipo: l.tipo, rotulo: ROTULO[l.tipo] ?? l.tipo, criadoPor: l.criado_por,
-    publico: l.publico ? ROTULO_PUBLICO[l.publico as PublicoLote] ?? l.publico : null,
-    criado: l.criado, concluido: l.concluido, status: l.status,
-    total: l.total, enviados: l.enviados, falhas: l.falhas, pendentes: l.pendentes,
-    logOk: l.log_ok, logErro: l.log_erro, alvos: porLote.get(l.id) ?? [],
-  }));
+  return lotes.map((l) => montar(l, porLote.get(l.id) ?? []));
 }
 
 /** Placar atual do lote. */

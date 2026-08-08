@@ -35,3 +35,22 @@ export const C = {
   verdeTint: "rgba(204,0,0,.15)",
   amareloTint: "rgba(166,166,166,.13)",
 } as const;
+
+/**
+ * RESULTADO DA GUERRA — as únicas cores do app que fogem da paleta, de propósito.
+ *
+ * O tema é couro/aço/sangue: `verde` e `vermelho` são AMBOS carmesim (#cc0000) e `amarelo` é aço
+ * cinza. Isso funciona pro resto da interface, mas destrói exatamente a distinção que o placar
+ * precisa — vitória e derrota sairiam idênticas na tela. Aqui vale semáforo de verdade.
+ *
+ * `fundo` tem alpha baixo porque a cor é pro saldo se ler de relance rolando a lista, não pra
+ * competir com o texto.
+ */
+export const CorResultado: Record<string, { cor: string; fundo: string }> = {
+  vitoria:      { cor: "#3fbf5f", fundo: "rgba(47,158,68,.13)" },
+  participacao: { cor: "#e0bd3a", fundo: "rgba(214,178,42,.13)" },
+  derrota:      { cor: "#e04b4b", fundo: "rgba(204,0,0,.16)" },
+};
+/** Sem resultado gravado devolve null — "ainda não sabemos" não é empate, e não pode virar cor. */
+export const corDoResultado = (r: string | null | undefined) =>
+  (r ? CorResultado[r.toLowerCase()] ?? null : null);

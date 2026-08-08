@@ -12,7 +12,12 @@ import { sql } from "@/lib/db";
  * Recusar tira a pessoa da PT na hora (party_id = NULL) mas mantém a linha com confirmou=false —
  * é o que separa "avisou que não vinha" de "sumiu", e a vaga já abre pra staff remanejar.
  */
-export async function responderConvocacao(eventoId: number, userId: string, aceita: boolean): Promise<{ ok: boolean; familia?: string }> {
+export async function responderConvocacao(eventoId: number, userId: string, aceita: boolean): Promise<{ ok: boolean; familia?: string; encerrado?: boolean }> {
+  // evento ENCERRADO não muda mais: a DM continua viva no privado da pessoa pra sempre, e sem este
+  // gate um "❌ Não vou" clicado depois da guerra ainda tirava alguém da PT no registro histórico
+  const ev = (await sql`SELECT status FROM evento WHERE id = ${eventoId}`) as { status: string }[];
+  if (ev[0]?.status === "finalizado") return { ok: false, encerrado: true };
+
   const rows = (await sql`
     UPDATE evento_escalacao
     SET confirmou = ${aceita}, respondeu_em = now(),

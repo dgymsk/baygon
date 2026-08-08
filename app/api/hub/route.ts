@@ -48,6 +48,28 @@ export async function POST(req: Request) {
     try { await publicarLista(eid(), { soSePublicada: true }); } catch (e) { console.error("espelho da lista falhou", e); }
   };
 
+  /**
+   * Evento ENCERRADO recusa operação — no servidor, não só na tela.
+   *
+   * A tela some com os botões quando o status não é 'aberto', mas isso é aparência: a rota continua
+   * aceitando o POST de uma aba velha, de um retry ou de qualquer cliente. "Trava tudo" só é
+   * verdade se a trava estiver aqui.
+   *
+   * Fora da lista de propósito: renomear, mudar tier, apagar e o próprio reabrir — são as ações de
+   * ARRUMAR o registro, e travá-las deixaria um evento encerrado impossível de corrigir.
+   */
+  const OPERACAO = new Set([
+    "escalar", "escalacao-reordenar", "escalacao-limpar", "evento-parties", "evento-tamanho",
+    "presenca-manual", "presenca-print", "dm-criar", "dm-processar", "publicar-lista",
+    "convocar", "pedir-ingame", "evento-registro", "preset-do-evento", "evento-fechar",
+  ]);
+  if (OPERACAO.has(String(b.acao ?? "")) && Number.isFinite(eid())) {
+    const st = (await sql`SELECT status FROM evento WHERE id = ${eid()}`) as { status: string }[];
+    if (st[0] && st[0].status === "finalizado") {
+      return NextResponse.json({ error: "evento encerrado — reabra o evento pra voltar a mexer nele" }, { status: 409 });
+    }
+  }
+
   switch (String(b.acao ?? "")) {
     // --- funções (o que vira botão no bot) ---
     case "funcao-criar":   return NextResponse.json((await criarFuncao(b.nome, b.emoji)) ?? { error: "nome obrigatório" });
@@ -173,13 +195,23 @@ export async function POST(req: Request) {
     case "evento-encerrar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
       const encerrar = b.encerrar !== false;
+      // `finalizado_em` NUNCA é zerado: ele é o carimbo de quando a guerra fechou, e reabrir pra
+      // corrigir alguma coisa não desfaz esse fato. Apagá-lo também mentiria pro que lê o histórico.
       const rows = (await sql`
         UPDATE evento
         SET status = ${encerrar ? "finalizado" : "aberto"},
-            finalizado_em = CASE WHEN ${encerrar} THEN now() ELSE NULL END
+            finalizado_em = CASE WHEN ${encerrar} THEN COALESCE(finalizado_em, now()) ELSE finalizado_em END
         WHERE id = ${eid()} RETURNING status`) as { status: string }[];
       if (!rows[0]) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
-      return NextResponse.json({ ok: true, status: rows[0].status });
+      // encerrar também fecha a marcação no bot (eventoAberto olha o status), então a mensagem no
+      // canal precisa parar de mostrar lista e botões — senão fica prometendo um clique que morreu
+      let mensagemAtualizada: boolean | null = null;
+      const post = (await sql`SELECT message_id FROM intencao_post WHERE evento_id = ${eid()} ORDER BY criado DESC LIMIT 1`) as { message_id: string }[];
+      if (post[0]) {
+        try { mensagemAtualizada = (await sincronizarMensagem(post[0].message_id)).ok; }
+        catch (e) { console.error("redesenho da chamada falhou", e); mensagemAtualizada = false; }
+      }
+      return NextResponse.json({ ok: true, status: rows[0].status, mensagemAtualizada });
     }
 
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---

@@ -22,7 +22,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
 
   // alianças em campo: rótulo digitado pela staff. Sem duplicata (case-insensitive), sem vazio,
-  // teto de 20 — é contexto da war, não lista de convidados
+  // teto de 20 — é contexto da war, não lista de convidados.
+  //
+  // `temAliancas` separa "não mandou o campo" de "mandou vazio". Sem essa distinção, gravar os
+  // stats APAGAVA a lista de oponentes: a tela semeia o array no mount e um segundo escritor (a
+  // outra rota, outra aba, outro staff) deixava o cliente com a lista velha, que ia por cima.
+  const temAliancas = Array.isArray(body.aliancas);
   const aliancas: string[] = [];
   for (const raw of Array.isArray(body.aliancas) ? body.aliancas : []) {
     const s = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, 60) : "";
@@ -111,7 +116,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (warId) {
     // reusa: replace-all seguro num único transaction (upsert → apaga só o que saiu; nunca esvazia a war se falhar)
     await sql.transaction([
-      sql`UPDATE wars SET data = ${dataWar}::date, resultado = ${resultadoWar}, territorio = ${territorio}, tier = ${tier}, aliancas = ${aliancas}::text[] WHERE war_id = ${warId}`,
+      // a coluna de alianças só é tocada quando o corpo trouxe o campo — ver `temAliancas`
+      sql`UPDATE wars SET data = ${dataWar}::date, resultado = ${resultadoWar}, territorio = ${territorio}, tier = ${tier},
+              aliancas = CASE WHEN ${temAliancas} THEN ${aliancas}::text[] ELSE aliancas END
+          WHERE war_id = ${warId}`,
       sql`INSERT INTO desempenho (war_id, nome_familia, metrica, valor)
           SELECT ${warId}, u.nome, u.metrica, u.valor
           FROM UNNEST(${nomes}::text[], ${metricas}::text[], ${valores}::float8[]) AS u(nome, metrica, valor)

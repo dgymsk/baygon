@@ -2,6 +2,7 @@ import { sql } from "@/lib/db";
 import { partiesDoEvento } from "@/lib/party";
 import { getPreset } from "@/lib/intencaoPreset";
 import { historicoLotes, type LoteResumo } from "@/lib/loteDM";
+import { getGuildMeta } from "@/lib/guildConfig";
 import type { Tier } from "@/lib/tier";
 
 /**
@@ -16,7 +17,7 @@ import type { Tier } from "@/lib/tier";
  */
 export type LinhaResumo = {
   chave: string; familia: string;
-  guilda: string | null; classe: string | null; gs: number | null; lendario: boolean;
+  guilda: string | null; guildaNome: string | null; classe: string | null; gs: number | null; lendario: boolean;
   party: string | null; ordemPt: number | null;
   funcao: string | null;          // o que marcou no bot
   confirmouDm: boolean | null;    // resposta da convocação
@@ -30,7 +31,7 @@ export type ResumoEvento = {
   presetNome: string | null;
   parties: { id: number; nome: string; icone: string | null; membros: LinhaResumo[] }[];
   foraDePt: LinhaResumo[];        // marcou/apareceu mas não entrou em PT
-  totais: { marcaram: number; naoVao: number; escalados: number; aceitaram: number; recusaram: number; semResposta: number; ingame: number; jogaram: number };
+  totais: { marcaram: number; naoVao: number; escalados: number; aceitaram: number; recusaram: number; recusaramForaDePt: number; semResposta: number; ingame: number; jogaram: number };
   porGuilda: { guilda: string; total: number; lendarios: number }[];
   chamadas: LoteResumo[];
 };
@@ -50,10 +51,11 @@ export async function resumoEvento(uuid: string): Promise<ResumoEvento | null> {
   const ev = evs[0];
   if (!ev) return null;
 
-  const [preset, proprias, chamadas, linhas, war, catalogo] = await Promise.all([
+  const [preset, proprias, chamadas, meta, linhas, war, catalogo] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     partiesDoEvento(ev.id),
-    historicoLotes(ev.id),
+    historicoLotes(ev.id, { comAlvos: false }),   // o resumo só mostra o placar; a lista nominal é da aba Chamadas
+    getGuildMeta(),
     // uma consulta só junta o funil inteiro por pessoa: escalação, marca na chamada, presença e
     // estatística. Separado daria N+1 e, pior, números que não fecham entre si
     sql`
@@ -92,8 +94,14 @@ export async function resumoEvento(uuid: string): Promise<ResumoEvento | null> {
   const pcat = catalogo as { id: number; nome: string; icone: string | null }[];
   const w = (war as { war_id: number; territorio: string | null; aliancas: string[] }[])[0] ?? null;
 
+  // o id da guilda (MANI/OSSD) é chave de banco, não rótulo de tela — resolve pelo nome configurado.
+  // Declarado ANTES de `vm`: ele é chamado logo abaixo, e um const declarado depois estouraria em
+  // "Cannot access before initialization" — que o tsc não pega.
+  const nomeGuilda = new Map(meta.guildas.map((g) => [g.id, g.nome]));
+
   const vm = (r: (typeof rows)[number]): LinhaResumo => ({
     chave: r.chave, familia: r.familia, guilda: r.guilda, classe: r.classe, gs: r.gs, lendario: !!r.lendario,
+    guildaNome: r.guilda ? nomeGuilda.get(r.guilda) ?? r.guilda : null,
     party: pcat.find((p) => p.id === r.party_id)?.nome ?? null, ordemPt: r.ordem_pt,
     funcao: r.funcao, confirmouDm: r.confirmou, ingame: r.ingame, jogou: r.jogou,
   });
@@ -103,7 +111,10 @@ export async function resumoEvento(uuid: string): Promise<ResumoEvento | null> {
     .map((id) => pcat.find((p) => p.id === id))
     .filter((p): p is NonNullable<typeof p> => !!p)
     .map((p) => ({ id: p.id, nome: p.nome, icone: p.icone, membros: rows.filter((r) => r.party_id === p.id).map(vm) }));
-  const foraDePt = rows.filter((r) => r.party_id == null).map(vm);
+  // party_id apontando pra PT que NÃO está mais na lista do evento também cai aqui: senão a pessoa
+  // some da tela e continua contando nos totais — o pior dos dois mundos
+  const conhecidas = new Set(parties.map((p) => p.id));
+  const foraDePt = rows.filter((r) => r.party_id == null || !conhecidas.has(r.party_id)).map(vm);
 
   // "marcaram" e "não vão" vêm da CHAMADA, não da escalação: quem marcou e não foi escalado não
   // tem linha em evento_escalacao, e contar por ali esconderia justamente quem ficou de fora
@@ -113,10 +124,12 @@ export async function resumoEvento(uuid: string): Promise<ResumoEvento | null> {
       (SELECT count(*)::int FROM intencao_resp ir JOIN intencao_post ip ON ip.message_id = ir.message_id WHERE ip.evento_id = ${ev.id} AND ir.resposta = 'nao') AS nao_vao
   `) as { marcaram: number; nao_vao: number }[];
 
-  const escalados = rows.filter((r) => r.party_id != null);
+  // MESMA população que as PTs desenhadas: com `party_id != null` puro, quem está numa PT que saiu
+  // da lista contaria nos totais e ainda apareceria em "fora de PT" — somando duas vezes
+  const escalados = rows.filter((r) => r.party_id != null && conhecidas.has(r.party_id));
   const porGuildaMap = new Map<string, { total: number; lendarios: number }>();
   for (const r of escalados) {
-    const k = r.guilda || "sem guilda";
+    const k = (r.guilda && (nomeGuilda.get(r.guilda) ?? r.guilda)) || "sem guilda";
     const v = porGuildaMap.get(k) ?? { total: 0, lendarios: 0 };
     v.total++; if (r.lendario) v.lendarios++;
     porGuildaMap.set(k, v);
@@ -131,7 +144,10 @@ export async function resumoEvento(uuid: string): Promise<ResumoEvento | null> {
       marcaram: c?.marcaram ?? 0, naoVao: c?.nao_vao ?? 0,
       escalados: escalados.length,
       aceitaram: escalados.filter((r) => r.confirmou === true).length,
-      recusaram: rows.filter((r) => r.confirmou === false).length,
+      // sobre ESCALADOS, como os vizinhos: contar sobre todas as linhas fazia
+      // aceitaram+recusaram+semResposta passar do total de escalados e o card não fechar
+      recusaram: escalados.filter((r) => r.confirmou === false).length,
+      recusaramForaDePt: rows.filter((r) => r.party_id == null && r.confirmou === false).length,
       semResposta: escalados.filter((r) => r.confirmou == null).length,
       ingame: escalados.filter((r) => r.ingame).length,
       jogaram: rows.filter((r) => r.jogou === true).length,

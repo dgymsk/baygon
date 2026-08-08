@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { C } from "@/lib/theme";
+import { C, corDoResultado } from "@/lib/theme";
 import { corTier } from "@/lib/tier";
 import type { FunilEvento } from "@/lib/hub";
 
@@ -18,19 +18,9 @@ import type { FunilEvento } from "@/lib/hub";
 const fmtData = (d: string) =>
   new Date(d).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
 
-/**
- * Fundo esmaecido pelo RESULTADO — verde vitória, amarelo participação, vermelho derrota.
- *
- * Alpha baixo de propósito: a cor é pra dar o saldo da semana no relance, rolando a lista, e não
- * pra competir com o texto. Sem resultado gravado a linha fica neutra, que é a informação certa —
- * "ainda não sabemos" não é empate.
- */
-const CorResultado: Record<string, { fundo: string; barra: string }> = {
-  vitoria:      { fundo: "rgba(47,158,68,.13)",  barra: "#2f9e44" },
-  participacao: { fundo: "rgba(214,178,42,.13)", barra: "#d6b22a" },
-  derrota:      { fundo: "rgba(204,0,0,.13)",    barra: "#cc0000" },
-};
-const corDoResultado = (r: string | null) => (r ? CorResultado[r.toLowerCase()] ?? null : null);
+// as cores do resultado moram em lib/theme (CorResultado): a paleta do site tem `verde` e
+// `vermelho` no MESMO carmesim, então vitória e derrota sairiam idênticas se usassem os tokens
+// normais — este é o único lugar do app que precisa de semáforo de verdade
 
 export default function EventosLista({ eventos }: { eventos: FunilEvento[] }) {
   const [aberto, setAberto] = useState<string | null>(null);
@@ -42,7 +32,7 @@ export default function EventosLista({ eventos }: { eventos: FunilEvento[] }) {
     <div style={{ marginBottom: 26 }}>
       {/* o último evento fica sempre aberto; a cor do resultado entra por cima do destaque verde,
           que aqui significa "é este o atual" e não "venceu" */}
-      <div style={{ border: `1px solid ${C.verde}`, borderLeft: `3px solid ${corDoResultado(atual.resultado)?.barra ?? C.verde}`, borderRadius: 12, background: corDoResultado(atual.resultado)?.fundo ?? C.surface, overflow: "hidden", marginBottom: resto.length ? 10 : 0 }}>
+      <div style={{ border: `1px solid ${C.verde}`, borderLeft: `3px solid ${corDoResultado(atual.resultado)?.cor ?? C.verde}`, borderRadius: 12, background: corDoResultado(atual.resultado)?.fundo ?? C.surface, overflow: "hidden", marginBottom: resto.length ? 10 : 0 }}>
         <Cabecalho e={atual} atual />
         <Detalhe e={atual} />
       </div>
@@ -53,7 +43,7 @@ export default function EventosLista({ eventos }: { eventos: FunilEvento[] }) {
             const on = aberto === e.uuid;
             const cor = corDoResultado(e.resultado);
             return (
-              <div key={e.uuid} style={{ borderTop: i ? `1px solid ${C.borderSoft}` : "none", background: cor?.fundo, borderLeft: cor ? `3px solid ${cor.barra}` : undefined }}>
+              <div key={e.uuid} style={{ borderTop: i ? `1px solid ${C.borderSoft}` : "none", background: cor?.fundo, borderLeft: cor ? `3px solid ${cor.cor}` : undefined }}>
                 <button onClick={() => setAberto(on ? null : e.uuid)}
                   style={{ width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit", background: on ? C.inputBg : "transparent", border: "none", padding: 0, color: C.texto }}>
                   <Cabecalho e={e} seta={on ? "▾" : "▸"} />
@@ -82,7 +72,7 @@ function Cabecalho({ e, atual = false, seta }: { e: FunilEvento; atual?: boolean
       {e.tier && <Selo cor={corTier[e.tier]}>{e.tier}</Selo>}
       {e.status !== "aberto" && <span style={{ color: C.amarelo, fontSize: 11 }}>🔒 {e.status}</span>}
       {e.resultado && (
-        <span style={{ color: e.resultado === "vitoria" ? C.verde : e.resultado === "derrota" ? C.vermelho : C.mute, fontSize: 11 }}>{e.resultado}</span>
+        <span style={{ color: corDoResultado(e.resultado)?.cor ?? C.mute, fontSize: 11, fontWeight: 700 }}>{e.resultado}</span>
       )}
       {/* funil resumido: é o que diferencia um evento do outro de relance */}
       <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12 }}>

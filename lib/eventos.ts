@@ -287,7 +287,7 @@ export async function resumoExclusao(id: number): Promise<ResumoExclusao> {
  * - o hub cria 'aberto', porque lá o evento precisa ser operável — escalar e confirmar presença
  *   dependem de `status === 'aberto'`.
  * `finalizado_em` só é preenchido quando de fato nasce finalizado: um evento aberto com data de
- * finalização mentiria pro purge e pra UI de /eventos.
+ * finalização mentiria pra UI de /eventos.
  * `presetId` decide quais PTs viram as colunas da escalação — sem ele o board abre sem coluna nenhuma.
  */
 export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null; status?: EventoStatus; presetId?: number | null; tier?: unknown }): Promise<Evento> {

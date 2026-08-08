@@ -53,6 +53,11 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
   const [colarTxt, setColarTxt] = useState<string | null>(null); // null = fechado
   // alianças em campo: contexto que explica o resultado (perder pra duas grandes ≠ perder pra uma)
   const [aliancas, setAliancas] = useState<string[]>(aliancasIniciais ?? []);
+  // o estado é semeado no MOUNT, e no hub esta aba fica montada o tempo todo (só escondida por
+  // display:none). Sem ressincronizar, o que outra aba ou outro staff salvou nunca chegaria aqui —
+  // e o gravar levaria a lista velha por cima. A chave é o conteúdo, não a identidade do array.
+  const chaveAliancas = (aliancasIniciais ?? []).join("");
+  useEffect(() => { setAliancas(aliancasIniciais ?? []); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [chaveAliancas]);
   const [aliancaTxt, setAliancaTxt] = useState("");
 
   function addAlianca(bruto: string) {

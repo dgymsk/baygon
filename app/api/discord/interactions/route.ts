@@ -283,6 +283,12 @@ export async function POST(req: Request) {
       if (!userIdEsc) return efemero("Não consegui te identificar.");
       const r = await responderConvocacao(eventoIdEsc, userIdEsc, aceita);
       if (!r.ok) {
+        // evento ENCERRADO: a DM vive pra sempre no privado, e responder depois da guerra mexeria
+        // no registro histórico. Mata o botão dizendo o que houve, em vez de acusar o jogador.
+        if (r.encerrado) return json({ type: 7, data: {
+          embeds: [{ description: "🏁 Esta guerra já foi encerrada — sua resposta não muda mais a escalação.", color: 0x8f8f8f }],
+          components: [],
+        } });
         // evento apagado ≠ escalação não encontrada. Mandar "fale com a staff" por algo que a staff
         // fez é culpar o jogador — e os botões da DM ficariam vivos pra sempre. type 7 edita a
         // própria DM e mata o botão no primeiro clique.
