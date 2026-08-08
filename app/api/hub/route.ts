@@ -162,6 +162,26 @@ export async function POST(req: Request) {
       return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.erro }, { status: 400 });
     }
 
+    /**
+     * ENCERRA o evento: trava tudo (escalação, convocação, presença, estatística) mas mantém a
+     * página visível pra consulta. É diferente de fechar a INTENÇÃO, que só desliga a marcação no
+     * bot e deixa a staff trabalhar — este aqui é o "acabou".
+     *
+     * `finalizado` é o estado que o resto do app já entende como fim de linha (a tela libera edição
+     * só com 'aberto'), então não precisa de vocabulário novo.
+     */
+    case "evento-encerrar": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const encerrar = b.encerrar !== false;
+      const rows = (await sql`
+        UPDATE evento
+        SET status = ${encerrar ? "finalizado" : "aberto"},
+            finalizado_em = CASE WHEN ${encerrar} THEN now() ELSE NULL END
+        WHERE id = ${eid()} RETURNING status`) as { status: string }[];
+      if (!rows[0]) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
+      return NextResponse.json({ ok: true, status: rows[0].status });
+    }
+
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---
     case "evento-registro": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });

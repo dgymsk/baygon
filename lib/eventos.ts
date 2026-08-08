@@ -349,10 +349,18 @@ export async function getEventoById(id: number): Promise<Evento | null> {
 /** Retenção ~30 dias. Chamar por GitHub Actions ou lazy — NUNCA cron sub-diário no Vercel Hobby.
  *  Apaga o evento (e o snapshot congelado). participacao_post.evento_id vira NULL (post/respostas
  *  permanecem, órfãos de evento). Satélites futuros DEVEM declarar ON DELETE CASCADE p/ sumirem junto. */
-export async function purgeEventosAntigos(): Promise<number> {
-  const rows = (await sql`DELETE FROM evento WHERE status='finalizado' AND finalizado_em < now() - interval '30 days' RETURNING id`) as { id: number }[];
-  return rows.length;
-}
+/**
+ * REMOVIDO de propósito: havia aqui um `purgeEventosAntigos` que apagava todo evento 'finalizado'
+ * com mais de 30 dias. Nunca foi chamado por ninguém — e duas mudanças recentes o transformaram
+ * numa arma carregada:
+ *
+ *  1. apagar um evento agora leva junto a ESTATÍSTICA DE COMBATE da war dele (ver deletarEvento);
+ *  2. "🏁 Encerrar evento" põe o status em 'finalizado', que é exatamente o alvo do purge.
+ *
+ * Ou seja: bastaria alguém pendurar essa função num cron pra que encerrar uma guerra passasse a
+ * significar "apagar o histórico dela em 30 dias". Se um dia fizer falta, o certo é escrever de
+ * novo com esse contexto à vista — e preservando a war.
+ */
 
 /** O evento ainda existe? Separa "foi apagado" de "não achei sua linha" — a diferença decide se a
  *  mensagem culpa o jogador ou explica o que a staff fez. */

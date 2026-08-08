@@ -461,6 +461,22 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
 
+  /**
+   * Encerra (ou reabre) o EVENTO. Trava tudo — escalação, convocação, presença, estatística — mas a
+   * página continua visível pra consulta: o histórico é o motivo de o evento existir depois da war.
+   * Diferente de fechar a INTENÇÃO, que só desliga a marcação no bot.
+   */
+  async function encerrarEvento(encerrar: boolean) {
+    if (!podeRenomear || !evento) return;
+    if (!confirm(encerrar
+      ? "Encerrar o evento?\n\nTudo fica travado: escalação, convocação, presença e estatística. A página continua visível pra consulta, e dá pra reabrir depois."
+      : "Reabrir o evento?\n\nVolta a permitir escalar, convocar e gravar estatística.")) return;
+    setSalvando(true);
+    try { await api({ acao: "evento-encerrar", eventoId: evento.eventoId, encerrar }); setErro(""); setAviso(encerrar ? "🏁 Evento encerrado — tudo travado, tudo visível." : "↩ Evento reaberto."); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   async function convocar() {
     if (!canEdit || !evento) return;
     const n = alvosConv.length;
@@ -687,6 +703,14 @@ export default function EventoBoard({
             </button>
           )}
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}
+          <Link className="navlink" href={`/hub/${evento.uuid}/resumo`}>📄 Resumo</Link>
+          {podeRenomear && (
+            <button onClick={() => encerrarEvento(evento.status !== "finalizado")} disabled={salvando}
+              title={evento.status === "finalizado" ? "volta a permitir escalar, convocar e gravar" : "trava tudo, mas a página continua visível pra consulta"}
+              style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: evento.status === "finalizado" ? C.verde : C.mute, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              {evento.status === "finalizado" ? "↩ Reabrir evento" : "🏁 Encerrar evento"}
+            </button>
+          )}
           <Link className="navlink" href="/hub">← Hub</Link>
         </div>
       </div>

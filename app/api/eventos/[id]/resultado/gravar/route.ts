@@ -18,8 +18,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const eid = Math.trunc(Number((await params).id));
   if (!Number.isFinite(eid) || eid <= 0) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
 
-  let body: { linhas?: { nome_familia?: unknown; valores?: Record<string, unknown>; novo?: unknown }[]; data?: unknown; territorio?: unknown; tier?: unknown; aliancas?: unknown };
+  let body: { linhas?: { nome_familia?: unknown; valores?: Record<string, unknown>; novo?: unknown }[]; data?: unknown; territorio?: unknown; tier?: unknown; aliancas?: unknown; soAliancas?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON inválido" }, { status: 400 }); }
+
+  // alianças em campo: rótulo digitado pela staff. Sem duplicata (case-insensitive), sem vazio,
+  // teto de 20 — é contexto da war, não lista de convidados
+  const aliancas: string[] = [];
+  for (const raw of Array.isArray(body.aliancas) ? body.aliancas : []) {
+    const s = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, 60) : "";
+    if (s && !aliancas.some((x) => x.toLowerCase() === s.toLowerCase())) aliancas.push(s);
+    if (aliancas.length >= 20) break;
+  }
+
+  /**
+   * Modo "só alianças": grava o oponente SEM mexer na estatística.
+   *
+   * Existe porque as duas coisas estavam amarradas — a lista de oponentes só ia junto com a tabela
+   * de stats, e quem quisesse registrar quem estava em campo antes de ter o print batia em "sem
+   * linhas" e perdia o que digitou. Aqui NÃO se toca em `desempenho`: a gravação normal é
+   * replace-all, e passar por ela com a tabela vazia apagaria a war inteira.
+   */
+  if (body.soAliancas === true) {
+    const er = (await sql`SELECT war_id::int AS war_id FROM evento_resultado WHERE evento_id = ${eid}`) as { war_id: number | null }[];
+    const wid = er[0]?.war_id ?? null;
+    if (!wid) return NextResponse.json({ error: "este evento ainda não tem war — grave a estatística uma vez e as alianças passam a poder ser editadas sozinhas" }, { status: 400 });
+    await sql`UPDATE wars SET aliancas = ${aliancas}::text[] WHERE war_id = ${wid}`;
+    return NextResponse.json({ ok: true, warId: wid, aliancas });
+  }
+
   if (!Array.isArray(body.linhas) || body.linhas.length === 0) return NextResponse.json({ error: "sem linhas" }, { status: 400 });
 
   const ev = (await sql`SELECT data::text AS data FROM evento WHERE id = ${eid}`) as { data: string }[];
@@ -76,15 +102,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const dataWar = typeof body.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.data) ? body.data : ev[0].data;
   const territorio = typeof body.territorio === "string" && body.territorio.trim() ? body.territorio.trim().slice(0, 120) : null;
   const tier = Number.isFinite(Number(body.tier)) && body.tier != null && body.tier !== "" ? Math.trunc(Number(body.tier)) : null;
-  // alianças em campo: rótulo digitado pela staff. Sem duplicata (case-insensitive), sem vazio,
-  // teto de 20 — é contexto da war, não lista de convidados
-  const aliancas: string[] = [];
-  for (const raw of Array.isArray(body.aliancas) ? body.aliancas : []) {
-    const s = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, 60) : "";
-    if (s && !aliancas.some((x) => x.toLowerCase() === s.toLowerCase())) aliancas.push(s);
-    if (aliancas.length >= 20) break;
-  }
-
   const arr = [...tuplas.values()];
   const nomes = arr.map((t) => t.nome), metricas = arr.map((t) => t.metrica), valores = arr.map((t) => t.valor);
 

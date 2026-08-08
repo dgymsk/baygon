@@ -18,6 +18,20 @@ import type { FunilEvento } from "@/lib/hub";
 const fmtData = (d: string) =>
   new Date(d).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
 
+/**
+ * Fundo esmaecido pelo RESULTADO — verde vitória, amarelo participação, vermelho derrota.
+ *
+ * Alpha baixo de propósito: a cor é pra dar o saldo da semana no relance, rolando a lista, e não
+ * pra competir com o texto. Sem resultado gravado a linha fica neutra, que é a informação certa —
+ * "ainda não sabemos" não é empate.
+ */
+const CorResultado: Record<string, { fundo: string; barra: string }> = {
+  vitoria:      { fundo: "rgba(47,158,68,.13)",  barra: "#2f9e44" },
+  participacao: { fundo: "rgba(214,178,42,.13)", barra: "#d6b22a" },
+  derrota:      { fundo: "rgba(204,0,0,.13)",    barra: "#cc0000" },
+};
+const corDoResultado = (r: string | null) => (r ? CorResultado[r.toLowerCase()] ?? null : null);
+
 export default function EventosLista({ eventos }: { eventos: FunilEvento[] }) {
   const [aberto, setAberto] = useState<string | null>(null);
 
@@ -26,7 +40,9 @@ export default function EventosLista({ eventos }: { eventos: FunilEvento[] }) {
 
   return (
     <div style={{ marginBottom: 26 }}>
-      <div style={{ border: `1px solid ${C.verde}`, borderLeft: `3px solid ${C.verde}`, borderRadius: 12, background: C.surface, overflow: "hidden", marginBottom: resto.length ? 10 : 0 }}>
+      {/* o último evento fica sempre aberto; a cor do resultado entra por cima do destaque verde,
+          que aqui significa "é este o atual" e não "venceu" */}
+      <div style={{ border: `1px solid ${C.verde}`, borderLeft: `3px solid ${corDoResultado(atual.resultado)?.barra ?? C.verde}`, borderRadius: 12, background: corDoResultado(atual.resultado)?.fundo ?? C.surface, overflow: "hidden", marginBottom: resto.length ? 10 : 0 }}>
         <Cabecalho e={atual} atual />
         <Detalhe e={atual} />
       </div>
@@ -35,8 +51,9 @@ export default function EventosLista({ eventos }: { eventos: FunilEvento[] }) {
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, overflow: "hidden" }}>
           {resto.map((e, i) => {
             const on = aberto === e.uuid;
+            const cor = corDoResultado(e.resultado);
             return (
-              <div key={e.uuid} style={{ borderTop: i ? `1px solid ${C.borderSoft}` : "none" }}>
+              <div key={e.uuid} style={{ borderTop: i ? `1px solid ${C.borderSoft}` : "none", background: cor?.fundo, borderLeft: cor ? `3px solid ${cor.barra}` : undefined }}>
                 <button onClick={() => setAberto(on ? null : e.uuid)}
                   style={{ width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit", background: on ? C.inputBg : "transparent", border: "none", padding: 0, color: C.texto }}>
                   <Cabecalho e={e} seta={on ? "▾" : "▸"} />
