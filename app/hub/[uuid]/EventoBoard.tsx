@@ -967,6 +967,9 @@ export default function EventoBoard({
               </div>
             </div>
           )}
+          {/* a legenda fica no FIM: quem já sabe ler as casinhas não precisa passar por ela toda vez
+              que abre a tela, e quem não sabe procura embaixo — que é onde legenda mora */}
+          {warsSemana.nodewars.some(Boolean) && <LegendaHistorico />}
         </>
       )}</div>
 
@@ -1115,6 +1118,50 @@ function Casa({ e, x, y, l, circulo }: { e: EstadoWar; x: number; y: number; l: 
       {s.marca === "o" && <circle cx={x + m} cy={y + m} r={m - 2} fill="none" stroke="#8f8f8f" strokeWidth={1} />}
       {s.marca === "traco" && <line x1={x + 1.8} y1={y + m} x2={x + l - 1.8} y2={y + m} stroke="#8f8f8f" strokeWidth={1.1} strokeLinecap="round" />}
     </g>
+  );
+}
+
+/**
+ * A legenda das casinhas, desenhada com o MESMO componente que o card usa.
+ *
+ * Nada de descrever a forma em texto ("quadrado cinza com traço"): a pessoa compara o desenho da
+ * legenda com o desenho do card e pronto. É também o único jeito honesto de explicar a diferença
+ * entre o traço e o O — os dois são cinzas, e o que os separa é o que a pessoa FEZ.
+ */
+const LEGENDA: { e: EstadoWar; texto: string }[] = [
+  { e: "jogou", texto: "escalado e jogou" },
+  { e: "jogou_sem_escala", texto: "jogou sem estar escalado" },
+  { e: "faltou", texto: "escalado e não compareceu" },
+  { e: "marcou", texto: "marcou e não foi escalado" },
+  { e: "recusou", texto: "recusou — avisou que não ia" },
+  { e: "nao_respondeu", texto: "não respondeu a chamada" },
+  { e: "sem_stat", texto: "escalado, war sem estatística" },
+  { e: "sem", texto: "sem dado (ou não estava no bot)" },
+];
+
+function LegendaHistorico() {
+  return (
+    <div style={{ marginTop: 14, border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "10px 14px" }}>
+      <div style={{ color: C.mute, fontSize: 11, marginBottom: 8 }}>
+        <b style={{ color: C.texto }}>Histórico ao lado do ✅</b> — a <b>bola</b> é a siege mais recente e os <b>6 quadrados</b> são as
+        últimas node wars, da mais antiga (canto superior esquerdo) pra mais recente (canto inferior direito).
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px" }}>
+        {LEGENDA.map(({ e, texto }) => (
+          <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.mute }}>
+            <svg width={11} height={11} viewBox="0 0 11 11" style={{ flexShrink: 0, display: "block" }}>
+              <Casa e={e} x={0.5} y={0.5} l={10} />
+            </svg>
+            {texto}
+          </span>
+        ))}
+      </div>
+      <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 7 }}>
+        O <b>traço</b> e o <b>O</b> são os dois cinzas e não querem dizer a mesma coisa: traço é quem <b>respondeu que não ia</b> —
+        avisou, dá pra contar com isso. O <b>O</b> é quem ficou <b>calado</b>, tendo o bot à disposição. Já o quadrado escuro é
+        ausência de informação: ninguém deve nada ali — inclusive quem se registrou depois daquela guerra.
+      </div>
+    </div>
   );
 }
 
