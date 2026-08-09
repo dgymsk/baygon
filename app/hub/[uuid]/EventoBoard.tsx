@@ -1047,6 +1047,15 @@ export default function EventoBoard({
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · toque em alguém e depois na PT (ou arraste, no PC)" : " · (só staff edita)"}
           </div>
+          {/* No CELULAR arrastar não existe: `dragstart` não dispara a partir de toque. A instrução
+              precisa estar à vista, e não escondida na legenda densa — quem abriu no telefone tentou
+              arrastar, não funcionou, e concluiu que a tela estava quebrada. */}
+          {canEdit && parties.length > 0 && (
+            <div className="so-mob" style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "8px 11px", marginBottom: 10, fontSize: 12.5, color: C.mute }}>
+              👆 <b style={{ color: C.texto }}>Como escalar no celular:</b> toque no jogador (ele fica com contorno) e depois toque na PT.
+              Tocar num card já escalado põe o selecionado <b>antes</b> dele; tocar no pool tira da PT. Arrastar só funciona no computador.
+            </div>
+          )}
           {!parties.length ? (
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 20, color: C.amarelo, fontSize: 13 }}>
               {evento.presetId == null
@@ -1129,7 +1138,7 @@ export default function EventoBoard({
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       {recusados.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
                     </div>
-                    <div style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Arraste de volta pra uma PT se mudarem de ideia.</div>
+                    <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Devolva pra uma PT se mudarem de ideia.</div>
                   </div>
                 )}
                 </div>
@@ -1163,7 +1172,7 @@ export default function EventoBoard({
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                         {dentro.map((j, i) => <Card key={j.chave} j={j} ctx={ctx(j, p.id, i === 0)} />)}
-                        {!dentro.length && <span style={{ color: C.dim, fontSize: 12 }}>arraste alguém aqui</span>}
+                        {!dentro.length && <span style={{ color: C.dim, fontSize: 12 }}><span className="no-mob">arraste alguém aqui</span><span className="so-mob">toque em alguém e depois aqui</span></span>}
                       </div>
                     </div>
                   );
@@ -1245,12 +1254,16 @@ export default function EventoBoard({
           perdido move alguém sem querer. Fica acima da barra de conta (z 40). */}
       {sel && canEdit && (
         <div style={{ position: "fixed", left: 12, right: 12, bottom: 62, zIndex: 45,
+          // A barra é AVISO, não alvo. Sem isto ela ocupa uma faixa de ponta a ponta na parte de
+          // baixo da tela e ganha o hit-test: o toque no que está EMBAIXO dela não chega, e um
+          // drop que caia ali é recusado em silêncio (ninguém dá preventDefault aqui).
+          pointerEvents: "none",
           display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
           border: `1px solid ${C.amarelo}`, borderRadius: 12, background: C.surfaceSolid,
           boxShadow: "0 8px 30px rgba(0,0,0,.6)", padding: "8px 12px", fontSize: 12.5, color: C.mute }}>
           <span>Movendo <b style={{ color: C.texto }}>{todos.get(sel)?.familia ?? sel}</b> — toque numa PT pra escalar, num card pra pôr antes dele, ou no pool pra tirar.</span>
           <button className="tap" onClick={() => setSel(null)}
-            style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border2}`, borderRadius: 8, color: C.mute, padding: "3px 10px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer" }}>
+            style={{ marginLeft: "auto", pointerEvents: "auto", background: "none", border: `1px solid ${C.border2}`, borderRadius: 8, color: C.mute, padding: "3px 10px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer" }}>
             ✕ cancelar
           </button>
         </div>
@@ -1487,18 +1500,32 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
   // do pool rolável (ver MiniCard), e fixo não herda a posição do card
   const [hover, setHover] = useState<PosMini | null>(null);
   const [alvo, setAlvo] = useState(false);   // outro card sendo arrastado por cima deste
+  // este card acabou de ser arrastado — usado pra o clique do fim do gesto não virar seleção
+  const arrastou = useRef(false);
   const setHoverFalse = () => setHover(null);
   return (
     <div
       draggable={canEdit}
       // quem está sendo arrastado viaja no próprio evento (dataTransfer), não num ref: o ref
       // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
-      onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); setHoverFalse(); }}
+      onDragStart={(e) => { arrastou.current = true; e.dataTransfer.setData("text/plain", j.chave); setHoverFalse(); }}
+      // o clique que fecha um arraste NÃO pode virar seleção por toque — senão arrastar deixava o
+      // card selecionado e a barra "Movendo…" aberta no fim de cada gesto. O flag é limpo no COMEÇO
+      // do gesto seguinte (pointerdown), e não por setTimeout: um timer de 0ms corre contra a tarefa
+      // em que o navegador despacha o click, e quem perde a corrida perde em silêncio.
+      onPointerDown={() => { arrastou.current = false; }}
       onDragEnd={onFimArraste}
-      // pointerType, e não onMouseEnter: no toque o navegador EMULA mouseenter, então cada toque
-      // pra selecionar abria o mini-card por cima justamente do que a pessoa quer ver.
-      onPointerEnter={(e) => {
-        if (e.pointerType !== "mouse") return;
+      /**
+       * MOUSE, e não pointer: durante um arraste HTML5 o navegador dispara `pointercancel` e, logo
+       * atrás, `pointerleave` — ou seja, um handler de pointer é acionado no meio do gesto, o que
+       * não acontecia com `mouseleave` (eventos de mouse ficam suspensos enquanto se arrasta).
+       * Mexer no gesto que o app inteiro depende pra escalar não vale o ganho.
+       *
+       * O problema que o pointer resolvia (toque abrindo o mini-card por cima do que a pessoa quer
+       * ver) é resolvido aqui do lado: só abre onde o dispositivo TEM ponteiro fino de verdade.
+       */
+      onMouseEnter={(e) => {
+        if (typeof window !== "undefined" && !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
         const r = e.currentTarget.getBoundingClientRect();
         // abre pra cima; sem espaço lá (card no topo da lista), vira pra baixo em vez de sair da tela
         const paraBaixo = r.top < 250;
@@ -1507,11 +1534,11 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         const left = Math.max(6, Math.min(r.left, window.innerWidth - 236));
         setHover(paraBaixo ? { left, top: r.bottom + 6 } : { left, bottom: window.innerHeight - r.top + 6 });
       }}
-      onPointerLeave={setHoverFalse}
+      onMouseLeave={setHoverFalse}
       // TOQUE (e clique): seleciona este card, ou solta aqui o que já estava selecionado.
       // stopPropagation é obrigatório — sem ele o toque no card do pool também dispara o onClick do
       // container do pool, que devolveria pro pool o que acabou de ser selecionado.
-      onClick={(e) => { e.stopPropagation(); onTocar?.(); }}
+      onClick={(e) => { e.stopPropagation(); if (arrastou.current) return; onTocar?.(); }}
       // soltar EM CIMA de um card insere antes dele. stopPropagation pra o alvo da coluna não
       // tratar isso como "jogar no fim" logo em seguida.
       //

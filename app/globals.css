@@ -33,15 +33,19 @@ body {
    minWidth:0), corrija o inline no componente e NÃO crie classe aqui.
    ============================================================================ */
 
-html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
-
-/* clip, e NÃO hidden: `hidden` cria contexto de rolagem e mataria todo
-   position:sticky da árvore (o pool da escalação, os cabeçalhos de tabela).
-   `clip` só corta. É REDE, não conserto — o que estourar fica inalcançável, por
-   isso todo conteúdo largo de verdade precisa de .rolx. */
-body { overflow-x: clip; }
-
 @media (max-width: 760px) {
+  html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+
+  /* Rede contra rolagem lateral. DENTRO da media query de propósito: no desktop
+     ela não resolve problema nenhum (a tela é larga) e mexe no contexto de
+     recorte/rolagem da página inteira, que é onde moram o arrastar-e-soltar e o
+     position:sticky. Regra global que não conserta nada no desktop mas pode
+     quebrar algo lá é risco de graça.
+
+     clip, e NÃO hidden: `hidden` criaria contexto de rolagem e mataria o sticky
+     da árvore. É REDE, não conserto — conteúdo largo de verdade usa .rolx. */
+  body { overflow-x: clip; }
+
   /* O maior retorno por linha do app inteiro: o Safari iOS AMPLIA a página em
      qualquer campo com fonte < 16px e não desfaz no blur — a pessoa fica com
      rolagem lateral permanente numa tela que estava certa. */
