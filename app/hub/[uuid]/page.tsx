@@ -82,7 +82,6 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const convidadoPorChave = new Map(escalacao.map((e) => [e.chave, e.convidado_em]));
   const respondeuPorChave = new Map(escalacao.map((e) => [e.chave, e.respondeu_em]));
   const ingamePorChave = new Map(presenca.filter((p) => p.participar).map((p) => [p.chave, p.atualizado]));
-  const recusaram = escalacao.filter((e) => e.confirmou === false);
   const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
   const nomesQueJogaram = ev.war_id
     ? ((await sql`SELECT DISTINCT nome_familia FROM desempenho WHERE war_id = ${ev.war_id}`) as { nome_familia: string }[]).map((d) => d.nome_familia)
@@ -205,7 +204,6 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       catalogoParties={parties.map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }))} partiesProprias={partiesProprias != null}
       chamadas={chamadas} warsSemana={semana} foraDaRegua={foraDaRegua.map((f) => f.nomeFamilia)}
       canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} podeRenomear={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
-      recusaram={recusaram.map((e) => e.familia)}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
       playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
     />

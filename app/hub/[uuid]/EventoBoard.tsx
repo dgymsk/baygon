@@ -24,10 +24,21 @@ import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/Result
  * São DUAS confirmações, com sinais distintos:
  *   FUNDO verde + ✔  = aceitou a escalação na DM (recusar tira da PT sozinho);
  *   BORDA verde       = apareceu in-game (o checkbox final);
+ *   🎮                = não respondeu a DM MAS já está in-game — resolvido, não cobre;
  *   ⏳                = DM enviada, aguardando resposta;
- *   ✉                = escalado mas ainda NÃO convocado.
+ *   ✉                = escalado mas ainda NÃO convocado;
+ *   nome rubro + ✖   = respondeu que NÃO vai; volta pro pool, num grupo separado no fim.
  * Brilho DOURADO = lendário (nunca chega ao bot); ⚠ N = guerras seguidas marcando e não jogando.
  */
+
+/**
+ * Verde e rubro DE VERDADE, fora da paleta do site: nela `C.verde`, `C.vermelho` e `C.verdeTint`
+ * são todos o mesmo carmesim (#cc0000), o que aqui inverteria o significado — "está tudo certo"
+ * saía pintado de alarme. Mesma exceção que `CorResultado` já abre pra vitória/derrota.
+ */
+const VERDE = CorResultado.vitoria.cor;
+const RUBRO = CorResultado.derrota.cor;
+
 export type JogadorVM = {
   chave: string; familia: string; userId: string;
   guilda: string | null; classe: string | null; gs: number | null;
@@ -102,7 +113,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
-  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
+  vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [],
   catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
@@ -110,7 +121,7 @@ export default function EventoBoard({
   podeRenomear?: boolean; // idem: consertar o nome de uma war passada é o caso mais comum de renomear
   emojisClasse?: Record<string, string>; // classe → emoji do Discord (o Shai é o que se procura de relance)
   temChamada?: boolean; // false = evento sem bot: o pool é o elenco, não quem marcou
-  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[]; recusaram?: string[];
+  vizinhos?: EvLink[]; presets?: PresetLite[]; playersNomes?: string[]; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[];
   catalogoParties?: PartyVM[];   // TODAS as PTs cadastradas — as colunas são um subconjunto disto
   partiesProprias?: boolean;     // o evento tem lista própria, ou está seguindo a da chamada?
   chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
@@ -186,6 +197,16 @@ export default function EventoBoard({
     .sort((a, x) => (ordemOverrides[a.chave] ?? a.ordemPt ?? 1e9) - (ordemOverrides[x.chave] ?? x.ordemPt ?? 1e9)
       || a.familia.localeCompare(x.familia, "pt-BR"));
   const nEscalados = [...todos.values()].filter((j) => partyDe(j) != null).length;
+  /**
+   * Recusou a convocação na DM: saiu da PT e volta pro pool NUM GRUPO PRÓPRIO, não misturado com
+   * quem nunca foi chamado. A diferença é grande na hora de remontar: um disse que não vem, o outro
+   * ainda não foi perguntado.
+   *
+   * Fica fora dos grupos por função (o filtro `livres` exclui recusa) pra não aparecer duas vezes.
+   */
+  const recusados = [...todos.values()]
+    .filter((j) => partyDe(j) == null && j.confirmouEscalacao === false && casaBusca(j))
+    .sort((a, b) => a.familia.localeCompare(b.familia, "pt-BR"));
 
   /**
    * PÚBLICO do disparo. A régua que faltava era NÃO RECEBEU (≠ não respondeu): quem recebeu a DM e
@@ -246,8 +267,15 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
   const nAceitaram = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao === true).length;
-  const nAguardando = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.convidado).length;
-  const nSemConvocar = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && !j.convidado).length;
+  /**
+   * "Aguardando" agora ignora quem já está IN-GAME. Quem apareceu no jogo respondeu de fato a
+   * pergunta que a DM fazia — deixá-lo na fila de cobrança inflava o número e mandava a staff atrás
+   * de gente que já estava lá. Eles saem para `nIngameSemDm`, que é um estado resolvido.
+   */
+  const semDm = (j: JogadorVM) => partyDe(j) != null && j.confirmouEscalacao == null && !j.confirmouIngame;
+  const nAguardando = [...todos.values()].filter((j) => semDm(j) && j.convidado).length;
+  const nSemConvocar = [...todos.values()].filter((j) => semDm(j) && !j.convidado).length;
+  const nIngameSemDm = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.confirmouIngame).length;
   // o contador da cobrança in-game virou `alvosIngame`, que segue o público escolhido no seletor
 
   async function api(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -873,8 +901,9 @@ export default function EventoBoard({
           </div>
 
           <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
-            <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: C.verde }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: C.verde }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.borderSoft }}>✉ ainda não convocado</span> · <span style={{ color: C.verde }}>borda verde</span> = confirmou in-game ·
+            <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: VERDE }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar
+            {nIngameSemDm > 0 && <> · <b style={{ color: VERDE }}>{nIngameSemDm}</b> in-game sem responder</>} ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.borderSoft }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
           </div>
@@ -912,7 +941,8 @@ export default function EventoBoard({
                     comendo o padding do pool, pra coluna não estreitar por causa disso. */}
                 <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable", paddingLeft: 10, marginLeft: -10, paddingRight: 2, marginRight: -10 }}>
                 {grupos.map((g) => {
-                  const livres = g.jogadores.filter((j) => partyDe(j) == null && casaBusca(j));
+                  // quem recusou tem grupo próprio no fim do pool — aqui ele sairia duplicado
+                  const livres = g.jogadores.filter((j) => partyDe(j) == null && j.confirmouEscalacao !== false && casaBusca(j));
                   // um grupo grande (tipicamente "Sem função", que junta quem não foi classificado)
                   // vira sanfona pra não empurrar os grupos úteis pra fora da tela
                   // chave por NOME quando não há função: dois grupos têm funcaoId null ("Sem função"
@@ -947,17 +977,19 @@ export default function EventoBoard({
                 })}
                 {!grupos.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>{temChamada ? "Ninguém marcou ainda." : "Nenhum jogador ativo cadastrado."}</span>}
 
-                {/* quem recusou a convocação: já saiu da PT, mas fica à vista pra você saber que
-                    avisou (≠ de quem sumiu) e não reescalar sem querer */}
-                {recusaram.length > 0 && (
-                  <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 10, paddingTop: 9 }}>
-                    <div style={{ color: C.vermelho, fontSize: 12, fontWeight: 700, marginBottom: 5 }}>
-                      ❌ Recusaram a convocação — {recusaram.length}
+                {/* quem RECUSOU na DM volta pro pool como card de verdade, num grupo próprio: ele
+                    saiu da PT mas continua sendo gente que dá pra reescalar (mudou de ideia, sobrou
+                    vaga). Como texto riscado não dava pra arrastar de volta, e a recusa parecia
+                    definitiva quando não é. */}
+                {recusados.length > 0 && (
+                  <div style={{ marginBottom: 11, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 9 }}>
+                    <div style={{ color: RUBRO, fontSize: 12, fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 5 }}>
+                      ❌ Recusaram a convocação <span style={{ color: C.mute, fontWeight: 400 }}>{recusados.length}</span>
                     </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
-                      {recusaram.map((n) => <span key={n} style={{ fontSize: 12.5, color: C.mute, textDecoration: "line-through" }}>{n}</span>)}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {recusados.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
                     </div>
-                    <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 4 }}>Já saíram da PT. Pra reescalar, arraste de volta.</div>
+                    <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Arraste de volta pra uma PT se mudarem de ideia.</div>
                   </div>
                 )}
                 </div>
@@ -1272,8 +1304,8 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
       <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 2, paddingTop: 4 }}>
         {j.marcouEm && <Linha k={j.ordem != null ? `Marcou (#${j.ordem})` : "Marcou"} v={quando(j.marcouEm)} cor={C.texto} />}
         {j.convidadoEm && <Linha k="Convocado" v={quando(j.convidadoEm)} />}
-        {j.respondeuEm && <Linha k={j.confirmouEscalacao === false ? "Recusou" : "Confirmou"} v={quando(j.respondeuEm)} cor={j.confirmouEscalacao === false ? C.vermelho : C.verde} />}
-        {j.ingameEm && <Linha k="In-game" v={quando(j.ingameEm)} cor={C.verde} />}
+        {j.respondeuEm && <Linha k={j.confirmouEscalacao === false ? "Recusou" : "Confirmou"} v={quando(j.respondeuEm)} cor={j.confirmouEscalacao === false ? RUBRO : VERDE} />}
+        {j.ingameEm && <Linha k="In-game" v={quando(j.ingameEm)} cor={VERDE} />}
       </div>
     )}
   </div>
@@ -1288,6 +1320,9 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
   const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima } = ctx;
+  // respondeu NÃO na DM. Só vale fora da PT: se você o arrastou de volta pra uma coluna depois de
+  // conversar, quem manda é a decisão da staff — o card volta ao normal em vez de acusar a recusa.
+  const recusou = j.confirmouEscalacao === false && !escalado;
   // posição do mini-card na TELA, medida na hora do hover — ele é `fixed` pra escapar do recorte
   // do pool rolável (ver MiniCard), e fixo não herda a posição do card
   const [hover, setHover] = useState<PosMini | null>(null);
@@ -1332,25 +1367,48 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       } : {})}
       style={{
         position: "relative",
-        // duas confirmações, dois sinais: FUNDO verde = aceitou a escalação (DM); BORDA verde =
-        // apareceu in-game. Lendário manda no contorno (dourado + brilho) por ser atributo fixo.
-        border: `1px solid ${j.lendario ? C.amarelo : j.confirmouIngame ? C.verde : C.border2}`,
+        /**
+         * Duas confirmações, dois sinais: FUNDO = aceitou a escalação (DM); BORDA = apareceu
+         * in-game. Lendário manda no contorno (dourado + brilho) por ser atributo fixo.
+         *
+         * VERDE DE VERDADE, e não `C.verde`: nesta paleta `C.verde` é #cc0000 — o mesmo carmesim do
+         * `C.vermelho`. Quem estava escalado e marcou participar in-game ganhava uma borda VERMELHA
+         * dizendo "está tudo certo", e a tela lia como alarme. É a coisa mais lida do card; tinha
+         * que ser a cor que a pessoa espera.
+         *
+         * Recusou na DM: nome rubro e contorno rubro — este SIM é o alerta.
+         */
+        border: `1px solid ${j.lendario ? C.amarelo : recusou ? RUBRO : j.confirmouIngame ? VERDE : C.border2}`,
         boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
-        background: j.confirmouEscalacao === true ? "rgba(46,125,50,.30)" : j.confirmouIngame ? C.verdeTint : C.inputBg,
+        background: recusou ? "rgba(204,0,0,.14)"
+          : j.confirmouEscalacao === true ? "rgba(63,191,95,.20)"
+          : j.confirmouIngame ? "rgba(63,191,95,.10)" : C.inputBg,
         borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
         // linha no topo marca onde o card vai entrar
-        boxSizing: "border-box", borderTop: alvo ? `3px solid ${C.verde}` : undefined,
+        boxSizing: "border-box", borderTop: alvo ? `3px solid ${VERDE}` : undefined,
         display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
       }}
     >
       {lider && <span title="líder da PT" style={{ fontSize: 11, flexShrink: 0 }}>👑</span>}
       {j.lendario && <Pokebola />}
-      {j.confirmouEscalacao === true && <span style={{ color: C.verde, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
-      {escalado && j.confirmouEscalacao == null && (j.convidado
+      {recusou && <span style={{ color: RUBRO, fontSize: 11 }} title="respondeu que NÃO vai — saiu da PT">✖</span>}
+      {j.confirmouEscalacao === true && <span style={{ color: VERDE, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
+      {/* estar IN-GAME responde na prática a pergunta que o ⏳ fazia: quem já apareceu no jogo não
+          está "aguardando resposta", está lá. Mostrar os dois virava alarme em quem está tranquilo */}
+      {escalado && j.confirmouEscalacao == null && !j.confirmouIngame && (j.convidado
         ? <span style={{ color: C.amarelo, fontSize: 11 }} title="DM enviada — aguardando resposta">⏳</span>
         : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
+      {escalado && j.confirmouEscalacao == null && j.confirmouIngame && (
+        <span style={{ color: VERDE, fontSize: 11 }} title="não respondeu a DM, mas já está in-game — está resolvido">🎮</span>
+      )}
+      {/* recusou e a staff o arrastou de volta pra uma PT: o card volta ao normal (quem manda é a
+          decisão de agora), mas fica a marca — senão ele ficaria sem sinal NENHUM, indistinguível
+          de quem nunca foi convocado, e ainda consta como "não vou" na resposta gravada */}
+      {escalado && j.confirmouEscalacao === false && (
+        <span style={{ color: C.laranja, fontSize: 11 }} title="tinha recusado na DM e foi reescalado — confirme com ele">↩</span>
+      )}
       <GuildIcon id={j.guilda} byId={byId} />
-      <span style={{ color: C.texto, fontWeight: 600, whiteSpace: "nowrap" }}>{j.familia}</span>
+      <span style={{ color: recusou ? RUBRO : C.texto, fontWeight: 600, whiteSpace: "nowrap", textDecoration: recusou ? "line-through" : undefined }}>{j.familia}</span>
       {emojiClasse
         ? <IconeClasse raw={emojiClasse} nome={j.classe ?? ""} />
         : j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
