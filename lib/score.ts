@@ -35,19 +35,25 @@ export async function discrepanciaPorWar(warId: number): Promise<DiscrepanciaRow
   const rows = await sql`
     WITH war_desemp AS (
       SELECT d.nome_familia, p.grupo, p.is_core, d.metrica, d.valor,
-             m.rotulo, m.direcao, m.universal
+             m.rotulo, m.direcao, m.universal,
+             -- marcado como FORA DA RÉGUA nesta war (ex.: mandaram morrer de propósito). Continua
+             -- na tabela e no ranking; o que ele não faz é entrar nas médias abaixo.
+             COALESCE(wp.fora_da_regua, FALSE) AS fora_da_regua
       FROM desempenho d
       JOIN players  p ON p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
+      LEFT JOIN war_player wp ON wp.war_id = d.war_id AND wp.nome_familia = d.nome_familia
       WHERE d.war_id = ${warId}
     ),
     scoped AS (  -- só as métricas que avaliam o grupo de cada player
       SELECT wd.* FROM war_desemp wd
       JOIN grupos_metricas gm ON gm.grupo = wd.grupo AND gm.metrica = wd.metrica
     ),
-    bench_core   AS (SELECT grupo, metrica, AVG(valor) AS media FROM war_desemp WHERE is_core   GROUP BY grupo, metrica),
-    bench_grupo  AS (SELECT grupo, metrica, AVG(valor) AS media FROM war_desemp                 GROUP BY grupo, metrica),
-    bench_guilda AS (SELECT metrica, AVG(valor) AS media        FROM war_desemp WHERE universal GROUP BY metrica)
+    -- as TRÊS réguas ignoram quem está fora: o motivo (morrer a mando) distorce a média do core, a
+    -- do grupo e a da guilda igual — tirar de uma só deixaria as outras duas mentindo
+    bench_core   AS (SELECT grupo, metrica, AVG(valor) AS media FROM war_desemp WHERE is_core AND NOT fora_da_regua GROUP BY grupo, metrica),
+    bench_grupo  AS (SELECT grupo, metrica, AVG(valor) AS media FROM war_desemp WHERE NOT fora_da_regua             GROUP BY grupo, metrica),
+    bench_guilda AS (SELECT metrica, AVG(valor) AS media        FROM war_desemp WHERE universal AND NOT fora_da_regua GROUP BY metrica)
     SELECT s.nome_familia, s.grupo, s.metrica, s.rotulo, s.direcao, 'core_grupo' AS populacao,
            s.valor, b.media::float8 AS media,
            (CASE s.direcao WHEN 'maior_melhor' THEN s.valor / NULLIF(b.media,0) * 100

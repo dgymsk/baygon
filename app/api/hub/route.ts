@@ -12,6 +12,7 @@ import { postarIntencao, sincronizarMensagem, fecharIntencao } from "@/lib/inten
 import { aplicarEscalacao, limparEscalacao, getEscalacao, reordenarParty } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
+import { marcarForaDaRegua } from "@/lib/foraDaRegua";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
@@ -212,6 +213,20 @@ export async function POST(req: Request) {
         catch (e) { console.error("redesenho da chamada falhou", e); mensagemAtualizada = false; }
       }
       return NextResponse.json({ ok: true, status: rows[0].status, mensagemAtualizada });
+    }
+
+    /**
+     * FORA DA RÉGUA: o jogador sai das MÉDIAS daquela war sem sair dos números.
+     *
+     * Não entra na lista de OPERACAO acima de propósito: corrigir a régua de uma guerra passada é
+     * exatamente o que se faz depois que ela acabou, e o evento encerrado não pode impedir isso.
+     */
+    case "war-fora-da-regua": {
+      const wid = Math.trunc(Number(b.warId));
+      const nome = typeof b.nomeFamilia === "string" ? b.nomeFamilia : "";
+      if (!Number.isFinite(wid) || !nome) return NextResponse.json({ error: "war ou jogador inválido" }, { status: 400 });
+      const r = await marcarForaDaRegua(wid, nome, b.fora !== false, b.motivo);
+      return r.ok ? NextResponse.json(r) : NextResponse.json({ error: "jogador não está nesta war" }, { status: 404 });
     }
 
     // --- trava de registro do evento: só quem fez a jornada do bot pode marcar ---

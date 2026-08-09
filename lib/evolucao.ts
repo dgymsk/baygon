@@ -31,11 +31,14 @@ export async function evolucao(
   const rows = await sql`
     WITH wd AS (
       SELECT d.war_id, w.data, w.resultado, d.nome_familia, p.grupo,
-             d.metrica, d.valor, p.is_core, m.direcao
+             d.metrica, d.valor, p.is_core, m.direcao,
+             -- fora da régua NAQUELA war: sai do cálculo da média, continua na série
+             COALESCE(wp.fora_da_regua, FALSE) AS fora_da_regua
       FROM desempenho d
       JOIN wars w     ON w.war_id = d.war_id
       JOIN players p  ON p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
+      LEFT JOIN war_player wp ON wp.war_id = d.war_id AND wp.nome_familia = d.nome_familia
       WHERE w.data BETWEEN ${from}::date AND ${to}::date
     ),
     scoped AS (
@@ -44,7 +47,7 @@ export async function evolucao(
     ),
     bench AS (  -- régua do core por (war, grupo, métrica)
       SELECT war_id, grupo, metrica, AVG(valor) AS media
-      FROM wd WHERE is_core GROUP BY war_id, grupo, metrica
+      FROM wd WHERE is_core AND NOT fora_da_regua GROUP BY war_id, grupo, metrica
     ),
     disc AS (
       SELECT s.war_id, s.data, s.resultado, s.nome_familia, s.grupo,

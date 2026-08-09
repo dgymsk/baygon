@@ -103,7 +103,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [], recusaram = [],
-  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() },
+  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -115,6 +115,7 @@ export default function EventoBoard({
   partiesProprias?: boolean;     // o evento tem lista própria, ou está seguindo a da chamada?
   chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
   warsSemana?: HistoricoSemana;  // quais guerras cada casinha representa, na mesma ordem
+  foraDaRegua?: string[];        // quem já está fora das médias desta war
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
@@ -1021,7 +1022,7 @@ export default function EventoBoard({
           <StatsWar stats={statsIniciais} contexto={[...todos.values()].map((j) => ({
             chave: j.chave, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
             party: parties.find((x) => x.id === partyDe(j))?.nome ?? null, lendario: j.lendario,
-          }))} aliancas={aliancasIniciais} />
+          }))} aliancas={aliancasIniciais} warId={evento.warId} canEdit={podeRenomear} foraIniciais={foraDaRegua} />
 
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
             <thead>

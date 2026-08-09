@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/theme";
 import { chaveNome } from "@/lib/nomes";
 import { METRICAS_RESULTADO } from "@/lib/metricasResultado";
@@ -22,9 +22,37 @@ export type ContextoJogador = { chave: string; escalado: boolean; confirmouIngam
 
 type Ordem = { col: string; desc: boolean };
 
-export default function StatsWar({ stats, contexto, aliancas = [] }: { stats: LinhaStat[]; contexto: ContextoJogador[]; aliancas?: string[] }) {
+export default function StatsWar({ stats, contexto, aliancas = [], warId = null, canEdit = false, foraIniciais = [] }: {
+  stats: LinhaStat[]; contexto: ContextoJogador[]; aliancas?: string[];
+  warId?: number | null; canEdit?: boolean;
+  foraIniciais?: string[];   // nomes de família já marcados como fora da régua nesta war
+}) {
   const [ordem, setOrdem] = useState<Ordem>({ col: "dano_em_player", desc: true });
   const [soEscalados, setSoEscalados] = useState(false);
+  // estado local em cima do que veio do servidor: o toggle precisa responder no clique, e a página
+  // só recarrega depois. Semeado por CONTEÚDO, então um refresh com dado novo reconcilia.
+  const [fora, setFora] = useState<string[]>(foraIniciais);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const [erroRegua, setErroRegua] = useState("");
+  const chaveFora = foraIniciais.join("|");
+  useEffect(() => { setFora(foraIniciais); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [chaveFora]);
+  const foraSet = useMemo(() => new Set(fora), [fora]);
+
+  async function alternarRegua(nomeFamilia: string) {
+    if (warId == null) return;
+    const alvo = !foraSet.has(nomeFamilia);
+    setOcupado(nomeFamilia); setErroRegua("");
+    try {
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: "war-fora-da-regua", warId, nomeFamilia, fora: alvo }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      // usa o que o SERVIDOR gravou, não o que a tela supôs
+      const gravado = (d as { fora?: boolean }).fora === true;
+      setFora((p) => (gravado ? [...new Set([...p, nomeFamilia])] : p.filter((x) => x !== nomeFamilia)));
+    } catch (e) { setErroRegua((e as Error).message); }
+    finally { setOcupado(null); }
+  }
 
   const ctxPorChave = useMemo(() => new Map(contexto.map((c) => [c.chave, c])), [contexto]);
 
@@ -108,6 +136,12 @@ export default function StatsWar({ stats, contexto, aliancas = [] }: { stats: Li
         Números crus do print, sem comparação com média. Clique no cabeçalho pra ordenar.
       </div>
 
+      {erroRegua && <div style={{ color: C.vermelho, fontSize: 12, marginBottom: 6 }}>⚠ {erroRegua}</div>}
+      {fora.length > 0 && (
+        <div style={{ color: C.amarelo, fontSize: 11.5, marginBottom: 6 }}>
+          ⊘ <b>{fora.length}</b> fora da régua nesta war ({fora.join(", ")}) — os números continuam na tabela, mas não entram nas médias.
+        </div>
+      )}
       <div style={{ border: `1px solid ${C.border2}`, borderRadius: 10, overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
           <thead>
@@ -121,7 +155,18 @@ export default function StatsWar({ stats, contexto, aliancas = [] }: { stats: Li
             {visiveis.map((l) => (
               <tr key={l.chave} style={{ borderTop: `1px solid ${C.borderSoft}`, background: !l.jogou ? "rgba(204,0,0,.10)" : l.jogou && !l.escalado ? "rgba(214,178,42,.08)" : undefined }}>
                 <td style={{ padding: "5px 8px", color: C.texto, whiteSpace: "nowrap" }}>
+                  {/* fora da régua: o número dele continua aqui, só não entra nas médias. É o caso
+                      de quem morreu a mando (segurar, puxar, resetar) — o lixo estatístico é da
+                      ORDEM, não do jogador, e sem isso a média do core paga por ela */}
+                  {l.jogou && warId != null && canEdit && (
+                    <button onClick={() => alternarRegua(l.familia)} disabled={ocupado === l.familia}
+                      title={foraSet.has(l.familia) ? "voltar a contar nas médias desta war" : "não contabilizar nas médias desta war (morreu a mando, testou build, etc.)"}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px 0 0", fontSize: 11, color: foraSet.has(l.familia) ? C.amarelo : C.borderSoft }}>
+                      {foraSet.has(l.familia) ? "⊘" : "○"}
+                    </button>
+                  )}
                   {l.familia}
+                  {foraSet.has(l.familia) && <span style={{ color: C.amarelo, fontSize: 10, marginLeft: 5 }} title="não entra nas médias desta war">fora da régua</span>}
                   {!l.jogou && <span style={{ color: C.vermelho, fontSize: 10, marginLeft: 5 }}>não jogou</span>}
                   {l.jogou && !l.escalado && <span style={{ color: C.amarelo, fontSize: 10, marginLeft: 5 }}>fora da escalação</span>}
                 </td>
