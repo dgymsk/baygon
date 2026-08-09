@@ -312,7 +312,7 @@ export default function MontarPtsBoard({
       {foraDasPts.length > 0 && (
         <div style={{ border: `1px solid ${C.vermelho}`, borderRadius: 10, background: C.inputBg, padding: "9px 13px", marginBottom: 14 }}>
           <div style={{ color: C.vermelho, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>⚠ Fora das PTs ({foraDasPts.length}) <span style={{ color: C.mute, fontWeight: 400, fontSize: 11.5 }}>— confirmaram mas não estão em nenhum squad</span></div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "3px 14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(190px, 100%), 1fr))", gap: "3px 14px" }}>
             {foraDasPts.map((p, i) => {
               return (
                 <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: C.texto }}>
@@ -370,14 +370,14 @@ export default function MontarPtsBoard({
               <div style={{ color: C.amarelo, fontWeight: 800, fontSize: 16, fontFamily: "'Share Tech Mono', monospace", letterSpacing: 1 }}>PTs montadas <span style={{ color: C.mute, fontSize: 12 }}>({modo === "siege" ? "siege" : "nodewar"})</span></div>
               <button onClick={() => setPopup(false)} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 20, lineHeight: 1 }}>✕</button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 14 }}>
               {ptListas.map(({ pt, dentro, fora, total }) => (
                 <div key={pt.key} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                     <span style={{ color: C.verde, fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}><Glyph icon={pt.icon} size={16} /> {pt.nome}</span>
                     <span style={{ color: total > VAGAS_PT ? C.amarelo : C.mute, fontSize: 12 }}>{Math.min(total, VAGAS_PT)}/{VAGAS_PT}</span>
                   </div>
-                  {dentro.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : (
+                  {dentro.length === 0 ? <span style={{ color: C.dim, fontSize: 12 }}>—</span> : (
                     <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 2 }}>
                       {dentro.map((p, i) => {
                         const lider = !!marks.get(chaveNome(p.nome))?.lider;

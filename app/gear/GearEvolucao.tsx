@@ -84,7 +84,7 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
   );
 
   return (
-    <div style={{ background: C.bgGlow, minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
+    <div className="pg" style={{ background: C.bgGlow, minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600;700&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}
         select:focus,input:focus{border-color:${C.verde}}`}</style>
@@ -137,7 +137,7 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
                 <Quad lbl="DP" v={atual.dp} cor={AZUL} />
                 <div style={{ marginLeft: 6, fontSize: 12.5, color: C.mute, lineHeight: 1.7 }}>
                   <div><b style={{ color: C.texto }}>{atual.char_name || player}</b> {atual.classe_bdo ? `· ${atual.classe_bdo}` : ""} {atual.spec ? `· ${ESPEC(atual.spec)}` : ""} {atual.level ? `· nv ${atual.level}` : ""}</div>
-                  <div>{delta != null && <span style={{ color: delta >= 0 ? C.verde : C.vermelho }}>{delta >= 0 ? "▲" : "▼"} {Math.abs(delta)} GS no período</span>} {atual.atualizado ? <span suppressHydrationWarning style={{ color: C.borderSoft, marginLeft: delta != null ? 8 : 0 }}>atualizado {haQuanto(atual.atualizado)}</span> : null}</div>
+                  <div>{delta != null && <span style={{ color: delta >= 0 ? C.verde : C.vermelho }}>{delta >= 0 ? "▲" : "▼"} {Math.abs(delta)} GS no período</span>} {atual.atualizado ? <span suppressHydrationWarning style={{ color: C.dim, marginLeft: delta != null ? 8 : 0 }}>atualizado {haQuanto(atual.atualizado)}</span> : null}</div>
                 </div>
               </div>
             )}
@@ -151,15 +151,15 @@ export default function GearEvolucao({ ranking, minData, maxData }: { ranking: G
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                   {trocas.map((t, i) => (
                     <div key={i} style={{ fontSize: 12.5, color: C.mute }}>
-                      <span style={{ color: C.borderSoft, fontFamily: "'Share Tech Mono', monospace" }}>{t.quando.slice(0, 10)}</span>
+                      <span style={{ color: C.dim, fontFamily: "'Share Tech Mono', monospace" }}>{t.quando.slice(0, 10)}</span>
                       {" · "}<b style={{ color: C.mute }}>{t.de ?? "—"}</b>
                       <span style={{ color: C.amarelo }}> → </span>
                       <b style={{ color: C.texto }}>{t.para ?? "—"}</b>
-                      {t.personagem && <span style={{ color: C.borderSoft }}> · {t.personagem}</span>}
+                      {t.personagem && <span style={{ color: C.dim }}> · {t.personagem}</span>}
                     </div>
                   ))}
                 </div>
-                <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 5 }}>
+                <div style={{ color: C.dim, fontSize: 10.5, marginTop: 5 }}>
                   Comparar gear/desempenho atravessando uma troca é comparar duas pessoas diferentes.
                 </div>
               </div>

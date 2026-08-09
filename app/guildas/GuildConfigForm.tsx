@@ -44,7 +44,7 @@ export default function GuildConfigForm({ initial, discord, canEdit }: { initial
   const lbl = { color: C.mute, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 } as const;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}
         input:focus{border-color:${C.verde}}`}</style>

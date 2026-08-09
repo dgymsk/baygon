@@ -64,7 +64,7 @@ export default function VagasEditor({ vagasInit, canEdit, guildas }: { vagasInit
         Vagas que não passam pelo bot (Apollo). <b style={{ color: C.texto }}>Reservadas</b> = nº de vagas ocultas por guilda. <b style={{ color: C.texto }}>Nomes</b> = quem ocupa vaga fora do bot (1 por linha) — esses <b style={{ color: C.texto }}>não</b> caem no “deve retirar” da conferência.
         {ro && <span style={{ color: C.amarelo }}> Só staff edita.</span>}
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 14 }}>
         {guildas.map((g) => { const u = iconeUrl(g.icone); const v = vagas[g.id] ?? { hidden: 0, texto: "" }; return (
           <div key={g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.inputBg, padding: "12px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>

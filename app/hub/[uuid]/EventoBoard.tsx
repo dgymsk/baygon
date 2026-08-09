@@ -95,7 +95,7 @@ const ROTULOS_PUBLICO: Record<string, string> = {
 const PUBLICOS_CONV = ["nao_receberam", "sem_resposta", "todos"] as const;
 const PUBLICOS_INGAME = ["confirmou_nao_recebeu", "confirmou", "faltam_ingame"] as const;
 const PUBLICOS_INTENCAO = ["calados_nao_receberam", "calados"] as const;
-const seletorPublico = { background: C.inputBg, color: C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 6px", fontSize: 11.5, fontFamily: "inherit", cursor: "pointer", maxWidth: 175 } as const;
+const seletorPublico = { background: C.inputBg, color: C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 6px", fontSize: 11.5, fontFamily: "inherit", cursor: "pointer", maxWidth: "min(175px, 100%)" } as const;
 
 const TIPO_PT = "application/x-pt";
 const arrastandoPT = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes(TIPO_PT);
@@ -147,6 +147,9 @@ export default function EventoBoard({
   const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
   const [salvandoNome, setSalvandoNome] = useState(false);
   const [ptsOtimista, setPtsOtimista] = useState<number[] | null>(null);
+  // card escolhido pelo TOQUE, aguardando destino (ver ctx.onTocar). Vive aqui e não no Card pra
+  // sobreviver ao router.refresh() do auto-sync de 20s no meio de um movimento.
+  const [sel, setSel] = useState<string | null>(null);
   const [resultadoOtimista, setResultadoOtimista] = useState<string | null>(null);
   const [publicoConv, setPublicoConv] = useState("nao_receberam");
   const [publicoIntencao, setPublicoIntencao] = useState("calados_nao_receberam");
@@ -706,9 +709,30 @@ export default function EventoBoard({
     onFimArraste: () => setSobre(null),
     onTogglePresenca: togglePresenca,
     onSoltarEmCima: canEdit && partyId != null ? (c) => reordenar(c, partyId, j.chave) : undefined,
+    selecionado: sel === j.chave,
+    /**
+     * TOQUE: seleciona, depois toca no destino. É a alternativa ao arrastar, que NÃO EXISTE no
+     * celular — `dragstart` não dispara a partir de toque nem no Safari iOS nem no Chrome Android,
+     * então a aba de escalação era somente-leitura no telefone sem dizer isso a ninguém.
+     *
+     * Reaproveita `mover` e `reordenar` inteiras: é o mesmo caminho do drop, então as duas formas
+     * de mexer não podem divergir. Fica ligado em QUALQUER largura — no desktop o arrastar continua
+     * ao lado, e clicar também funciona (é mais rápido pra quem prefere).
+     */
+    onTocar: !canEdit ? undefined : () => {
+      if (sel && sel !== j.chave) {
+        // tocar num card = "entra ANTES deste", a mesma semântica de soltar em cima dele.
+        // No pool não há ordem, então tocar num card do pool devolve o selecionado pro pool.
+        if (partyId != null) reordenar(sel, partyId, j.chave);
+        else mover(sel, null);
+        setSel(null);
+      } else setSel((s) => (s === j.chave ? null : j.chave));
+    },
   });
 
   const alvo = (id: number | "pool") => ({
+    // toque no ALVO (coluna ou pool) = joga no fim, igual ao onDrop logo abaixo
+    onClick: () => { if (sel) { mover(sel, id === "pool" ? null : id); setSel(null); } },
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); setSobre(id); },
     onDragLeave: () => setSobre((s) => (s === id ? null : s)),
     onDrop: (e: React.DragEvent) => {
@@ -752,7 +776,7 @@ export default function EventoBoard({
             <h1 onClick={abrirRenome} title={podeRenomear ? "clique pra renomear o evento" : undefined}
               style={{ ...tituloEstilo, cursor: podeRenomear ? "text" : "default", opacity: salvandoNome ? 0.6 : 1 }}>
               {nomeOtimista ?? evento.titulo}
-              {podeRenomear && <span style={{ color: C.borderSoft, fontSize: 13, marginLeft: 8, verticalAlign: "middle" }}>✎</span>}
+              {podeRenomear && <span style={{ color: C.dim, fontSize: 13, marginLeft: 8, verticalAlign: "middle" }}>✎</span>}
             </h1>
           )}
           <div style={{ color: C.mute, fontSize: 12.5, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -898,7 +922,7 @@ export default function EventoBoard({
         <button onClick={() => anterior && router.push(`/hub/${anterior.uuid}`)} disabled={!anterior}
           title={anterior ? `← ${anterior.titulo}` : "é o mais antigo"} style={navBtn(!!anterior)}>‹ anterior</button>
         <select value={evento.uuid} onChange={(e) => router.push(`/hub/${e.target.value}`)}
-          style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "5px 9px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer", maxWidth: 320 }}>
+          style={{ background: C.inputBg, color: C.texto, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "5px 9px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer", maxWidth: "100%" }}>
           {vizinhos.map((v) => <option key={v.uuid} value={v.uuid}>{v.data.slice(0, 10)} · {v.titulo}{v.status !== "aberto" ? ` (${v.status})` : ""}</option>)}
         </select>
         <button onClick={() => proximo && router.push(`/hub/${proximo.uuid}`)} disabled={!proximo}
@@ -950,7 +974,7 @@ export default function EventoBoard({
               </button>
             );
           })}
-          <span style={{ color: C.borderSoft, fontSize: 11 }}>
+          <span style={{ color: C.dim, fontSize: 11 }}>
             {partiesProprias
               ? <>só neste evento · <button onClick={() => trocarParties([])} disabled={salvando} style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 11, textDecoration: "underline", fontFamily: "inherit" }}>voltar a seguir a chamada</button></>
               : "seguindo a chamada — mexer aqui vale só nesta guerra"}
@@ -965,7 +989,8 @@ export default function EventoBoard({
       {aviso && <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", background: C.inputBg }}>{aviso}</div>}
       {envio && <PainelEnvio envio={envio} onFechar={() => setEnvio(null)} />}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      {/* wrap: as 4 abas somam ~420px de min-content e a última ficava fora da tela no celular */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         {([["escalacao", "🧩 Escalação"], ["presenca", "✅ Confirmação"], ["stats", "📊 Estatísticas"], ["chamadas", chamadas.length ? `📨 Chamadas (${chamadas.length})` : "📨 Chamadas"]] as const).map(([k, t]) => (
           <button key={k} onClick={() => setAba(k)} style={{ cursor: "pointer", borderRadius: 8, border: `1px solid ${aba === k ? C.verde : C.border2}`, background: aba === k ? C.verdeTint : "transparent", color: aba === k ? C.verde : C.mute, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit" }}>{t}</button>
         ))}
@@ -1011,16 +1036,16 @@ export default function EventoBoard({
                   )}
                 </span>
               ))}
-              {!porGuilda.length && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>ninguém escalado ainda</span>}
+              {!porGuilda.length && <span style={{ color: C.dim, fontSize: 11.5 }}>ninguém escalado ainda</span>}
             </div>
           </div>
 
-          <div style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
+          <div className="leg" style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: VERDE }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar
             {nIngameSemDm > 0 && <> · <b style={{ color: VERDE }}>{nIngameSemDm}</b> in-game sem responder</>} ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.borderSoft }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
-            {canEdit ? " · arraste da função pra uma party" : " · (só staff edita)"}
+            {canEdit ? " · toque em alguém e depois na PT (ou arraste, no PC)" : " · (só staff edita)"}
           </div>
           {!parties.length ? (
             <div style={{ border: `1px solid ${C.border}`, borderRadius: 14, background: C.surface, padding: 20, color: C.amarelo, fontSize: 13 }}>
@@ -1031,15 +1056,15 @@ export default function EventoBoard({
                 : <>Nenhuma party in-game cadastrada — crie em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link> pra poder escalar.</>}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(250px, 330px) 1fr", gap: 14, alignItems: "start" }}>
+            <div className="col1" style={{ display: "grid", gridTemplateColumns: "minmax(250px, 330px) 1fr", gap: 14, alignItems: "start" }}>
               {/* Pool por FUNÇÃO — GRUDADO no topo e com rolagem PRÓPRIA.
                   Com 70 marcados o pool ficava mais alto que a tela, então arrastar os últimos
                   virava rolar a página até as colunas saírem de vista e soltar às cegas. Preso
                   aqui, as PTs ficam sempre no campo de visão e a rolagem é só da lista.
                   Cabeçalho e busca ficam FORA da área que rola: filtrar é justamente o que se faz
                   quando a lista é longa, e a busca sumindo pra cima seria o pior momento. */}
-              <div {...alvo("pool")} style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surface, padding: 12, ...realce("pool"),
-                position: "sticky", top: 8, maxHeight: "calc(100vh - 34px)", display: "flex", flexDirection: "column", gap: 0 }}>
+              <div {...alvo("pool")} className="no-sticky" style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, background: C.surface, padding: 12, ...realce("pool"),
+                position: "sticky", top: 8, maxHeight: "calc(100dvh - 34px)", display: "flex", flexDirection: "column", gap: 0 }}>
                 <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13, marginBottom: 9, flex: "none" }}>{temChamada ? "Marcaram, por função" : "Elenco, por função"}</div>
                 {/* sem chamada o pool é o elenco inteiro; achar alguém rolando 90 nomes numa coluna
                     de 330px não é viável, então a busca aparece quando o pool cresce */}
@@ -1074,7 +1099,7 @@ export default function EventoBoard({
                   const corpo = (
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       {livres.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
-                      {!livres.length && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>{busca.trim() ? "— nada com esse nome —" : "— todos escalados —"}</span>}
+                      {!livres.length && <span style={{ color: C.dim, fontSize: 11.5 }}>{busca.trim() ? "— nada com esse nome —" : "— todos escalados —"}</span>}
                     </div>
                   );
                   return (
@@ -1090,7 +1115,7 @@ export default function EventoBoard({
                     </div>
                   );
                 })}
-                {!grupos.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>{temChamada ? "Ninguém marcou ainda." : "Nenhum jogador ativo cadastrado."}</span>}
+                {!grupos.length && <span style={{ color: C.dim, fontSize: 12 }}>{temChamada ? "Ninguém marcou ainda." : "Nenhum jogador ativo cadastrado."}</span>}
 
                 {/* quem RECUSOU na DM volta pro pool como card de verdade, num grupo próprio: ele
                     saiu da PT mas continua sendo gente que dá pra reescalar (mudou de ideia, sobrou
@@ -1104,14 +1129,14 @@ export default function EventoBoard({
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       {recusados.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
                     </div>
-                    <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Arraste de volta pra uma PT se mudarem de ideia.</div>
+                    <div style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Arraste de volta pra uma PT se mudarem de ideia.</div>
                   </div>
                 )}
                 </div>
               </div>
 
               {/* colunas = PARTIES IN-GAME */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(230px, 100%), 1fr))", gap: 12 }}>
                 {partiesOrdenadas.map((p) => {
                   const dentro = naParty(p.id);
                   const gss = dentro.map((j) => j.gs).filter((x): x is number => x != null);
@@ -1131,14 +1156,14 @@ export default function EventoBoard({
                         title={canEdit ? "arraste para trocar a ordem das PTs" : undefined}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6, cursor: canEdit ? "grab" : "default" }}>
                         <span style={{ color: C.verde, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 5 }}>
-                          {canEdit && <span style={{ color: C.borderSoft, fontSize: 11, letterSpacing: -1 }}>⠿</span>}
+                          {canEdit && <span style={{ color: C.dim, fontSize: 11, letterSpacing: -1 }}>⠿</span>}
                           <Icone raw={p.icone} nome={p.nome} /> {p.nome}
                         </span>
                         <span style={{ color: C.mute, fontSize: 11 }}>{dentro.length}{media != null ? ` · GS ${media}` : ""}</span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                         {dentro.map((j, i) => <Card key={j.chave} j={j} ctx={ctx(j, p.id, i === 0)} />)}
-                        {!dentro.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>arraste alguém aqui</span>}
+                        {!dentro.length && <span style={{ color: C.dim, fontSize: 12 }}>arraste alguém aqui</span>}
                       </div>
                     </div>
                   );
@@ -1185,9 +1210,9 @@ export default function EventoBoard({
                     <Td><span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{j.lendario && <Pokebola size={12} />}<span style={{ color: C.texto }}>{j.familia}</span></span></Td>
                     <Td>{p != null ? <span style={{ color: C.verde }}>{parties.find((x) => x.id === p)?.nome ?? "sim"}</span> : "—"}</Td>
                     <Td>{j.confirmouIngame ? <span style={{ color: C.verde }}>✅</span> : "—"}</Td>
-                    <Td>{j.jogou == null ? <span style={{ color: C.borderSoft }}>?</span> : j.jogou ? <span style={{ color: C.verde }}>sim</span> : <span style={{ color: C.vermelho }}>não</span>}</Td>
-                    <Td>{j.faltas == null ? <span style={{ color: C.borderSoft }}>—</span> : <span style={{ color: j.faltas >= 3 ? C.vermelho : j.faltas > 0 ? C.laranja : C.mute }}>{j.faltas}</span>}</Td>
-                    <Td>{j.diasSemJogar == null ? <span style={{ color: C.borderSoft }}>—</span> : <span style={{ color: j.diasSemJogar >= 14 ? C.vermelho : j.diasSemJogar >= 7 ? C.laranja : C.mute }}>{j.diasSemJogar}d</span>}</Td>
+                    <Td>{j.jogou == null ? <span style={{ color: C.dim }}>?</span> : j.jogou ? <span style={{ color: C.verde }}>sim</span> : <span style={{ color: C.vermelho }}>não</span>}</Td>
+                    <Td>{j.faltas == null ? <span style={{ color: C.dim }}>—</span> : <span style={{ color: j.faltas >= 3 ? C.vermelho : j.faltas > 0 ? C.laranja : C.mute }}>{j.faltas}</span>}</Td>
+                    <Td>{j.diasSemJogar == null ? <span style={{ color: C.dim }}>—</span> : <span style={{ color: j.diasSemJogar >= 14 ? C.vermelho : j.diasSemJogar >= 7 ? C.laranja : C.mute }}>{j.diasSemJogar}d</span>}</Td>
                   </tr>
                 );
               })}
@@ -1215,6 +1240,21 @@ export default function EventoBoard({
       {podeApagar && evento && (
         <ApagarEvento eventoId={evento.eventoId} titulo={evento.titulo} temChamada={!!evento.messageId} />
       )}
+      {/* Barra do movimento por TOQUE. Fixa embaixo porque o destino pode estar a várias telas de
+          distância do card selecionado — sem ela a pessoa esquece o que escolheu, e um toque
+          perdido move alguém sem querer. Fica acima da barra de conta (z 40). */}
+      {sel && canEdit && (
+        <div style={{ position: "fixed", left: 12, right: 12, bottom: 62, zIndex: 45,
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          border: `1px solid ${C.amarelo}`, borderRadius: 12, background: C.surfaceSolid,
+          boxShadow: "0 8px 30px rgba(0,0,0,.6)", padding: "8px 12px", fontSize: 12.5, color: C.mute }}>
+          <span>Movendo <b style={{ color: C.texto }}>{todos.get(sel)?.familia ?? sel}</b> — toque numa PT pra escalar, num card pra pôr antes dele, ou no pool pra tirar.</span>
+          <button className="tap" onClick={() => setSel(null)}
+            style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border2}`, borderRadius: 8, color: C.mute, padding: "3px 10px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer" }}>
+            ✕ cancelar
+          </button>
+        </div>
+      )}
     </Casca>
   );
 }
@@ -1229,6 +1269,8 @@ type CardCtx = {
   onFimArraste: () => void;
   onTogglePresenca: (j: JogadorVM) => void;
   onSoltarEmCima?: (chaveArrastada: string) => void;  // reordenar dentro da PT
+  selecionado?: boolean;                   // escolhido pelo toque, esperando um destino
+  onTocar?: () => void;                    // toque: seleciona, ou solta o selecionado aqui
 };
 
 /**
@@ -1338,7 +1380,7 @@ function LegendaHistorico() {
           </span>
         ))}
       </div>
-      <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 7 }}>
+      <div style={{ color: C.dim, fontSize: 10.5, marginTop: 7 }}>
         O <b>traço</b> e o <b>O</b> são os dois cinzas e não querem dizer a mesma coisa: traço é quem <b>respondeu que não ia</b> —
         avisou, dá pra contar com isso. O <b>O</b> é quem ficou <b>calado</b>, tendo o bot à disposição. Já o quadrado escuro é
         ausência de informação: ninguém deve nada ali — inclusive quem se registrou depois daquela guerra.
@@ -1402,7 +1444,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
     {j.semana.nodewars.length > 0 && (
       <div style={{ display: "flex", alignItems: "center", gap: 7, paddingBottom: 2 }}>
         <Historico h={j.semana} wars={wars} />
-        <span style={{ color: C.borderSoft, fontSize: 10 }}>bola = siege · quadrados = node wars</span>
+        <span style={{ color: C.dim, fontSize: 10 }}>bola = siege · quadrados = node wars</span>
       </div>
     )}
     <Linha k="Classe" v={j.classe ?? "—"} />
@@ -1437,7 +1479,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
  * reabria sem tirar e devolver o mouse.
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
-  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima } = ctx;
+  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado } = ctx;
   // respondeu NÃO na DM. Só vale fora da PT: se você o arrastou de volta pra uma coluna depois de
   // conversar, quem manda é a decisão da staff — o card volta ao normal em vez de acusar a recusa.
   const recusou = j.confirmouEscalacao === false && !escalado;
@@ -1453,15 +1495,23 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       // seria lido no meio do render dos alvos, e o React avisa com razão que isso não atualiza
       onDragStart={(e) => { e.dataTransfer.setData("text/plain", j.chave); setHoverFalse(); }}
       onDragEnd={onFimArraste}
-      onMouseEnter={(e) => {
+      // pointerType, e não onMouseEnter: no toque o navegador EMULA mouseenter, então cada toque
+      // pra selecionar abria o mini-card por cima justamente do que a pessoa quer ver.
+      onPointerEnter={(e) => {
+        if (e.pointerType !== "mouse") return;
         const r = e.currentTarget.getBoundingClientRect();
         // abre pra cima; sem espaço lá (card no topo da lista), vira pra baixo em vez de sair da tela
         const paraBaixo = r.top < 250;
-        setHover(paraBaixo
-          ? { left: r.left, top: r.bottom + 6 }
-          : { left: r.left, bottom: window.innerHeight - r.top + 6 });
+        // clamp na direita: em tela estreita o card fica colado na borda e o mini-card (230px)
+        // sairia da tela — e `fixed` não gera scroll, então ficaria inalcançável
+        const left = Math.max(6, Math.min(r.left, window.innerWidth - 236));
+        setHover(paraBaixo ? { left, top: r.bottom + 6 } : { left, bottom: window.innerHeight - r.top + 6 });
       }}
-      onMouseLeave={setHoverFalse}
+      onPointerLeave={setHoverFalse}
+      // TOQUE (e clique): seleciona este card, ou solta aqui o que já estava selecionado.
+      // stopPropagation é obrigatório — sem ele o toque no card do pool também dispara o onClick do
+      // container do pool, que devolveria pro pool o que acabou de ser selecionado.
+      onClick={(e) => { e.stopPropagation(); onTocar?.(); }}
       // soltar EM CIMA de um card insere antes dele. stopPropagation pra o alvo da coluna não
       // tratar isso como "jogar no fim" logo em seguida.
       //
@@ -1504,7 +1554,10 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
         // linha no topo marca onde o card vai entrar
         boxSizing: "border-box", borderTop: alvo ? `3px solid ${VERDE}` : undefined,
-        display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
+        // selecionado pelo toque: contorno POR FORA (outline não ocupa espaço, então a linha não
+        // empurra o card nem briga com a borda que já diz outra coisa)
+        outline: selecionado ? `2px solid ${C.amarelo}` : undefined, outlineOffset: 1,
+        display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, minWidth: 0,
       }}
     >
       {lider && <span title="líder da PT" style={{ fontSize: 11, flexShrink: 0 }}>👑</span>}
@@ -1515,7 +1568,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
           está "aguardando resposta", está lá. Mostrar os dois virava alarme em quem está tranquilo */}
       {escalado && j.confirmouEscalacao == null && !j.confirmouIngame && (j.convidado
         ? <span style={{ color: C.amarelo, fontSize: 11 }} title="DM enviada — aguardando resposta">⏳</span>
-        : <span style={{ color: C.borderSoft, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
+        : <span style={{ color: C.dim, fontSize: 11 }} title="ainda não foi convocado">✉</span>)}
       {escalado && j.confirmouEscalacao == null && j.confirmouIngame && (
         <span style={{ color: VERDE, fontSize: 11 }} title="não respondeu a DM, mas já está in-game — está resolvido">🎮</span>
       )}
@@ -1526,7 +1579,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
         <span style={{ color: C.laranja, fontSize: 11 }} title="tinha recusado na DM e foi reescalado — confirme com ele">↩</span>
       )}
       <GuildIcon id={j.guilda} byId={byId} />
-      <span style={{ color: recusou ? RUBRO : C.texto, fontWeight: 600, whiteSpace: "nowrap", textDecoration: recusou ? "line-through" : undefined }}>{j.familia}</span>
+      <span style={{ color: recusou ? RUBRO : C.texto, fontWeight: 600, whiteSpace: "nowrap", textDecoration: recusou ? "line-through" : undefined, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{j.familia}</span>
       {emojiClasse
         ? <IconeClasse raw={emojiClasse} nome={j.classe ?? ""} />
         : j.classe && <span style={{ color: C.mute, fontSize: 11, whiteSpace: "nowrap" }}>{j.classe}</span>}
@@ -1551,9 +1604,10 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
             ⚠{j.faltas}
           </span>
         )}
+        {/* stopPropagation: sem ele, marcar presença também selecionaria o card pro toque */}
         {canEdit && (
-          <button onClick={() => onTogglePresenca(j)} title={j.confirmouIngame ? "desmarcar confirmação in-game" : "marcar confirmado in-game"}
-            style={{ background: "none", border: "none", cursor: "pointer", color: j.confirmouIngame ? C.verde : C.borderSoft, fontSize: 12, padding: "0 2px" }}>
+          <button className="tap" onClick={(e) => { e.stopPropagation(); onTogglePresenca(j); }} title={j.confirmouIngame ? "desmarcar confirmação in-game" : "marcar confirmado in-game"}
+            style={{ background: "none", border: "none", cursor: "pointer", color: j.confirmouIngame ? C.verde : C.borderSoft, fontSize: 12, padding: "0 2px", flexShrink: 0 }}>
             {j.confirmouIngame ? "✅" : "◻"}
           </button>
         )}
@@ -1565,7 +1619,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
 
 function Casca({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>{children}</div>
@@ -1653,7 +1707,7 @@ function PainelEnvio({ envio, onFechar }: { envio: EnvioVM; onFechar: () => void
       ))}
 
       {!rodando && (
-        <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 7 }}>
+        <div style={{ color: C.dim, fontSize: 11, marginTop: 7 }}>
           {envio.log?.postou
             ? "registrado no canal de log do Discord"
             : `⚠ NÃO foi registrado no log${envio.log?.erro ? ` — ${envio.log.erro}` : ""}`}

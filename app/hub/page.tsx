@@ -27,7 +27,7 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
 
@@ -72,7 +72,7 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
         {/* as duas formas de começar um evento, lado a lado: com bot e sem bot */}
         {canEdit && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch", marginBottom: 18 }}>
-            <div style={{ flex: "1 1 460px" }}><Lancar presets={presets} partiesPorPreset={partiesPorPreset} /></div>
+            <div style={{ flex: "1 1 460px", minWidth: 0 }}><Lancar presets={presets} partiesPorPreset={partiesPorPreset} /></div>
             <NovoEvento presets={presets} partiesPorPreset={partiesPorPreset} />
           </div>
         )}
@@ -106,7 +106,7 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
           </div>
         ) : (
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
+            <table className="tab-serie" style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
               <thead>
                 <tr style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
                   <Th>Jogador</Th><Th>Seq</Th><Th>Marcou</Th><Th>In-game</Th><Th>Jogou</Th><Th>Avaliados</Th>

@@ -37,7 +37,7 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
   const meta = (k: string, v: string) => (<span style={{ color: C.mute, fontSize: 12 }}>{k}: <b style={{ color: C.texto }}>{v}</b></span>);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
@@ -63,7 +63,7 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
             {ev.finalizadoEm && meta("Finalizado", new Date(ev.finalizadoEm).toLocaleString("pt-BR"))}
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ color: C.borderSoft, fontSize: 11, fontFamily: "'Share Tech Mono', monospace" }}>uuid {ev.uuid}</span>
+            <span style={{ color: C.dim, fontSize: 11, fontFamily: "'Share Tech Mono', monospace" }}>uuid {ev.uuid}</span>
             {msgUrl && <a href={msgUrl} target="_blank" rel="noreferrer" style={{ color: C.verde, fontSize: 12, textDecoration: "none" }}>abrir mensagem no Discord →</a>}
           </div>
         </div>
@@ -75,18 +75,18 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
             <>
               <div style={{ color: C.verde, fontSize: 13, marginBottom: 10 }}>
                 ● {ev.snapshot.templateNome} — {ev.snapshot.totalConfirmados}{ev.snapshot.tamanhoMax != null ? `/${ev.snapshot.tamanhoMax}` : ""} confirmados{ev.snapshot.totalEspera > 0 ? ` · ⏳ ${ev.snapshot.totalEspera} espera` : ""}
-                <span style={{ color: C.borderSoft, marginLeft: 8 }}>congelado {new Date(ev.snapshot.capturadoEm).toLocaleString("pt-BR")}</span>
+                <span style={{ color: C.dim, marginLeft: 8 }}>congelado {new Date(ev.snapshot.capturadoEm).toLocaleString("pt-BR")}</span>
               </div>
               <RosterView sit={ev.snapshot} tags={guildTags} />
             </>
           ) : (
-            <div style={{ color: C.borderSoft, fontSize: 12.5 }}>{ev.status === "finalizado" ? "Sem snapshot (evento sem roster no momento da finalização)." : "O snapshot é gravado ao FINALIZAR o evento. Enquanto ativo, veja a situação ao vivo em Participação."}</div>
+            <div style={{ color: C.dim, fontSize: 12.5 }}>{ev.status === "finalizado" ? "Sem snapshot (evento sem roster no momento da finalização)." : "O snapshot é gravado ao FINALIZAR o evento. Enquanto ativo, veja a situação ao vivo em Participação."}</div>
           )}
         </div>
 
         {/* FACETA 2 e 3: futuras (linkam no mesmo evento) */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <div style={card}><div style={secTitulo}>Confirmados (Apollo)</div><div style={{ color: C.borderSoft, fontSize: 12.5 }}>Não integrado ainda — vai pendurar neste evento.</div></div>
+        <div className="col1" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div style={card}><div style={secTitulo}>Confirmados (Apollo)</div><div style={{ color: C.dim, fontSize: 12.5 }}>Não integrado ainda — vai pendurar neste evento.</div></div>
           <div style={card}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
               <div style={{ ...secTitulo, marginBottom: 0 }}>Resultado da guerra</div>

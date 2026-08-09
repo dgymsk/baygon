@@ -178,7 +178,7 @@ export default function ParticiparReconcile({
       </div>
       {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
-        {nomes.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
+        {nomes.length === 0 ? <span style={{ color: C.dim, fontSize: 12 }}>—</span>
           : nomes.map((nm) => <span key={nm} style={{ fontSize: 12.5, color: C.texto }}>{nm}</span>)}
       </div>
     </div>

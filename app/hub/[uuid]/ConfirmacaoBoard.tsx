@@ -273,7 +273,7 @@ export default function ConfirmacaoBoard({
         {conc && conc.pendentes.length > 0 && (
           <div style={aviso(C.amarelo)}>
             <b>⚠ {conc.pendentes.length} nome(s) não bateram com ninguém</b> — leitura da IA pode estar errada, ou é gente de fora. Aponte o player:
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 6, marginTop: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 6, marginTop: 6 }}>
               {conc.pendentes.map((n) => (
                 <div key={n} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ color: C.texto, minWidth: 92 }} title="como a visão leu">{n}</span>
@@ -346,7 +346,7 @@ export default function ConfirmacaoBoard({
               {a.familia}
             </button>
           ))}
-          {!alvos.length && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>Ninguém marcou nesta chamada.</span>}
+          {!alvos.length && <span style={{ color: C.dim, fontSize: 12.5 }}>Ninguém marcou nesta chamada.</span>}
         </div>
       </div>
     </div>
@@ -371,7 +371,7 @@ function Col({ titulo, cor, itens, hint, id, ctx }: { titulo: string; cor: strin
       </div>
       {hint && <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{hint}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 8px" }}>
-        {itens.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
+        {itens.length === 0 ? <span style={{ color: C.dim, fontSize: 12 }}>—</span>
           : itens.map((it) => (
             <button key={it.familia} disabled={!canEdit || salvandoNome === it.familia}
               onClick={() => onToggle(it.familia, !it.ligado)}

@@ -198,7 +198,7 @@ export default function ParticipacaoBoard({
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}} a.navlink2:hover{color:${C.verde}}`}</style>
 
@@ -233,7 +233,7 @@ export default function ParticipacaoBoard({
 
         {/* ===================== DISPARO / SITUAÇÃO ===================== */}
         {aba === "disparo" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(520px, 1fr))", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(520px, 100%), 1fr))", gap: 16 }}>
             {TIPOS.map((t) => {
               const c = cfg[t];
               const evs = eventosPorTipo[t];
@@ -262,7 +262,7 @@ export default function ParticipacaoBoard({
                     {canEdit && <label style={{ ...btn(C.verde), cursor: "pointer" }}>📎 Enviar<input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) enviarImagem(t, f); e.currentTarget.value = ""; }} /></label>}
                     {c.imagem && <img src={c.imagem} alt="" style={{ height: 34, borderRadius: 6, border: `1px solid ${C.border2}` }} />}
                   </div>
-                  {canEdit && <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 3 }}>Escolha uma enviada, ou clique aqui e cole (Ctrl+V) / use 📎 Enviar. Depois salve a config.</div>}
+                  {canEdit && <div style={{ color: C.dim, fontSize: 11, marginTop: 3 }}>Escolha uma enviada, ou clique aqui e cole (Ctrl+V) / use 📎 Enviar. Depois salve a config.</div>}
                 </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.texto, fontSize: 12.5 }}>
@@ -302,9 +302,9 @@ export default function ParticipacaoBoard({
                         {canEdit && <button onClick={() => acaoEvento(evSel.id, "finalizar")} style={{ ...btn(C.verde), fontWeight: 700 }}>🏁 Finalizar</button>}
                       </div>
                     )}
-                    {sit && <div style={{ color: C.verde, fontSize: 12.5, marginTop: 8 }}>● {sit.templateNome} — {sit.totalConfirmados}{sit.tamanhoMax != null ? `/${sit.tamanhoMax}` : ""}{sit.totalEspera > 0 ? ` · ⏳ ${sit.totalEspera} espera` : ""} <span style={{ color: C.borderSoft }}>· atualiza a cada 15s</span></div>}
+                    {sit && <div style={{ color: C.verde, fontSize: 12.5, marginTop: 8 }}>● {sit.templateNome} — {sit.totalConfirmados}{sit.tamanhoMax != null ? `/${sit.tamanhoMax}` : ""}{sit.totalEspera > 0 ? ` · ⏳ ${sit.totalEspera} espera` : ""} <span style={{ color: C.dim }}>· atualiza a cada 15s</span></div>}
                   </div>
-                  {sit ? <RosterView sit={sit} emojis={emojis} tags={guildTags} /> : evSel ? <span style={{ color: C.borderSoft, fontSize: 12 }}>sem roster (template removido?)</span> : null}
+                  {sit ? <RosterView sit={sit} emojis={emojis} tags={guildTags} /> : evSel ? <span style={{ color: C.dim, fontSize: 12 }}>sem roster (template removido?)</span> : null}
                 </div>
               );
             })}
@@ -325,7 +325,7 @@ export default function ParticipacaoBoard({
                   {canEdit && <button onClick={() => excluirPt(p)} title="excluir" style={{ ...btn(C.vermelho), padding: "5px 9px" }}>✕</button>}
                 </div>
               ))}
-              {pts.length === 0 && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>nenhum PT ainda.</span>}
+              {pts.length === 0 && <span style={{ color: C.dim, fontSize: 12.5 }}>nenhum PT ainda.</span>}
               {canEdit && (
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.borderSoft}` }}>
                   <EmojiPicker emojis={emojis} value={novoPt.emoji} onPick={(v) => setNovoPt((n) => ({ ...n, emoji: v }))} />
@@ -340,7 +340,7 @@ export default function ParticipacaoBoard({
 
         {/* ===================== TEMPLATES ===================== */}
         {aba === "templates" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(340px, 100%), 1fr))", gap: 14 }}>
             {tplDrafts.map((t) => (
               <div key={t.id} style={card}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
@@ -367,7 +367,7 @@ export default function ParticipacaoBoard({
                       </div>
                     );
                   })}
-                  {pts.length === 0 && <span style={{ color: C.borderSoft, fontSize: 12 }}>crie PTs primeiro (aba PTs).</span>}
+                  {pts.length === 0 && <span style={{ color: C.dim, fontSize: 12 }}>crie PTs primeiro (aba PTs).</span>}
                 </div>
               </div>
             ))}
@@ -396,7 +396,7 @@ export default function ParticipacaoBoard({
                       </div>
                     );
                   })}
-                  {pts.length === 0 && <span style={{ color: C.borderSoft, fontSize: 12 }}>crie PTs primeiro (aba PTs).</span>}
+                  {pts.length === 0 && <span style={{ color: C.dim, fontSize: 12 }}>crie PTs primeiro (aba PTs).</span>}
                 </div>
                 <button onClick={criarTpl} disabled={!novoTpl.nome.trim()} style={{ ...btn(C.verde), fontWeight: 700, marginTop: 10 }}>Criar template</button>
               </div>
@@ -413,7 +413,7 @@ export default function ParticipacaoBoard({
               <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="filtrar jogador…" style={{ ...input, width: 140, marginLeft: "auto" }} />
               {canEdit && dirtyAtrib(tipoAtrib) && <button onClick={() => salvarAtrib(tipoAtrib)} style={{ ...btn(C.amarelo), fontWeight: 700 }}>Salvar</button>}
             </div>
-            {pts.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12.5 }}>crie PTs primeiro (aba PTs).</span> : (
+            {pts.length === 0 ? <span style={{ color: C.dim, fontSize: 12.5 }}>crie PTs primeiro (aba PTs).</span> : (
               <div style={{ maxHeight: "60vh", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
                 {playersAtivos.filter((p) => !filtro || p.toLowerCase().includes(filtro.toLowerCase())).map((p) => (
                   <div key={p} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
@@ -464,7 +464,7 @@ export default function ParticipacaoBoard({
               {buz.tipo === "lista" && <textarea value={buz.userIds} readOnly={ro} onChange={(e) => setBuzF("userIds", e.target.value)} rows={3} placeholder="Cole IDs ou menções separados por espaço, vírgula ou linha" style={{ ...input, width: "100%", marginTop: 8, resize: "vertical" }} />}
               {buz.tipo === "todos" && <div style={{ color: C.amarelo, fontSize: 11.5, marginTop: 6 }}>⚠ Envia pra TODOS os membros (menos bots). Requer o &quot;Server Members Intent&quot; ativo no bot.</div>}
               {buz.tipo === "nao_registrados" && <div style={{ color: C.verde, fontSize: 11.5, marginTop: 6 }}>📝 Manda a DM com um botão <b>Registrar</b> pra quem <b>ainda não fez o registro</b> (opcionalmente só quem tem a tag acima). Requer o &quot;Server Members Intent&quot;. Ignora os botões de votação abaixo.</div>}
-              {buz.tipo === "role" && <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 4 }}>Requer o &quot;Server Members Intent&quot; ativo no bot (Developer Portal → Bot).</div>}
+              {buz.tipo === "role" && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>Requer o &quot;Server Members Intent&quot; ativo no bot (Developer Portal → Bot).</div>}
             </div>
 
             <div style={{ marginTop: 12 }}>
@@ -475,7 +475,7 @@ export default function ParticipacaoBoard({
             {canEdit && (
               <div style={{ marginTop: 12 }}>
                 <label style={label}>Botões / votação (opcional)</label>
-                <div style={{ color: C.borderSoft, fontSize: 11, marginBottom: 6 }}>Cada botão grava a escolha de quem clica (voto único, trocável); o relatório mostra os votos. A cor é o estilo do Discord. Até 25 botões.</div>
+                <div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>Cada botão grava a escolha de quem clica (voto único, trocável); o relatório mostra os votos. A cor é o estilo do Discord. Até 25 botões.</div>
                 {buz.opcoes.map((o, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <EmojiPicker emojis={emojis} value={o.emoji} onPick={(v) => setOpcao(i, { emoji: v })} />

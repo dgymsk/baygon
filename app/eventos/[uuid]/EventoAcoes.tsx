@@ -37,7 +37,7 @@ export default function EventoAcoes({ id, resultadoInicial, canEdit }: { id: num
     <div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {["derrota", "participacao", "vitoria"].map((r) => <button key={r} onClick={() => setR(r)} disabled={!canEdit || busy} style={btn(r)}>{LABELS[r]}</button>)}
-        {!resultado && <span style={{ color: C.borderSoft, fontSize: 12 }}>{canEdit ? "escolha o resultado" : "sem resultado"}</span>}
+        {!resultado && <span style={{ color: C.dim, fontSize: 12 }}>{canEdit ? "escolha o resultado" : "sem resultado"}</span>}
       </div>
       {canEdit && (
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.borderSoft}` }}>

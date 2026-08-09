@@ -29,6 +29,15 @@ export const C = {
   // texto — branco giz + cinza aço
   texto: "#f2f2f2",
   mute: "#8f8f8f",
+  /**
+   * Texto de DICA — o degrau abaixo de `mute`, ainda legível.
+   *
+   * Existe porque `borderSoft` (#202020) vinha sendo usado como cor de texto em ~76 lugares: sobre
+   * o fundo do app isso dá contraste ~1.1:1, ou seja, INVISÍVEL — legenda, placeholder e "—" de
+   * lista vazia simplesmente não apareciam, e no celular sob sol nem isso. `borderSoft` continua
+   * sendo o que o nome diz: cor de BORDA.
+   */
+  dim: "#6e6e6e",
   branco: "#f2f2f2",
 
   // tints

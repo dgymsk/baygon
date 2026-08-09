@@ -48,17 +48,17 @@ export default function ChamadasLog({ lotes }: { lotes: LoteResumo[] }) {
           <div key={l.id} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: "11px 14px" }}>
             <div onClick={() => setAberto(emAberto ? null : l.id)}
               style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", cursor: "pointer" }}>
-              <span style={{ color: C.borderSoft, fontSize: 11 }}>{emAberto ? "▾" : "▸"}</span>
+              <span style={{ color: C.dim, fontSize: 11 }}>{emAberto ? "▾" : "▸"}</span>
               <span style={{ color: cor, fontWeight: 700, fontSize: 13 }}>📨 {l.rotulo}</span>
               <span style={{ color: C.mute, fontSize: 12 }}>{hora(l.criado)}</span>
-              {l.publico && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>· {l.publico}</span>}
+              {l.publico && <span style={{ color: C.dim, fontSize: 11.5 }}>· {l.publico}</span>}
               <span style={{ fontSize: 12.5 }}>
                 <span style={{ color: C.verde }}>{l.enviados} recebeu(ram)</span>
                 {l.falhas > 0 && <span style={{ color: C.amarelo, fontWeight: 700 }}> · {l.falhas} não</span>}
                 <span style={{ color: C.mute }}> · {l.total} no total</span>
               </span>
               {l.pendentes > 0 && <span style={{ color: C.amarelo, fontSize: 11.5 }}>⏳ {l.pendentes} não chegaram a sair</span>}
-              <span style={{ marginLeft: "auto", color: C.borderSoft, fontSize: 11 }}>
+              <span style={{ marginLeft: "auto", color: C.dim, fontSize: 11 }}>
                 {l.criadoPor ? `por ${l.criadoPor}` : "disparo automático"}
                 {l.logOk === false && <span style={{ color: C.amarelo }}> · não foi pro canal de log{l.logErro ? ` (${l.logErro})` : ""}</span>}
               </span>
@@ -75,11 +75,11 @@ export default function ChamadasLog({ lotes }: { lotes: LoteResumo[] }) {
                       <span style={{ color: a.status === "falha" ? C.amarelo : C.mute, flex: 1 }}>
                         {a.motivo ?? s?.rotulo ?? "na fila"}
                       </span>
-                      <span style={{ color: C.borderSoft, fontSize: 11 }}>{hora(a.tentado)}</span>
+                      <span style={{ color: C.dim, fontSize: 11 }}>{hora(a.tentado)}</span>
                     </div>
                   );
                 })}
-                {!l.alvos.length && <span style={{ color: C.borderSoft, fontSize: 12 }}>sem destinatários registrados</span>}
+                {!l.alvos.length && <span style={{ color: C.dim, fontSize: 12 }}>sem destinatários registrados</span>}
               </div>
             )}
           </div>

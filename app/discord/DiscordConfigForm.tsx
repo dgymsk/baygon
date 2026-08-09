@@ -37,10 +37,10 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
   const card = { border: `1px solid ${C.border}`, borderRadius: 16, background: C.surface, padding: 18 } as const;
   const input = { background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "8px 11px", fontSize: 13.5, outline: "none", width: "100%" } as const;
   const label = { color: C.mute, fontSize: 11.5, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 4, display: "block" };
-  const dica = { color: C.borderSoft, fontSize: 11.5, marginTop: 3 } as const;
+  const dica = { color: C.dim, fontSize: 11.5, marginTop: 3 } as const;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
 

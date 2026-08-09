@@ -55,7 +55,7 @@ export default function PresetsBoard({ presets, funcoes, parties, canEdit }: {
     p && api({ acao: "preset-editar", id: p.id, nome: p.nome, tipo: p.tipo, ...patch }, ok);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
 
@@ -86,7 +86,7 @@ export default function PresetsBoard({ presets, funcoes, parties, canEdit }: {
               {x.nome}{x.tier ? <span style={{ color: corTier[x.tier], marginLeft: 5 }}>{x.tier}</span> : null}
             </button>
           ))}
-          {!doTipo.length && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>Nenhuma chamada de {tipo} ainda.</span>}
+          {!doTipo.length && <span style={{ color: C.dim, fontSize: 12.5 }}>Nenhuma chamada de {tipo} ainda.</span>}
           {canEdit && (
             <span style={{ display: "inline-flex", gap: 6, marginLeft: "auto" }}>
               <input value={novo} onChange={(e) => setNovo(e.target.value)} placeholder={`nome (ex.: NODEWAR T2)`} style={{ ...input, width: 200 }} />
@@ -143,7 +143,7 @@ export default function PresetsBoard({ presets, funcoes, parties, canEdit }: {
                 })}
                 {!funcoes.length && <Vazio>Nenhuma função criada — crie em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link>.</Vazio>}
               </div>
-              <div style={{ color: C.borderSoft, fontSize: 11.5 }}>
+              <div style={{ color: C.dim, fontSize: 11.5 }}>
                 {fnIds.length
                   ? <>Ordem dos botões: {fnIds.map((id) => funcoes.find((f) => f.id === id)?.nome ?? id).join(" → ")}</>
                   : <span style={{ color: C.amarelo }}>Nenhuma escolhida — o bot cai no catálogo inteiro. Escolha pra restringir.</span>}
@@ -165,7 +165,7 @@ export default function PresetsBoard({ presets, funcoes, parties, canEdit }: {
                 })}
                 {!parties.length && <Vazio>Nenhuma party criada — crie em <Link href="/hub/config" style={{ color: C.verde }}>Definições</Link>.</Vazio>}
               </div>
-              <div style={{ color: C.borderSoft, fontSize: 11.5 }}>
+              <div style={{ color: C.dim, fontSize: 11.5 }}>
                 {ptIds.length
                   ? <>Colunas: {ptIds.map((id) => parties.find((x) => x.id === id)?.nome ?? id).join(" → ")}</>
                   : <span style={{ color: C.amarelo }}>Sem PT, a escalação abre sem coluna nenhuma — e não dá pra criar evento com esta chamada.</span>}
@@ -193,7 +193,7 @@ const btn = (cor: string) => ({ borderRadius: 8, border: `1px solid ${C.border2}
 const chip = (on: boolean) => ({ display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, border: `1px solid ${on ? C.verde : C.border2}`, background: on ? C.verdeTint : "transparent", color: on ? C.verde : C.mute, padding: "4px 11px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer" } as const);
 const Titulo = ({ children }: { children: React.ReactNode }) => <div style={{ color: C.verde, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{children}</div>;
 const Sub = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.mute, fontWeight: 400, fontSize: 11.5 }}>— {children}</span>;
-const Vazio = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.borderSoft, fontSize: 12.5 }}>{children}</span>;
+const Vazio = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.dim, fontSize: 12.5 }}>{children}</span>;
 const Campo = ({ rot, children }: { rot: string; children: React.ReactNode }) => (
   <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
     <span style={{ color: C.mute, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.8 }}>{rot}</span>

@@ -281,7 +281,7 @@ export default function SubstituicoesBoard({
       )}
 
       {/* grupos */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(230px, 100%), 1fr))", gap: 12, marginBottom: 14 }}>
         {dados.grupoView.map(({ g, promoted, livre, ativos, abertasAqui }) => (
           <div key={g.nome} style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "11px 13px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 6 }}>
@@ -290,7 +290,7 @@ export default function SubstituicoesBoard({
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {g.players.length === 0 && promoted.length === 0
-                ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span>
+                ? <span style={{ color: C.dim, fontSize: 12 }}>—</span>
                 : <>{g.players.map((p, i) => <LinhaGrupo key={`p${i}`} p={p} />)}
                     {promoted.map((p, i) => <LinhaGrupo key={`up${i}`} p={p} prom />)}</>}
               {abertasAqui > 0 && <span style={{ color: C.amarelo, fontSize: 11 }}>⏳ {abertasAqui} vaga(s) aberta(s)</span>}
@@ -303,7 +303,7 @@ export default function SubstituicoesBoard({
       {listaEspera.length > 0 && (
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surfaceSolid, padding: "12px 14px" }}>
           <div style={{ color: C.amarelo, fontWeight: 700, fontSize: 13.5, marginBottom: 9 }}>Lista de espera ({listaEspera.length})</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "3px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(230px, 100%), 1fr))", gap: "3px 16px" }}>
             {listaEspera.map((p, i) => {
               const k = chaveNome(p.nome);
               const m = dados.promovidoPara.get(k); // {grupo, cross} | undefined

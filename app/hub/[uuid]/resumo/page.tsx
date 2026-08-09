@@ -37,7 +37,7 @@ export default async function ResumoPage({ params }: { params: Promise<{ uuid: s
   const corRes = corDoResultado(e.resultado)?.cor ?? C.mute;
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}
         @media print { body { background: #fff } a.navlink { display: none } }`}</style>
@@ -116,7 +116,7 @@ export default async function ResumoPage({ params }: { params: Promise<{ uuid: s
 
         {r.foraDePt.length > 0 && (
           <Bloco titulo={`Fora de PT — ${r.foraDePt.length}`} margem>
-            <div style={{ color: C.borderSoft, fontSize: 11, marginBottom: 6 }}>
+            <div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>
               Tem linha na escalação deste evento mas não está em nenhuma party — recusou a convocação, foi tirado da PT, ou a PT dele saiu da lista da guerra. Quem só marcou no bot e nunca foi escalado não aparece aqui: veja o número de “marcaram” acima.
             </div>
             <Tabela linhas={r.foraDePt} temWar={!!r.war} />
@@ -175,6 +175,6 @@ const Bloco = ({ titulo, children, flex, margem }: { titulo: string; children: R
 const Linha = ({ children }: { children: React.ReactNode }) => (
   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, padding: "2px 0" }}>{children}</div>
 );
-const Vazio = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.borderSoft, fontSize: 12 }}>{children}</span>;
+const Vazio = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.dim, fontSize: 12 }}>{children}</span>;
 const Th = ({ children }: { children: React.ReactNode }) => <th style={{ textAlign: "left", padding: "5px 9px", fontWeight: 600 }}>{children}</th>;
 const Td = ({ children, cor }: { children: React.ReactNode; cor?: string }) => <td style={{ padding: "4px 9px", color: cor ?? C.mute }}>{children}</td>;

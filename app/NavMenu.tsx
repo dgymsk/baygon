@@ -38,7 +38,7 @@ export default function NavMenu({ canEdit }: { canEdit: boolean }) {
         ☰ Menu
       </button>
       {open && (
-        <div style={{ position: "absolute", bottom: 40, right: 0, zIndex: 50, minWidth: 190, border: `1px solid ${C.border2}`, borderRadius: 12, background: C.bg0, boxShadow: "0 8px 30px rgba(0,0,0,.6)", padding: 6 }}>
+        <div className="menu-pop" style={{ position: "absolute", bottom: 40, right: 0, zIndex: 50, minWidth: 190, border: `1px solid ${C.border2}`, borderRadius: 12, background: C.bg0, boxShadow: "0 8px 30px rgba(0,0,0,.6)", padding: 6 }}>
           {links.map((l) => {
             const on = path === l.href || (l.href !== "/painel" && path?.startsWith(l.href + "/"));
             return (

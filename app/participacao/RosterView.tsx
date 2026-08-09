@@ -46,7 +46,7 @@ function Linha({ icon, m, tags }: { icon: string; m: MembroSit; tags: Record<str
 export default function RosterView({ sit, emojis = [], tags = {} }: { sit: SituacaoNN; emojis?: EmojiGuild[]; tags?: Record<string, string> }) {
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 8 }}>
         {sit.pts.map((g) => (
           <div key={g.id} style={{ border: `1px solid ${C.border2}`, borderLeft: `3px solid ${g.cor || C.border2}`, borderRadius: 10, background: C.surfaceSolid, padding: "8px 10px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, paddingBottom: 5, borderBottom: `1px solid ${C.borderSoft}` }}>
@@ -54,7 +54,7 @@ export default function RosterView({ sit, emojis = [], tags = {} }: { sit: Situa
               <span style={{ color: g.limite != null && g.confirmados.length >= g.limite ? C.amarelo : C.mute, fontSize: 12, fontWeight: 700 }}>{g.confirmados.length}{g.limite != null ? `/${g.limite}` : ""}</span>
               {g.gsMedia != null && <span style={{ color: C.mute, fontSize: 11.5, whiteSpace: "nowrap" }}>· GS <b style={{ color: C.texto }}>{g.gsMedia}</b></span>}
             </div>
-            {g.confirmados.length === 0 && g.espera.length === 0 ? <span style={{ color: C.borderSoft, fontSize: 12 }}>ninguém confirmou</span> : (
+            {g.confirmados.length === 0 && g.espera.length === 0 ? <span style={{ color: C.dim, fontSize: 12 }}>ninguém confirmou</span> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {g.confirmados.map((m, i) => <Linha key={"c" + i} icon="✅" m={m} tags={tags} />)}
                 {g.espera.length > 0 && <span style={{ color: C.amarelo, fontSize: 11, fontWeight: 700, marginTop: 3 }}>⏳ Espera</span>}

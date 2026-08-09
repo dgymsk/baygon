@@ -54,7 +54,7 @@ export default function Evolucao({
   );
 
   return (
-    <div style={{ background: "radial-gradient(1200px 600px at 70% -10%, #241010 0%, #0d0d0d 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
+    <div className="pg" style={{ background: "radial-gradient(1200px 600px at 70% -10%, #241010 0%, #0d0d0d 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${MUTE};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${GOLD}}
         select:focus,input:focus{border-color:${GOLD}}`}</style>

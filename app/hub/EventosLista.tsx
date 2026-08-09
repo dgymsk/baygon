@@ -82,7 +82,7 @@ function Cabecalho({ e, atual = false, seta }: { e: FunilEvento; atual?: boolean
         <Seta />
         <N n={e.confirmaram} rot="in-game" cor={C.verde} />
         <Seta />
-        {e.temWar ? <N n={e.jogaram} rot="jog" cor={C.amarelo} /> : <span style={{ color: C.borderSoft, fontSize: 10.5 }}>sem stat</span>}
+        {e.temWar ? <N n={e.jogaram} rot="jog" cor={C.amarelo} /> : <span style={{ color: C.dim, fontSize: 10.5 }}>sem stat</span>}
       </span>
     </div>
   );
@@ -108,12 +108,12 @@ function Detalhe({ e }: { e: FunilEvento }) {
         <Link href={`/hub/${e.uuid}`} style={{ color: C.mute, textDecoration: "none" }}>📊 Estatísticas</Link>
         <Link href={`/eventos/${e.uuid}`} style={{ color: C.mute, textDecoration: "none" }}>Registro</Link>
         {e.presetNome
-          ? <span style={{ marginLeft: "auto", color: C.borderSoft, fontSize: 11 }}>chamada: {e.presetNome}</span>
+          ? <span style={{ marginLeft: "auto", color: C.dim, fontSize: 11 }}>chamada: {e.presetNome}</span>
           : <span style={{ marginLeft: "auto", color: C.amarelo, fontSize: 11 }}>⚠ sem chamada associada — a escalação abre sem PTs</span>}
       </div>
 
       {!e.temWar && (
-        <div style={{ color: C.borderSoft, fontSize: 11 }}>
+        <div style={{ color: C.dim, fontSize: 11 }}>
           ⚠ Enquanto o resultado da war não for gravado, este evento não conta na estatística de falta.
         </div>
       )}
@@ -125,7 +125,7 @@ function Detalhe({ e }: { e: FunilEvento }) {
 function N({ n, rot, cor }: { n: number | null; rot: string; cor: string }) {
   return <span style={{ display: "inline-flex", alignItems: "baseline", gap: 2 }}><b style={{ color: n == null ? C.borderSoft : cor, fontSize: 13 }}>{n ?? "—"}</b><span style={{ color: C.mute, fontSize: 10 }}>{rot}</span></span>;
 }
-const Seta = () => <span style={{ color: C.borderSoft, fontSize: 10 }}>›</span>;
+const Seta = () => <span style={{ color: C.dim, fontSize: 10 }}>›</span>;
 
 const Selo = ({ children, cor, fundo = false }: { children: React.ReactNode; cor: string; fundo?: boolean }) => (
   <span style={{ color: cor, fontSize: 10, textTransform: "uppercase", letterSpacing: 1, border: `1px solid ${cor}`, background: fundo ? C.verdeTint : "transparent", borderRadius: 999, padding: "1px 7px" }}>{children}</span>
@@ -136,7 +136,7 @@ function Bloco({ rot, v, cor, hint }: { rot: string; v: number | null; cor?: str
     <div style={{ border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "7px 11px", minWidth: 130 }}>
       <div style={{ color: C.mute, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.8 }}>{rot}</div>
       <div style={{ color: v == null ? C.borderSoft : cor ?? C.texto, fontSize: 17, fontWeight: 800 }}>{v ?? "—"}</div>
-      {hint && <div style={{ color: C.borderSoft, fontSize: 10.5, marginTop: 1 }}>{hint}</div>}
+      {hint && <div style={{ color: C.dim, fontSize: 10.5, marginTop: 1 }}>{hint}</div>}
     </div>
   );
 }

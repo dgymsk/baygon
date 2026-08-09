@@ -92,7 +92,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
   );
 
   return (
-    <div style={{ background: "radial-gradient(1200px 600px at 70% -10%, #241010 0%, #0d0d0d 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
+    <div className="pg" style={{ background: "radial-gradient(1200px 600px at 70% -10%, #241010 0%, #0d0d0d 60%)", minHeight: "100vh", padding: "28px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: PARCH }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         .card{background:linear-gradient(180deg,#1a1a1a 0%,#0f0f0f 100%);border:1px solid #2c2c2c;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(204,0,0,.10);}
         select:focus{border-color:${GOLD}}
@@ -181,7 +181,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
               ))}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            <div className="col1" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
               {/* radar */}
               <div className="card" style={{ padding: "18px 14px 8px" }}>
                 <div style={{ fontFamily: "'Share Tech Mono', monospace", color: PARCH, fontSize: 16, marginBottom: 6, paddingLeft: 8 }}>{player} vs régua</div>
@@ -205,7 +205,7 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
                   <BarChart data={bars} layout="vertical" margin={{ left: 18, right: 24 }}>
                     <CartesianGrid horizontal={false} stroke="#202020" />
                     <XAxis type="number" tick={{ fill: MUTE, fontSize: 11 }} stroke="#2c2c2c" />
-                    <YAxis type="category" dataKey="nome" width={96} tick={{ fill: PARCH, fontSize: 11 }} stroke="#2c2c2c" />
+                    <YAxis type="category" dataKey="nome" width={72} tick={{ fill: PARCH, fontSize: 11 }} stroke="#2c2c2c" />
                     <ReferenceLine x={100} stroke={PARCH} strokeDasharray="5 4" label={{ value: "régua", fill: MUTE, fontSize: 10, position: "top" }} />
                     <Tooltip cursor={{ fill: "rgba(204,0,0,.06)" }}
                       contentStyle={{ background: BG2, border: "1px solid #454545", borderRadius: 8, color: PARCH }}

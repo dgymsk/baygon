@@ -61,14 +61,14 @@ export default function EventosBoard({ ativos, historico, filtros, aba, canEdit 
           {statusBadge(e.status)}
         </div>
         <div style={{ color: C.texto, fontSize: 15, fontWeight: 700 }}>{e.titulo || "(sem título)"}</div>
-        <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 4, fontFamily: "'Share Tech Mono', monospace" }}>{e.uuid}</div>
+        <div style={{ color: C.dim, fontSize: 11, marginTop: 4, fontFamily: "'Share Tech Mono', monospace" }}>{e.uuid}</div>
         <div style={{ color: C.amarelo, fontSize: 12, marginTop: 8 }}>Abrir →</div>
       </Link>
     );
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
       <div style={{ maxWidth: 1080, margin: "0 auto" }}>
@@ -103,13 +103,13 @@ export default function EventosBoard({ ativos, historico, filtros, aba, canEdit 
               <div style={{ flex: 1, minWidth: 180 }}><div style={{ color: C.mute, fontSize: 11, marginBottom: 3 }}>Título</div><input value={novo.titulo} onChange={(e) => setNovo({ ...novo, titulo: e.target.value })} placeholder="ex: NW Sáb — Nó 40" style={{ ...input, width: "100%" }} /></div>
               <button onClick={criarRetroativo} disabled={salvando} style={{ ...btn(C.verde), fontWeight: 700, opacity: salvando ? 0.6 : 1 }}>{salvando ? "criando…" : "Criar"}</button>
             </div>
-            <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 8 }}>Cria já finalizado (sem snapshot). Data em branco = hoje.</div>
+            <div style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>Cria já finalizado (sem snapshot). Data em branco = hoje.</div>
           </div>
         )}
 
         {aba === "ativos" ? (
-          ativos.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento ativo. Dispare na <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.</div> : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+          ativos.length === 0 ? <div style={{ color: C.dim, fontSize: 13 }}>Nenhum evento ativo. Dispare na <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.</div> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 12 }}>
               {ativos.map((e) => <Cartao key={e.id} e={e} />)}
             </div>
           )
@@ -123,8 +123,8 @@ export default function EventosBoard({ ativos, historico, filtros, aba, canEdit 
               <button onClick={buscar} style={{ ...btn(C.verde), fontWeight: 700 }}>Buscar</button>
               {(f.q || f.tipo || f.de || f.ate) && <button onClick={() => { setF({ q: "", tipo: "", de: "", ate: "" }); router.push("/eventos?aba=historico"); }} style={btn(C.mute)}>limpar</button>}
             </div>
-            {historico.length === 0 ? <div style={{ color: C.borderSoft, fontSize: 13 }}>Nenhum evento no histórico com esses filtros.</div> : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
+            {historico.length === 0 ? <div style={{ color: C.dim, fontSize: 13 }}>Nenhum evento no histórico com esses filtros.</div> : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 12 }}>
                 {historico.map((e) => <Cartao key={e.id} e={e} />)}
               </div>
             )}

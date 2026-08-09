@@ -65,7 +65,7 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
   const btn = (color: string = C.verde) => ({ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" } as const);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
 
@@ -175,7 +175,7 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
         {/* Esta tela grava com um UPDATE sem WHERE (replace-all na coluna inteira), que é
             incompatível com o tri-estado de is_core_siege — um save aqui viraria todo "herda" em
             "não". Por isso o papel de siege vive só na /membros, onde o UPDATE é por linha. */}
-        <p style={{ color: C.borderSoft, fontSize: 11.5, marginTop: 6 }}>
+        <p style={{ color: C.dim, fontSize: 11.5, marginTop: 6 }}>
           O que está aqui é o papel de <b>node war</b>. Função e core de <b>siege</b> se editam em{" "}
           <a href="/membros" style={{ color: C.verde }}>Membros</a> (colunas <i>Grupo Siege</i> e <i>Core Siege</i>) — em branco, a siege herda o que estiver aqui.
         </p>

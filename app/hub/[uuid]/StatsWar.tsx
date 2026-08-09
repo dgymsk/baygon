@@ -103,8 +103,8 @@ export default function StatsWar({ stats, contexto, aliancas = [], warId = null,
 
   if (!stats.length) return null;
 
-  const th = (col: string, rot: string, titulo?: string) => (
-    <th key={col} onClick={() => setOrdem((o) => ({ col, desc: o.col === col ? !o.desc : true }))}
+  const th = (col: string, rot: string, titulo?: string, cls?: string) => (
+    <th key={col} className={cls} onClick={() => setOrdem((o) => ({ col, desc: o.col === col ? !o.desc : true }))}
       title={titulo ?? `ordenar por ${rot}`}
       style={{ padding: "6px 8px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", textAlign: col === "familia" ? "left" : "right", color: ordem.col === col ? C.verde : C.mute, userSelect: "none" }}>
       {rot}{ordem.col === col ? (ordem.desc ? " ▾" : " ▴") : ""}
@@ -132,7 +132,7 @@ export default function StatsWar({ stats, contexto, aliancas = [], warId = null,
           <input type="checkbox" checked={soEscalados} onChange={(e) => setSoEscalados(e.target.checked)} /> só escalados
         </label>
       </div>
-      <div style={{ color: C.borderSoft, fontSize: 11, marginBottom: 8 }}>
+      <div style={{ color: C.dim, fontSize: 11, marginBottom: 8 }}>
         Números crus do print, sem comparação com média. Clique no cabeçalho pra ordenar.
       </div>
 
@@ -142,11 +142,11 @@ export default function StatsWar({ stats, contexto, aliancas = [], warId = null,
           ⊘ <b>{fora.length}</b> fora da régua nesta war ({fora.join(", ")}) — os números continuam na tabela, mas não entram nas médias.
         </div>
       )}
-      <div style={{ border: `1px solid ${C.border2}`, borderRadius: 10, overflowX: "auto" }}>
+      <div className="rolx" style={{ border: `1px solid ${C.border2}`, borderRadius: 10, overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
           <thead>
             <tr style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, background: C.inputBg }}>
-              {th("familia", "Jogador")}
+              {th("familia", "Jogador", undefined, "fixa")}
               <th style={{ padding: "6px 8px", fontWeight: 600, color: C.mute, whiteSpace: "nowrap" }}>PT</th>
               {METRICAS_RESULTADO.map((m) => th(m.metrica, m.rotulo, m.dica))}
             </tr>
@@ -154,7 +154,7 @@ export default function StatsWar({ stats, contexto, aliancas = [], warId = null,
           <tbody>
             {visiveis.map((l) => (
               <tr key={l.chave} style={{ borderTop: `1px solid ${C.borderSoft}`, background: !l.jogou ? "rgba(204,0,0,.10)" : l.jogou && !l.escalado ? "rgba(214,178,42,.08)" : undefined }}>
-                <td style={{ padding: "5px 8px", color: C.texto, whiteSpace: "nowrap" }}>
+                <td className="fixa" style={{ padding: "5px 8px", color: C.texto, whiteSpace: "nowrap" }}>
                   {/* fora da régua: o número dele continua aqui, só não entra nas médias. É o caso
                       de quem morreu a mando (segurar, puxar, resetar) — o lixo estatístico é da
                       ORDEM, não do jogador, e sem isso a média do core paga por ela */}

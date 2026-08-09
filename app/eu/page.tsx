@@ -18,7 +18,7 @@ export default async function EuPage() {
 
   if (!eu) {
     return (
-      <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#151515,#0d0d0d 62%)", color: "#f2f2f2", fontFamily: "'Saira',system-ui,sans-serif", padding: "40px 24px", display: "flex", justifyContent: "center" }}>
+      <div className="pg" style={{ minHeight: "100vh", background: "linear-gradient(180deg,#151515,#0d0d0d 62%)", color: "#f2f2f2", fontFamily: "'Saira',system-ui,sans-serif", padding: "40px 24px", display: "flex", justifyContent: "center" }}>
         <div style={{ maxWidth: 560, border: "1px solid rgba(166,166,166,0.16)", borderRadius: 16, background: "rgba(204,0,0,0.035)", padding: 28 }}>
           <style>{`@import url('https://fonts.googleapis.com/css2?family=Saira:wght@300;400;500;600&display=swap');`}</style>
           <h1 style={{ color: "#cc0000", fontSize: 20, marginBottom: 10 }}>Não encontrei seu personagem</h1>

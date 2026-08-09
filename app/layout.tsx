@@ -20,7 +20,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body className="min-h-full flex flex-col">
         {children}
         {session?.user && (
-          <div style={{ position: "fixed", right: 12, bottom: 12, zIndex: 50, display: "flex", gap: 8, alignItems: "center", fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+          <div className="barra-conta" style={{ position: "fixed", right: 12, bottom: 12, zIndex: 50, display: "flex", gap: 8, alignItems: "center", fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
             <NavMenu canEdit={canEdit} />
             <a
               href="/eu"
@@ -35,7 +35,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={session.user.image} alt="" width={18} height={18} style={{ borderRadius: 999 }} />
               )}
-              <span>{session.user.name}</span>
+              <span className="nome">{session.user.name}</span>
             </a>
             <form action={async () => { "use server"; await signOut({ redirectTo: "/login" }); }}>
               <button

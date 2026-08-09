@@ -163,7 +163,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
   );
 
   return (
-    <div style={{ background: C.bgGlow, minHeight: "100vh", padding: "26px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
+    <div className="pg" style={{ background: C.bgGlow, minHeight: "100vh", padding: "26px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600;700&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}
         input:focus,select:focus{border-color:${C.verde}}
@@ -263,11 +263,11 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
         </div>
 
         {/* tabela */}
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflowX: "auto", background: C.surface }}>
+        <div className="rolx" style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflowX: "auto", background: C.surface }}>
           <table>
             <thead>
               <tr>
-                <th>Família</th>
+                <th className="fixa">Família</th>
                 <th title="função na node war — define contra quem ele é medido">Grupo NW</th>
                 <th title="função na siege; “igual ao NW” = herda a de cima">Grupo Siege</th>
                 <th>Classe</th><th>Tipo</th><th>PT nodewar</th>
@@ -280,7 +280,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                   : <th>Saída</th>}
                 <th style={{ textAlign: "center" }}>Wars</th>
                 <th>Médias vs core (últ. 5)</th>
-                <th>Garmoth <span style={{ textTransform: "none", color: C.borderSoft }}>(AP/AAP · DP)</span></th>
+                <th>Garmoth <span style={{ textTransform: "none", color: C.dim }}>(AP/AAP · DP)</span></th>
                 <th style={{ textAlign: "center" }} title="Concluiu a jornada de registro">Reg.</th>
                 <th style={{ textAlign: "right" }}>Ações</th>
               </tr>
@@ -296,7 +296,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                     <tr><td colSpan={14} style={{ padding: "12px 10px 5px", color: C.mute, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", borderTop: `1px dashed ${C.border2}` }}>▽ Não registrados ({ordenados.length - ordenados.filter((x) => x.registro).length}) — aguardando a jornada de registro</td></tr>
                   )}
                   <tr style={{ background: isDirty ? "rgba(204,0,0,.08)" : undefined, opacity: r.registro || !temReg ? 1 : 0.5 }}>
-                    <td style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
+                    <td className="fixa" style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
                     <td>
                       <select value={r.grupo} disabled={ro} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
                         {[...new Set([...grupos, "Indefinido", r.grupo])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
@@ -360,7 +360,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                     <td>
                       {(() => {
                         const md = medias[r.nome_familia];
-                        if (!md) return <span style={{ color: C.borderSoft }}>—</span>;
+                        if (!md) return <span style={{ color: C.dim }}>—</span>;
                         return (
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", maxWidth: 220, fontSize: 11 }}>
                             {STATS.map((s) => {
@@ -405,7 +405,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                       <input type="checkbox" checked={r.registro} disabled={ro} title={r.registro ? "registrado (jornada concluída)" : "não registrado — cai no grupo esmaecido"} onChange={(e) => patch(r.nome_familia, { registro: e.target.checked })} />
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      {!canEdit ? <span style={{ color: C.borderSoft, fontSize: 12 }}>—</span> : (
+                      {!canEdit ? <span style={{ color: C.dim, fontSize: 12 }}>—</span> : (
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
                         {tab === "ativos" ? (
                           arq === r.nome_familia ? (
@@ -423,7 +423,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                         )}
                         {tab === "ex" && (r.n_wars === 0
                           ? <button title="excluir definitivamente" onClick={() => excluir(r.nome_familia)} style={{ background: "none", border: "none", color: C.vermelho, cursor: "pointer", fontSize: 15 }}>🗑</button>
-                          : <span title="tem histórico — não dá pra excluir (fica arquivado)" style={{ color: C.borderSoft, fontSize: 12, width: 18, display: "inline-block", textAlign: "center" }}>—</span>)}
+                          : <span title="tem histórico — não dá pra excluir (fica arquivado)" style={{ color: C.dim, fontSize: 12, width: 18, display: "inline-block", textAlign: "center" }}>—</span>)}
                       </div>
                       )}
                     </td>

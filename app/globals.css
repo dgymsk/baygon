@@ -18,3 +18,114 @@ body {
   color: var(--foreground);
   font-family: 'Chakra Petch', system-ui, sans-serif;
 }
+
+/* ============================================================================
+   PADRÃO MOBILE — mora SÓ aqui. Um breakpoint: 760px (iPad retrato é 768 e fica
+   de fora de propósito; acima de 760 nada muda, e o teste vira binário).
+
+   A regra do jogo: `style={{...}}` inline vence qualquer folha de estilo, e o
+   app é quase todo inline. Então toda regra que precisa derrubar um inline usa
+   !important — é intencional, é a única alavanca. O ganho prático é que a
+   edição típica no componente vira acrescentar uma className e mais nada: o
+   inline continua mandando no desktop, a media query manda no celular.
+
+   Onde a medida certa serve nas DUAS larguras (min(), minmax(), flex-wrap,
+   minWidth:0), corrija o inline no componente e NÃO crie classe aqui.
+   ============================================================================ */
+
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+
+/* clip, e NÃO hidden: `hidden` cria contexto de rolagem e mataria todo
+   position:sticky da árvore (o pool da escalação, os cabeçalhos de tabela).
+   `clip` só corta. É REDE, não conserto — o que estourar fica inalcançável, por
+   isso todo conteúdo largo de verdade precisa de .rolx. */
+body { overflow-x: clip; }
+
+@media (max-width: 760px) {
+  /* O maior retorno por linha do app inteiro: o Safari iOS AMPLIA a página em
+     qualquer campo com fonte < 16px e não desfaz no blur — a pessoa fica com
+     rolagem lateral permanente numa tela que estava certa. */
+  input, select, textarea { font-size: 16px !important; }
+  /* <select> nativo não encolhe abaixo da maior <option>; é o estouro mais
+     comum e mais invisível daqui (as options montam "data · tipo · resultado"). */
+  select, textarea, input[type="text"], input[type="search"], input[type="number"] {
+    max-width: 100% !important;
+  }
+}
+
+/* 1. CASCA DE PÁGINA. No desktop não faz nada: o padding inline continua valendo. */
+@media (max-width: 760px) {
+  .pg {
+    /* 24px de padding lateral em 360px é 13% da tela; 12px devolve 24px úteis,
+       que é exatamente o que falta pra vários grids pararem de estourar.
+       O padding de baixo é o espaço da barra de conta, que é fixed. */
+    padding: 14px 12px calc(64px + env(safe-area-inset-bottom)) !important;
+    /* 100vh no celular é o viewport GRANDE (barra de URL escondida) → sobra um
+       scroll fantasma no fim de toda página. */
+    min-height: 100dvh !important;
+  }
+}
+
+/* 2. GRID COM COLUNA FIXA EM px — a classe que mata o clássico. */
+@media (max-width: 760px) {
+  .col1 { grid-template-columns: 1fr !important; }
+  .col2 { grid-template-columns: 1fr 1fr !important; }
+  .no-min { min-width: 0 !important; }
+  /* pool da escalação: grudado no topo com altura de tela vira parede quando as
+     colunas empilham embaixo dele — as PTs nunca apareceriam ao rolar */
+  .no-sticky { position: static !important; max-height: none !important; }
+}
+
+/* 3. CONTEÚDO LARGO DE VERDADE: rola DENTRO da caixa, a página nunca rola de lado. */
+.rolx { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.rolx > table { min-width: max-content; }
+/* 1ª coluna presa: sem isso, rolando 1200px pro lado não se sabe mais de quem é
+   a linha — é o que torna uma tabela larga utilizável no dedo. */
+.rolx th.fixa, .rolx td.fixa {
+  position: sticky; left: 0; z-index: 1;
+  background: #161616; box-shadow: 1px 0 0 #202020;
+}
+
+/* 4. ALVO DE TOQUE. 36 e não 44: dentro de um card denso, 44 estoura o layout. */
+@media (max-width: 760px) {
+  .tap, .tap44 {
+    display: inline-flex !important; align-items: center; justify-content: center;
+    min-width: 36px !important; min-height: 36px !important;
+  }
+  .tap44 { min-width: 44px !important; min-height: 44px !important; }
+}
+
+/* 5. MOSTRAR / ESCONDER */
+@media (max-width: 760px) { .no-mob { display: none !important; } }
+@media (min-width: 761px) { .so-mob { display: none !important; } }
+
+/* 6. BARRA DE CONTA + MENU — globais, consertam todas as telas de uma vez. */
+@media (max-width: 760px) {
+  /* com `left` definido a linha não pode mais crescer pra esquerda e jogar o
+     ☰ Menu pra fora da tela (elemento fixed não gera scroll: ele ficava perdido) */
+  .barra-conta {
+    left: 12px !important; right: 12px !important;
+    bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    justify-content: flex-end !important; flex-wrap: wrap !important;
+    z-index: 40 !important;
+  }
+  .barra-conta .nome { display: none !important; }
+  /* o dropdown vira folha ancorada nas duas bordas: mata o corte pela esquerda e
+     a falta de rolagem com 14 itens em paisagem */
+  .menu-pop {
+    position: fixed !important;
+    left: 12px !important; right: 12px !important; bottom: 58px !important;
+    min-width: 0 !important; max-height: 60vh !important;
+    overflow-y: auto !important; overscroll-behavior: contain;
+  }
+  .menu-pop a { padding: 11px 13px !important; font-size: 15px !important; }
+}
+
+/* 7. PISO DE FONTE — só no texto de leitura que hoje está em 10–11px. */
+@media (max-width: 760px) { .leg { font-size: 11.5px !important; letter-spacing: 0 !important; } }
+
+/* 8. HOVER QUE GRUDA NO TOQUE: o navegador emula :hover no tap e ele FICA até
+   tocar em outro lugar. Efeito decorativo de hover mora dentro deste envelope. */
+@media (hover: none) {
+  .ref:hover, .m:hover, .bead:hover { transform: none !important; }
+}

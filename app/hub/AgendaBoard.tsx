@@ -59,7 +59,7 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
         </div>
         {msg && <span style={{ color: C.mute, fontSize: 12 }}>{msg}</span>}
       </div>
-      <div style={{ color: C.borderSoft, fontSize: 11, marginBottom: 12 }}>
+      <div style={{ color: C.dim, fontSize: 11, marginBottom: 12 }}>
         Horário de Brasília. Quem acorda o disparo é o worker sempre-ligado (o Vercel não faz cron
         de hora em hora no plano atual), então sai na primeira checagem depois da hora — até ~5 min de atraso.
         Cada horário dispara <b>uma vez por dia</b>, mesmo que o worker bata várias.
@@ -108,7 +108,7 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
                   onBlur={(e) => { const v = e.target.value.trim(); if (v !== (a.nome_padrao ?? "")) api({ acao: "agenda-editar", id: a.id, nomePadrao: v }, "nome salvo"); }}
                   style={{ ...input, width: 120, padding: "3px 7px", fontSize: 12 }} />
               : a.nome_padrao && <span style={{ color: C.mute, fontSize: 11.5 }}>{a.nome_padrao}</span>}
-            {a.ultimo_disparo && <span style={{ color: C.borderSoft, fontSize: 10.5 }}>último: {a.ultimo_disparo.slice(0, 16).replace("T", " ")}</span>}
+            {a.ultimo_disparo && <span style={{ color: C.dim, fontSize: 10.5 }}>último: {a.ultimo_disparo.slice(0, 16).replace("T", " ")}</span>}
             {canEdit && (
               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
                 <button onClick={() => api({ acao: "agenda-editar", id: a.id, ativo: !a.ativo })} disabled={busy}
@@ -121,7 +121,7 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
             )}
           </div>
         ))}
-        {!agendas.length && <span style={{ color: C.borderSoft, fontSize: 12.5 }}>Nenhum disparo agendado — a chamada só sai no botão.</span>}
+        {!agendas.length && <span style={{ color: C.dim, fontSize: 12.5 }}>Nenhum disparo agendado — a chamada só sai no botão.</span>}
       </div>
 
       {canEdit && (

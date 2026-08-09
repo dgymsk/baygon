@@ -105,7 +105,7 @@ export default function ConfigBoard({
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
 
@@ -185,10 +185,10 @@ export default function ConfigBoard({
                   if (lista.join("\n") !== catalogo.join("\n")) api({ acao: "servidor-catalogo", lista }, "lista de servidores salva");
                 }}
                 style={{ ...input, width: "100%", boxSizing: "border-box", fontFamily: "'Share Tech Mono', monospace", fontSize: 12, resize: "vertical" }} />
-              <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 3 }}>Um servidor por linha, na ordem em que aparecem no jogo.</div>
+              <div style={{ color: C.dim, fontSize: 11, marginTop: 3 }}>Um servidor por linha, na ordem em que aparecem no jogo.</div>
             </div>
           </details>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 12 }}>
             {TIPOS.map((t) => (
               <div key={t} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 12px", background: C.inputBg }}>
                 <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{rotuloGuerra(t)}</div>
@@ -228,7 +228,7 @@ export default function ConfigBoard({
         {/* CANAIS — dois, de propósito: a chamada é pra todo mundo responder, a lista é o resultado */}
         <div style={card}>
           <Titulo>Canais do Discord <Sub>onde sai o convite e onde sai a escalação pronta</Sub></Titulo>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 12 }}>
             {TIPOS.map((t) => (
               <div key={t} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 12px", background: C.inputBg }}>
                 <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{rotuloGuerra(t)}</div>
@@ -243,7 +243,7 @@ export default function ConfigBoard({
               </div>
             ))}
           </div>
-          <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 6 }}>
+          <div style={{ color: C.dim, fontSize: 11, marginTop: 6 }}>
             Lista vazia → cai no canal da chamada. Chamada vazia → cai no canal da tela <Link href="/participacao" style={{ color: C.verde }}>Participação</Link>.
           </div>
         </div>
@@ -329,7 +329,7 @@ export default function ConfigBoard({
           {!funcoes.length ? (
             <div style={{ color: C.amarelo, fontSize: 12.5 }}>Crie ao menos uma função lá em cima pra poder atribuir.</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: "5px 16px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(290px, 100%), 1fr))", gap: "5px 16px" }}>
               {listaJogadores.map((j) => {
                 const meus = funcoesPorChave.get(chaveNome(j.nome)) ?? [];
                 return (
@@ -370,7 +370,7 @@ function BrasaoGuilda({ g }: { g?: GuildEntry }) {
 const mini = { background: "none", border: "none", cursor: "pointer", color: "#8f8f8f", fontSize: 10, padding: "0 1px", lineHeight: 1 } as const;
 const Titulo = ({ children }: { children: React.ReactNode }) => <div style={{ color: C.verde, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{children}</div>;
 const Sub = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.mute, fontWeight: 400, fontSize: 11.5 }}>— {children}</span>;
-const Vazio = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.borderSoft, fontSize: 12.5 }}>{children}</span>;
+const Vazio = ({ children }: { children: React.ReactNode }) => <span style={{ color: C.dim, fontSize: 12.5 }}>{children}</span>;
 
 /** "<:nome:id>" → imagem do CDN; unicode → o caractere. */
 function Icone({ raw }: { raw: string | null }) {

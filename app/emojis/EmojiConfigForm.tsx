@@ -49,7 +49,7 @@ export default function EmojiConfigForm({ initial, emojis, classes, guildas, can
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
+    <div className="pg" style={{ minHeight: "100vh", background: C.bgGlow, padding: "26px 24px", color: C.texto, fontFamily: "'Chakra Petch', system-ui, sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}`}</style>
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
@@ -77,7 +77,7 @@ export default function EmojiConfigForm({ initial, emojis, classes, guildas, can
 
         <div style={card}>
           <div style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 }}>Classes ({classes.length})</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "0 18px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(230px, 100%), 1fr))", gap: "0 18px" }}>
             {classes.map((c) => <Row key={c} label={c} value={map.classes[c] ?? ""} onPick={(v) => setC(c, v)} />)}
           </div>
         </div>

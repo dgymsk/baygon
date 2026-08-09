@@ -327,7 +327,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
             )}
           </>
         )}
-        {warId != null && <span style={{ color: C.borderSoft, fontSize: 11.5 }}>stats ligados: war #{warId}</span>}
+        {warId != null && <span style={{ color: C.dim, fontSize: 11.5 }}>stats ligados: war #{warId}</span>}
       </div>
 
       {canEdit && colarTxt != null && (
@@ -359,7 +359,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
               style={{ flex: "1 1 200px", minWidth: 160, background: C.surface, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "5px 9px", fontSize: 12, fontFamily: "inherit", outline: "none" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-            <span style={{ color: C.borderSoft, fontSize: 10.5, flex: "1 1 240px" }}>
+            <span style={{ color: C.dim, fontSize: 10.5, flex: "1 1 240px" }}>
               Quem estava em campo além da gente — é o contexto que explica o resultado. Vai junto ao gravar os stats,
               {warId != null ? " ou salve agora sem mexer na tabela." : " e passa a poder ser salvo sozinho depois da primeira gravação."}
             </span>
@@ -378,7 +378,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
       {msg && <div style={{ color: C.verde, fontSize: 12.5, marginBottom: 8 }}>{msg}</div>}
 
       {linhas.length === 0 ? (
-        <div style={{ color: C.borderSoft, fontSize: 12.5 }}>{canEdit ? "Cole o print com Ctrl+V em qualquer lugar da página (Shift+Win+S pra recortar), ou escolha o arquivo. A IA (Opus) transcreve os números; você revisa e grava. Vários prints acumulam — mescla por jogador." : "Sem stats extraídos."}</div>
+        <div style={{ color: C.dim, fontSize: 12.5 }}>{canEdit ? "Cole o print com Ctrl+V em qualquer lugar da página (Shift+Win+S pra recortar), ou escolha o arquivo. A IA (Opus) transcreve os números; você revisa e grava. Vários prints acumulam — mescla por jogador." : "Sem stats extraídos."}</div>
       ) : (
         <>
           {novosCount > 0 && <div style={{ color: C.verde, fontSize: 12, marginBottom: 6 }}>➕ {novosCount} jogador(es) fora da base entram em <a href="/membros" style={{ color: C.verde }}><b>Membros</b></a> como <b>não registrados</b> (grupo Indefinido) ao gravar, e ficam ali até fazerem a jornada de registro — é só ajustar grupo/classe/guilda. Se algum for leitura errada, troque pra “— ignorar —”.</div>}
@@ -398,7 +398,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
             {linhas.length} linha(s). Valores já normalizados (635.1k→635100, 09:56→596s) — edite se a IA errou; passe o mouse pra ver o valor cru lido.
             {podeMexerRegua && warId != null && <> Clique no <b>○</b> ao lado do nome pra tirar alguém das médias desta war.</>}
           </div>
-          <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 10 }}>
+          <div className="rolx" style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 10 }}>
             <table style={{ borderCollapse: "collapse", fontSize: 11.5 }}>
               <thead>
                 <tr>
