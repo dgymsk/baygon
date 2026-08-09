@@ -62,6 +62,18 @@ export async function PATCH(req: Request) {
         pt_preferida: typeof x.pt_preferida === "string" && x.pt_preferida ? x.pt_preferida : null,
         garmoth_id: typeof x.garmoth_id === "string" && x.garmoth_id.trim() ? x.garmoth_id.trim() : null,
         registro: Boolean(x.registro),
+        /**
+         * Papel de siege — o `undefined` é PRESERVADO, ao contrário dos campos acima, que caem em
+         * valor concreto ("Indefinido", false). Esta whitelist RECONSTRÓI o objeto: quem não manda o
+         * campo teria o papel de siege apagado a cada save.
+         *
+         * `Boolean(x.is_core_siege)` sozinho seria o bug: colapsaria `null` (herda o core de node
+         * war) em `false` (explicitamente NÃO é régua na siege) — dois estados diferentes.
+         */
+        grupo_siege: x.grupo_siege === undefined ? undefined
+          : (typeof x.grupo_siege === "string" && x.grupo_siege ? x.grupo_siege : null),
+        is_core_siege: x.is_core_siege === undefined ? undefined
+          : (x.is_core_siege === null ? null : Boolean(x.is_core_siege)),
       });
     }
   }

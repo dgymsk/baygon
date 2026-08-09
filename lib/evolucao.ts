@@ -36,7 +36,9 @@ export async function evolucao(
              COALESCE(wp.fora_da_regua, FALSE) AS fora_da_regua
       FROM desempenho d
       JOIN wars w     ON w.war_id = d.war_id
-      JOIN players p  ON p.nome_familia = d.nome_familia
+      -- papel POR WAR (ver lib/score.ts): numa siege vale players.grupo_siege / is_core_siege.
+      -- Com isso o escopo 'grupo' passa a significar "quem estava nesse grupo NAQUELA guerra".
+      JOIN papel_na_war p ON p.war_id = d.war_id AND p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
       LEFT JOIN war_player wp ON wp.war_id = d.war_id AND wp.nome_familia = d.nome_familia
       WHERE w.data BETWEEN ${from}::date AND ${to}::date

@@ -21,6 +21,13 @@ export type GarmothCache = { ap: number | null; aap: number | null; dp: number |
 export type PlayerRow = {
   nome_familia: string;
   grupo: string;
+  /**
+   * Papel na SIEGE. `null` = herda o de node war — não é "sem função".
+   * `is_core_siege === false` é diferente de `null`: quer dizer "é core no nó, NÃO é régua na
+   * siege". Quem resolve isso é a view `papel_na_war` (ver scripts/migrate_papel_por_tipo.mjs).
+   */
+  grupo_siege: string | null;
+  is_core_siege: boolean | null;
   classe_bdo: string | null;
   classe_tipo: string | null;
   is_core: boolean;
@@ -40,7 +47,7 @@ type PlayerRaw = Omit<PlayerRow, "garmoth"> & { g_ap: number | null; g_aap: numb
 
 export async function listPlayers(): Promise<PlayerRow[]> {
   const rows = (await sql`
-    SELECT p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida,
+    SELECT p.nome_familia, p.grupo, p.grupo_siege, p.is_core_siege, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida,
            p.saida_tipo, p.saida_data::text AS saida_data, p.registro, p.lendario, p.garmoth_id,
            count(DISTINCT d.war_id)::int AS n_wars,
            gb.ap AS g_ap, gb.aap AS g_aap, gb.dp AS g_dp, gb.acc AS g_acc, gb.char_name AS g_char_name,
@@ -48,7 +55,9 @@ export async function listPlayers(): Promise<PlayerRow[]> {
     FROM players p
     LEFT JOIN desempenho d ON d.nome_familia = p.nome_familia
     LEFT JOIN garmoth_build gb ON gb.nome_familia = p.nome_familia
-    GROUP BY p.nome_familia, p.grupo, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida, p.saida_tipo, p.saida_data, p.registro, p.garmoth_id,
+    -- lista MANUAL por causa do count(DISTINCT d.war_id): coluna nova no SELECT e não aqui = erro
+    -- de SQL em runtime, e a /membros inteira quebra
+    GROUP BY p.nome_familia, p.grupo, p.grupo_siege, p.is_core_siege, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida, p.saida_tipo, p.saida_data, p.registro, p.garmoth_id,
              gb.ap, gb.aap, gb.dp, gb.acc, gb.char_name, gb.spec, gb.atualizado, gb.garmoth_id
     ORDER BY p.grupo, p.nome_familia
   `) as PlayerRaw[];
@@ -98,6 +107,9 @@ export type PlayerUpdate = {
   pt_preferida: string | null;
   garmoth_id?: string | null;
   registro?: boolean;
+  /** ausente (`undefined`) = não mexe; `null` = herda do node war. Ver o CASE no UPDATE abaixo. */
+  grupo_siege?: string | null;
+  is_core_siege?: boolean | null;
 };
 
 export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
@@ -113,7 +125,13 @@ export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
         classe_bdo  = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_bdo  ELSE ${u.classe_bdo?.trim() || null} END,
         classe_tipo = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_tipo ELSE ${u.classe_tipo?.trim() || null} END,
         is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)}, registro = ${!!u.registro},
-        pt_preferida = ${ptOr(u.pt_preferida)}, garmoth_id = ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}
+        pt_preferida = ${ptOr(u.pt_preferida)}, garmoth_id = ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null},
+        -- papel de siege: AUSENTE ≠ VAZIO. Sem este CASE, uma aba de /membros aberta desde antes
+        -- do deploy (ou qualquer cliente que não conheça o campo) apagaria o papel de siege de cada
+        -- linha que tocasse — em silêncio, com HTTP 200. NULL continua sendo gravável de
+        -- propósito: é como se volta a herdar o papel de node war.
+        grupo_siege   = CASE WHEN ${u.grupo_siege   === undefined}::boolean THEN grupo_siege   ELSE ${u.grupo_siege ?? null} END,
+        is_core_siege = CASE WHEN ${u.is_core_siege === undefined}::boolean THEN is_core_siege ELSE ${u.is_core_siege ?? null} END
     WHERE nome_familia = ${u.nome_familia}
   `);
   await sql.transaction(queries);

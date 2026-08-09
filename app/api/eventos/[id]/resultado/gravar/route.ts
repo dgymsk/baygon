@@ -53,8 +53,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (!Array.isArray(body.linhas) || body.linhas.length === 0) return NextResponse.json({ error: "sem linhas" }, { status: 400 });
 
-  const ev = (await sql`SELECT data::text AS data FROM evento WHERE id = ${eid}`) as { data: string }[];
+  const ev = (await sql`SELECT data::text AS data, tipo FROM evento WHERE id = ${eid}`) as { data: string; tipo: string }[];
   if (!ev[0]) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
+  /**
+   * TIPO DA GUERRA, gravado em `wars.tipo` — é ele que faz a régua da siege usar o papel de siege.
+   *
+   * Coerção dura como em lib/eventos.ts (`o.tipo === "siege" ? "siege" : "nodewar"`): `evento.tipo`
+   * é TEXT sem CHECK, e `wars.tipo` tem CHECK — qualquer lixo aqui derrubaria a gravação inteira.
+   *
+   * Sem esta parte a migração conserta as wars já gravadas e a PRÓXIMA siege entra com tipo NULL,
+   * volta a ser pontuada como node war, e ainda com cara de resolvido.
+   */
+  const tipoWar: "nodewar" | "siege" = ev[0].tipo === "siege" ? "siege" : "nodewar";
+  const ehSiege = tipoWar === "siege";
   const erRow = (await sql`SELECT resultado, war_id::int AS war_id FROM evento_resultado WHERE evento_id = ${eid}`) as { resultado: string | null; war_id: number | null }[];
   const resultadoWar = erRow[0]?.resultado ? erRow[0].resultado.toLowerCase() : null; // canônico minúsculo (= evento_resultado/RESULTADOS)
 
@@ -117,7 +128,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // reusa: replace-all seguro num único transaction (upsert → apaga só o que saiu; nunca esvazia a war se falhar)
     await sql.transaction([
       // a coluna de alianças só é tocada quando o corpo trouxe o campo — ver `temAliancas`
+      // `tipo` converge sempre pro evento: regravar o print de uma war com o tipo errado a corrige
       sql`UPDATE wars SET data = ${dataWar}::date, resultado = ${resultadoWar}, territorio = ${territorio}, tier = ${tier},
+              tipo = ${tipoWar},
               aliancas = CASE WHEN ${temAliancas} THEN ${aliancas}::text[] ELSE aliancas END
           WHERE war_id = ${warId}`,
       sql`INSERT INTO desempenho (war_id, nome_familia, metrica, valor)
@@ -134,9 +147,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // de Backline pra Frontline muda a régua daquela war pra TODO MUNDO dos dois grupos.
       // DO NOTHING de propósito neste ramo (regravação): o primeiro carimbo vence — regravar o print
       // três semanas depois não pode reetiquetar a war com a classe de hoje.
+      // o papel carimbado é o do TIPO desta guerra. `::boolean` é obrigatório: parâmetro solto
+      // dentro de CASE WHEN dá "could not determine data type of parameter" em runtime, na gravação
       sql`INSERT INTO war_player (war_id, nome_familia, grupo, is_core, classe_bdo, classe_tipo, guilda,
                                   garmoth_id, char_name, char_class, spec, ap, aap, dp, gear_lido)
-          SELECT DISTINCT ${warId}::bigint, p.nome_familia, p.grupo, p.is_core, p.classe_bdo, p.classe_tipo, p.guilda,
+          SELECT DISTINCT ${warId}::bigint, p.nome_familia,
+                 COALESCE(CASE WHEN ${ehSiege}::boolean THEN p.grupo_siege   END, p.grupo),
+                 COALESCE(CASE WHEN ${ehSiege}::boolean THEN p.is_core_siege END, p.is_core),
+                 p.classe_bdo, p.classe_tipo, p.guilda,
                  gb.garmoth_id, gb.char_name, gb.char_class, gb.spec, gb.ap, gb.aap, gb.dp, gb.atualizado
           FROM UNNEST(${nomes}::text[]) AS u(nome)
           JOIN players p ON p.nome_familia = u.nome
@@ -150,8 +168,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // nova war: CTE única e atômica (cria war + insere desempenho + liga evento_resultado juntos → retry não vaza war órfã)
     const rows = (await sql`
       WITH w AS (
-        INSERT INTO wars (data, territorio, resultado, tier, aliancas)
-        VALUES (${dataWar}::date, ${territorio}, ${resultadoWar}, ${tier}, ${aliancas}::text[]) RETURNING war_id
+        INSERT INTO wars (data, territorio, resultado, tier, aliancas, tipo)
+        VALUES (${dataWar}::date, ${territorio}, ${resultadoWar}, ${tier}, ${aliancas}::text[], ${tipoWar}) RETURNING war_id
       ), d AS (
         INSERT INTO desempenho (war_id, nome_familia, metrica, valor)
         SELECT w.war_id, u.nome, u.metrica, u.valor
@@ -165,9 +183,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     warId = rows[0].war_id;
     // carimbo fora da CTE: lá dentro o war_id ainda não está visível pra um segundo INSERT que
     // precisa fazer JOIN com players. War recém-criada não tem carimbo pra conflitar.
+    // MESMA regra de papel do ramo de cima — os dois SELECTs são gêmeos de propósito
     await sql`INSERT INTO war_player (war_id, nome_familia, grupo, is_core, classe_bdo, classe_tipo, guilda,
                                       garmoth_id, char_name, char_class, spec, ap, aap, dp, gear_lido)
-      SELECT DISTINCT ${warId}::bigint, p.nome_familia, p.grupo, p.is_core, p.classe_bdo, p.classe_tipo, p.guilda,
+      SELECT DISTINCT ${warId}::bigint, p.nome_familia,
+             COALESCE(CASE WHEN ${ehSiege}::boolean THEN p.grupo_siege   END, p.grupo),
+             COALESCE(CASE WHEN ${ehSiege}::boolean THEN p.is_core_siege END, p.is_core),
+             p.classe_bdo, p.classe_tipo, p.guilda,
              gb.garmoth_id, gb.char_name, gb.char_class, gb.spec, gb.ap, gb.aap, gb.dp, gb.atualizado
       FROM UNNEST(${nomes}::text[]) AS u(nome)
       JOIN players p ON p.nome_familia = u.nome

@@ -172,6 +172,13 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
         <p style={{ color: C.mute, fontSize: 11.5, marginTop: 16 }}>
           ★ = core · ↓ = métrica onde menos é melhor · operações de grupo recarregam e descartam edições de cores/métricas não salvas (você é avisado).
         </p>
+        {/* Esta tela grava com um UPDATE sem WHERE (replace-all na coluna inteira), que é
+            incompatível com o tri-estado de is_core_siege — um save aqui viraria todo "herda" em
+            "não". Por isso o papel de siege vive só na /membros, onde o UPDATE é por linha. */}
+        <p style={{ color: C.borderSoft, fontSize: 11.5, marginTop: 6 }}>
+          O que está aqui é o papel de <b>node war</b>. Função e core de <b>siege</b> se editam em{" "}
+          <a href="/membros" style={{ color: C.verde }}>Membros</a> (colunas <i>Grupo Siege</i> e <i>Core Siege</i>) — em branco, a siege herda o que estiver aqui.
+        </p>
       </div>
     </div>
   );

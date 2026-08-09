@@ -40,7 +40,11 @@ export async function discrepanciaPorWar(warId: number): Promise<DiscrepanciaRow
              -- na tabela e no ranking; o que ele não faz é entrar nas médias abaixo.
              COALESCE(wp.fora_da_regua, FALSE) AS fora_da_regua
       FROM desempenho d
-      JOIN players  p ON p.nome_familia = d.nome_familia
+      -- papel_na_war, e não players: numa SIEGE o grupo e o is_core saem de players.grupo_siege /
+      -- is_core_siege (NULL = herda o de node war). Era isso que fazia a régua da siege ser montada
+      -- com a função de node war de todo mundo. As colunas da view se chamam grupo/is_core de
+      -- propósito — o resto desta query não mudou uma vírgula.
+      JOIN papel_na_war p ON p.war_id = d.war_id AND p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
       LEFT JOIN war_player wp ON wp.war_id = d.war_id AND wp.nome_familia = d.nome_familia
       WHERE d.war_id = ${warId}
@@ -82,16 +86,17 @@ export type WarInfo = {
   resultado: string | null;
   tier: number | null;
   territorio: string | null;
+  tipo: string | null;   // nodewar | siege; NULL = war sem evento ligado (tratada como node war)
   n_players: number;
 };
 
 export async function listWars(): Promise<WarInfo[]> {
   const rows = await sql`
-    SELECT w.war_id::int AS war_id, w.data::text AS data, w.resultado, w.tier, w.territorio,
+    SELECT w.war_id::int AS war_id, w.data::text AS data, w.resultado, w.tier, w.territorio, w.tipo,
            count(DISTINCT d.nome_familia)::int AS n_players
     FROM wars w
     LEFT JOIN desempenho d ON d.war_id = w.war_id
-    GROUP BY w.war_id, w.data, w.resultado, w.tier, w.territorio
+    GROUP BY w.war_id, w.data, w.resultado, w.tier, w.territorio, w.tipo
     ORDER BY w.data DESC, w.war_id DESC
   `;
   return rows as WarInfo[];

@@ -23,7 +23,8 @@ export async function mediasMembros(n = 5): Promise<MediasMap> {
       SELECT d.war_id, w.data, d.nome_familia, p.grupo, d.metrica, d.valor, p.is_core, m.direcao
       FROM desempenho d
       JOIN wars w     ON w.war_id = d.war_id
-      JOIN players p  ON p.nome_familia = d.nome_familia
+      -- papel POR WAR (ver lib/score.ts): cada war usa a régua do tipo dela
+      JOIN papel_na_war p ON p.war_id = d.war_id AND p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
       WHERE d.metrica = ANY(${STAT_METRICAS}::text[])
     ),
@@ -71,20 +72,28 @@ export type EuMetrica = {
  * grupo); pct por war com polaridade e teto LEAST(pct,200); depois média. Os
  * brutos (coreRaw/grupoRaw/minhaRaw) são as médias dos valores por war (p/ cards).
  */
-export async function statsEu(familia: string, grupo: string, n = 5): Promise<EuMetrica[]> {
+export async function statsEu(familia: string, n = 5): Promise<EuMetrica[]> {
   const rows = (await sql`
     WITH minhas AS (  -- últimas N wars que o player jogou
       SELECT w.war_id FROM wars w
       WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
       ORDER BY w.data DESC LIMIT ${n}
     ),
-    base AS (  -- só o grupo do player (o player está no grupo)
-      SELECT d.war_id, d.metrica, d.valor, p.is_core, m.direcao, d.nome_familia
+    /**
+     * O grupo que EU tinha NAQUELA war, e quem mais estava nele.
+     *
+     * Antes o grupo vinha por parâmetro, do cadastro (AND p.grupo = <grupo do cadastro>). Numa
+     * siege em que a pessoa troca de função ela não casava o próprio filtro: minha_war saía NULL, a
+     * war era descartada pelo FILTER lá embaixo, e a métrica encolhia ou sumia do card — calada.
+     */
+    base AS (
+      SELECT d.war_id, d.metrica, d.valor, pw.is_core, m.direcao, d.nome_familia
       FROM desempenho d
-      JOIN minhas mw  ON mw.war_id = d.war_id
-      JOIN players p  ON p.nome_familia = d.nome_familia
-      JOIN metricas m ON m.metrica = d.metrica
-      WHERE d.metrica = ANY(${STAT_METRICAS}::text[]) AND p.grupo = ${grupo}
+      JOIN minhas mw        ON mw.war_id = d.war_id
+      JOIN papel_na_war pw  ON pw.war_id = d.war_id AND pw.nome_familia = d.nome_familia
+      JOIN papel_na_war meu ON meu.war_id = d.war_id AND meu.nome_familia = ${familia}
+      JOIN metricas m       ON m.metrica = d.metrica
+      WHERE d.metrica = ANY(${STAT_METRICAS}::text[]) AND pw.grupo = meu.grupo
     ),
     bench AS (  -- por war: régua (core, fallback grupo), média do grupo, valor do player
       SELECT war_id, metrica, MAX(direcao) AS direcao,

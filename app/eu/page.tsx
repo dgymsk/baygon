@@ -33,13 +33,16 @@ export default async function EuPage() {
     );
   }
 
+  // o grupo não vai mais por parâmetro: cada war usa o papel daquela war (node war × siege)
+  const meusGrupos = [...new Set([eu.grupo, eu.grupo_siege].filter((g): g is string => !!g))];
   const [w1, w3, w5, w10, wAll, gmRows] = await Promise.all([
-    statsEu(eu.nome_familia, eu.grupo, 1),
-    statsEu(eu.nome_familia, eu.grupo, 3),
-    statsEu(eu.nome_familia, eu.grupo, 5),
-    statsEu(eu.nome_familia, eu.grupo, 10),
-    statsEu(eu.nome_familia, eu.grupo, 999),
-    sql`SELECT metrica FROM grupos_metricas WHERE grupo = ${eu.grupo} AND metrica = ANY(${STAT_METRICAS}::text[])`,
+    statsEu(eu.nome_familia, 1),
+    statsEu(eu.nome_familia, 3),
+    statsEu(eu.nome_familia, 5),
+    statsEu(eu.nome_familia, 10),
+    statsEu(eu.nome_familia, 999),
+    // "avaliadas" tem que cobrir os DOIS papéis, senão a métrica é rotulada errada pra quem troca
+    sql`SELECT DISTINCT metrica FROM grupos_metricas WHERE grupo = ANY(${meusGrupos}::text[]) AND metrica = ANY(${STAT_METRICAS}::text[])`,
   ]);
   const avaliadas = (gmRows as { metrica: string }[]).map((r) => r.metrica);
   const windows = [

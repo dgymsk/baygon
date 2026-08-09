@@ -18,7 +18,9 @@ const STATS = [
 ];
 
 type Status = { kind: "idle" | "saving" | "ok" | "err"; msg?: string };
-const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? "", p.garmoth_id ?? "", p.registro]);
+// ÚNICA fonte de "linha suja" — o botão Salvar e o auto-save de 10s olham só pra isto. Campo que
+// não estiver aqui: a staff edita, a tela muda, e nada vai pro banco. Sem erro, sem aviso.
+const editKey = (p: PlayerRow) => JSON.stringify([p.grupo, p.grupo_siege ?? "", p.is_core_siege, p.classe_bdo ?? "", p.classe_tipo ?? "", p.is_core, p.guilda, p.pt_preferida ?? "", p.garmoth_id ?? "", p.registro]);
 const haQuanto = (iso: string | null) => {
   if (!iso) return "";
   const ms = Date.now() - new Date(iso).getTime();
@@ -51,7 +53,8 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [gInput, setGInput] = useState<Record<string, string>>({}); // texto CRU do campo Garmoth em edição (só normaliza no blur — auto-save nunca grava parcial)
 
-  const grupos = useMemo(() => [...new Set([...rows.map((r) => r.grupo), ...gruposExtra])].sort(), [rows, gruposExtra]);
+  // inclui os grupos usados SÓ na siege — senão eles existem no banco e o <select> não os oferece
+  const grupos = useMemo(() => [...new Set([...rows.flatMap((r) => [r.grupo, r.grupo_siege]).filter((g): g is string => !!g), ...gruposExtra])].sort(), [rows, gruposExtra]);
   const classes = useMemo(() => [...new Set(rows.map((r) => r.classe_bdo).filter(Boolean) as string[])].sort(), [rows]);
   const dirty = useMemo(() => rows.filter((r) => baseline.get(r.nome_familia) !== editKey(r)), [rows, baseline]);
 
@@ -67,7 +70,8 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
       const isDirty = baseline.get(r.nome_familia) !== editKey(r);
       if (gf && r.guilda !== gf && !isDirty) return false;
       if (!s) return true;
-      return r.nome_familia.toLowerCase().includes(s) || r.grupo.toLowerCase().includes(s) || (r.classe_bdo ?? "").toLowerCase().includes(s);
+      return r.nome_familia.toLowerCase().includes(s) || r.grupo.toLowerCase().includes(s)
+        || (r.grupo_siege ?? "").toLowerCase().includes(s) || (r.classe_bdo ?? "").toLowerCase().includes(s);
     });
   }, [tab, ativos, ex, q, gf, baseline]);
 
@@ -263,9 +267,17 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
           <table>
             <thead>
               <tr>
-                <th>Família</th><th>Grupo</th><th>Classe</th><th>Tipo</th><th>PT nodewar</th>
+                <th>Família</th>
+                <th title="função na node war — define contra quem ele é medido">Grupo NW</th>
+                <th title="função na siege; “igual ao NW” = herda a de cima">Grupo Siege</th>
+                <th>Classe</th><th>Tipo</th><th>PT nodewar</th>
                 <th style={{ textAlign: "center" }}>Guilda</th>
-                {tab === "ativos" ? <th style={{ textAlign: "center" }}>Core</th> : <th>Saída</th>}
+                {tab === "ativos"
+                  ? <>
+                      <th style={{ textAlign: "center" }} title="é a régua do grupo na node war">Core NW</th>
+                      <th style={{ textAlign: "center" }} title="régua do grupo na siege; “herda” segue o Core NW">Core Siege</th>
+                    </>
+                  : <th>Saída</th>}
                 <th style={{ textAlign: "center" }}>Wars</th>
                 <th>Médias vs core (últ. 5)</th>
                 <th>Garmoth <span style={{ textTransform: "none", color: C.borderSoft }}>(AP/AAP · DP)</span></th>
@@ -281,13 +293,25 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                 return (
                   <Fragment key={r.nome_familia}>
                   {primeiroNaoReg && (
-                    <tr><td colSpan={12} style={{ padding: "12px 10px 5px", color: C.mute, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", borderTop: `1px dashed ${C.border2}` }}>▽ Não registrados ({ordenados.length - ordenados.filter((x) => x.registro).length}) — aguardando a jornada de registro</td></tr>
+                    <tr><td colSpan={14} style={{ padding: "12px 10px 5px", color: C.mute, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", borderTop: `1px dashed ${C.border2}` }}>▽ Não registrados ({ordenados.length - ordenados.filter((x) => x.registro).length}) — aguardando a jornada de registro</td></tr>
                   )}
                   <tr style={{ background: isDirty ? "rgba(204,0,0,.08)" : undefined, opacity: r.registro || !temReg ? 1 : 0.5 }}>
                     <td style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
                     <td>
                       <select value={r.grupo} disabled={ro} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
                         {[...new Set([...grupos, "Indefinido", r.grupo])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
+                      </select>
+                    </td>
+                    {/* Grupo na SIEGE. `<select>` fechado, NUNCA texto livre: um nome que não exista
+                        em grupos_metricas faz o jogador desaparecer do painel inteiro naquela war
+                        (INNER JOIN em lib/score.ts) — sem zero, sem erro. */}
+                    <td>
+                      <select value={r.grupo_siege ?? ""} disabled={ro}
+                        onChange={(e) => patch(r.nome_familia, { grupo_siege: e.target.value || null })}
+                        title={r.grupo_siege ? undefined : `herda o grupo de node war (${r.grupo})`}
+                        style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer", color: r.grupo_siege ? C.texto : C.mute }}>
+                        <option value="">— igual ao NW —</option>
+                        {[...new Set([...grupos, "Indefinido", ...(r.grupo_siege ? [r.grupo_siege] : [])])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
                       </select>
                     </td>
                     <td>
@@ -315,7 +339,22 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                       </button>
                     </td>
                     {tab === "ativos"
-                      ? <td style={{ textAlign: "center" }}><input type="checkbox" checked={r.is_core} disabled={ro} onChange={(e) => patch(r.nome_familia, { is_core: e.target.checked })} /></td>
+                      ? <>
+                          <td style={{ textAlign: "center" }}><input type="checkbox" checked={r.is_core} disabled={ro} onChange={(e) => patch(r.nome_familia, { is_core: e.target.checked })} /></td>
+                          {/* TRÊS estados, e por isso não é checkbox: "herda" (null) e "Não" (false)
+                              são coisas diferentes — false quer dizer "é core no nó, mas NÃO é régua
+                              na siege". Um checkbox colapsaria os dois e mataria a herança. */}
+                          <td style={{ textAlign: "center" }}>
+                            <select value={r.is_core_siege == null ? "" : r.is_core_siege ? "1" : "0"} disabled={ro}
+                              onChange={(e) => patch(r.nome_familia, { is_core_siege: e.target.value === "" ? null : e.target.value === "1" })}
+                              title={r.is_core_siege == null ? `herda o Core NW (${r.is_core ? "é core" : "não é core"})` : undefined}
+                              style={{ ...inp, width: 92, cursor: ro ? "default" : "pointer", color: r.is_core_siege == null ? C.mute : C.texto }}>
+                              <option value="">— herda —</option>
+                              <option value="1">Sim</option>
+                              <option value="0">Não</option>
+                            </select>
+                          </td>
+                        </>
                       : <td style={{ color: C.mute, fontSize: 12 }}>{r.saida_tipo === "Kikado" ? <span style={{ color: C.vermelho }}>Kikado</span> : "Saiu"}{r.saida_data ? ` · ${r.saida_data.split("-").reverse().join("/")}` : ""}</td>}
                     <td style={{ textAlign: "center", color: C.mute }}>{r.n_wars}</td>
                     <td>
@@ -393,7 +432,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                 );
               })}
               {ordenados.length === 0 && (
-                <tr><td colSpan={12} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
+                <tr><td colSpan={14} style={{ color: C.mute, textAlign: "center", padding: 24 }}>Nenhum membro {tab === "ex" ? "arquivado" : "aqui"}{q || gf ? " com esse filtro" : ""}.</td></tr>
               )}
             </tbody>
           </table>

@@ -75,6 +75,8 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
 
   const colorFor = (v: number) => (v >= 100 ? GOLD : CRIM);
   const war = wars.find((w) => w.war_id === warId);
+  // quantos da war chegam ao painel — comparado com n_players lá em cima
+  const avaliados = new Set(rows.map((r) => r.nome_familia)).size;
   const fmtData = (iso?: string) => (iso ? iso.split("-").reverse().join("/") : "");
 
   const Select = ({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) => (
@@ -116,13 +118,28 @@ export default function Painel({ wars }: { wars: WarInfo[] }) {
         </div>
         <p style={{ color: MUTE, fontSize: 13, marginTop: 0, marginBottom: 22 }}>
           Desempenho como <b style={{ color: PARCH }}>% da régua</b> ({LENTES.find((l) => l.key === lens)?.label.toLowerCase()}). 100% = empatou com a régua.
+          {/* COBERTURA. `scoped` em lib/score.ts é INNER JOIN com grupos_metricas: jogador cujo
+              grupo não tem métrica configurada some do painel — sem zero, sem erro. Hoje isso
+              engole a maioria da war (todos os "Indefinido") e ninguém percebe, o que faz desse
+              ponto o esconderijo perfeito pra qualquer erro novo de configuração de grupo. */}
+          {war != null && (
+            <> · <b style={{ color: PARCH }}>{avaliados}</b> de <b style={{ color: PARCH }}>{war.n_players}</b> avaliados
+              {avaliados < war.n_players && (
+                <span title="jogadores cujo grupo não tem métricas configuradas (ex.: Indefinido) não aparecem no painel — ajuste em /config e /membros">
+                  {" "}<span style={{ color: GOLD }}>⚠ {war.n_players - avaliados} fora</span>
+                </span>
+              )}
+            </>
+          )}
         </p>
 
         {/* controls */}
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 18 }}>
           <Label value={
             <Select value={String(warId ?? "")} onChange={(v) => setWarId(Number(v))}>
-              {wars.map((w) => <option key={w.war_id} value={w.war_id}>{fmtData(w.data)} · {w.resultado ?? "?"} ({w.n_players})</option>)}
+              {/* o TIPO no rótulo: a siege do dia 08 e a node war do dia 07 eram indistinguíveis
+                  aqui, e agora a régua de cada uma sai de um papel diferente */}
+              {wars.map((w) => <option key={w.war_id} value={w.war_id}>{fmtData(w.data)} · {w.tipo === "siege" ? "Siege" : "Nodewar"} · {w.resultado ?? "?"} ({w.n_players})</option>)}
             </Select>
           }>WAR</Label>
           <Label value={
