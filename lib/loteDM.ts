@@ -2,7 +2,7 @@ import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { motivoDaFalha, registrarEnvio, rotuloMotivo, SEM_DISCORD, type FalhaDM } from "@/lib/entregaDM";
 import { getDiscordConfig } from "@/lib/discordConfig";
-import { servidorDoEvento } from "@/lib/servidorGuerra";
+import { servidoresDoEvento, textoServidores } from "@/lib/servidorGuerra";
 import { chaveNome } from "@/lib/nomes";
 
 /**
@@ -381,7 +381,7 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
   const link = lote.tipo === "intencao" ? await linkDaChamada(lote.evento_id) : null;
   // SERVIDOR da guerra — sem ele o pedido de marcar in-game manda a pessoa abrir o jogo e adivinhar
   // pra onde ir. Lido uma vez por lote, e não por destinatário. Só o pedido de in-game precisa.
-  const servidor = lote.tipo === "ingame" ? await servidorDoEvento(lote.evento_id) : null;
+  const servidor = lote.tipo === "ingame" ? textoServidores(await servidoresDoEvento(lote.evento_id)) : null;
 
   const pend = (await sql`
     UPDATE dm_lote_alvo SET status = 'enviando', tentado = now()

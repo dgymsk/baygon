@@ -18,6 +18,17 @@ export const ehTipoGuerra = (t: unknown): t is TipoGuerra =>
 export const tipoGuerraOu = (t: unknown, padrao: TipoGuerra = "nodewar"): TipoGuerra =>
   (ehTipoGuerra(t) ? t : padrao);
 
+/**
+ * Quantos SERVIDORES aquele formato ocupa. Node war acontece em dois; siege e rosas, em um.
+ *
+ * Fica no código e não em config porque é regra do jogo, não preferência da aliança — o que muda
+ * (e por isso é editável) é a LISTA de servidores, em `servidor_bdo`. Tipo novo declara aqui quantos
+ * seletores a tela desenha; sem entrada, cai em 1.
+ */
+export const SLOTS_SERVIDOR: Record<TipoGuerra, number> = { nodewar: 2, siege: 1, rosas: 1 };
+export const slotsDoTipo = (t: string | null | undefined): number =>
+  (t && SLOTS_SERVIDOR[t as TipoGuerra]) || 1;
+
 const ROTULO: Record<TipoGuerra, string> = { nodewar: "Node War", siege: "Siege", rosas: "Rosas" };
 /** Rótulo pra tela. Tipo desconhecido volta cru em vez de sumir — é como o resto do app já faz. */
 export const rotuloGuerra = (t: string | null | undefined): string =>

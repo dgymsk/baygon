@@ -337,23 +337,28 @@ export async function renomearEvento(id: number, titulo: unknown): Promise<{ ok:
  * converge pro evento). Trocar o tipo de um evento que já tem estatística exige regravar — está
  * dito na tela.
  */
-export async function editarEvento(id: number, o: { tipo?: unknown; data?: unknown; servidor?: unknown }):
-  Promise<{ ok: boolean; tipo?: string; data?: string; servidor?: string | null }> {
+export async function editarEvento(id: number, o: { tipo?: unknown; data?: unknown }): Promise<{ ok: boolean; tipo?: string; data?: string }> {
   const tipo = o.tipo === undefined ? null : tipoGuerraOu(o.tipo);
   const data = typeof o.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
-  // servidor tem TRÊS estados, e por isso não entra no COALESCE junto com os outros: ausente = não
-  // mexe, texto = override desta guerra, vazio = volta a seguir o padrão de (tipo, tier).
-  const mexeServidor = o.servidor !== undefined;
-  const servidor = typeof o.servidor === "string" ? o.servidor.replace(/\s+/g, " ").trim().slice(0, 80) : "";
-  if (!tipo && !data && !mexeServidor) return { ok: false };
+  if (!tipo && !data) return { ok: false };
+  /**
+   * TROCAR O TIPO LIMPA O TIER e o override de servidor.
+   *
+   * Os dois são qualificadores do tipo antigo: tier T2 pendurado num evento de rosas faz a
+   * resolução do servidor procurar o padrão de (rosas, T2) — que ninguém configurou — em vez do de
+   * (rosas, qualquer). E um servidor escolhido pra node war pode nem existir na lista de slots do
+   * tipo novo (node war tem 2, rosas tem 1). Zerando, os dois voltam a herdar o padrão certo.
+   */
+  const trocouTipo = tipo != null;
   const rows = (await sql`
     UPDATE evento
        SET tipo = COALESCE(${tipo}, tipo),
            data = COALESCE(${data}::date, data),
-           servidor = CASE WHEN ${mexeServidor}::boolean THEN ${servidor || null} ELSE servidor END
-     WHERE id = ${id} RETURNING tipo, data::text AS data, servidor`) as { tipo: string; data: string; servidor: string | null }[];
+           tier       = CASE WHEN ${trocouTipo}::boolean AND tipo IS DISTINCT FROM ${tipo} THEN NULL ELSE tier END,
+           servidores = CASE WHEN ${trocouTipo}::boolean AND tipo IS DISTINCT FROM ${tipo} THEN '{}' ELSE servidores END
+     WHERE id = ${id} RETURNING tipo, data::text AS data`) as { tipo: string; data: string }[];
   if (!rows[0]) return { ok: false };
-  return { ok: true, tipo: rows[0].tipo, data: rows[0].data, servidor: rows[0].servidor };
+  return { ok: true, tipo: rows[0].tipo, data: rows[0].data };
 }
 
 /** Stats já gravados de uma war (formato longo → agrupado por jogador) — pré-carrega a tabela de revisão

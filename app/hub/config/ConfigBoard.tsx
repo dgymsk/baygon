@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
-import { TIPOS_GUERRA as TIPOS, rotuloGuerra } from "@/lib/tiposGuerra";
+import { TIPOS_GUERRA as TIPOS, rotuloGuerra, slotsDoTipo } from "@/lib/tiposGuerra";
 import { TIERS } from "@/lib/tier";
 import type { ServidorPadrao } from "@/lib/servidorGuerra";
 import EmojiPicker from "@/app/emojis/EmojiPicker";
@@ -28,8 +28,8 @@ type Jog = { nome: string; lendario: boolean; ativo: boolean; guilda: string | n
 
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], emojis = [], canEdit, servidores = [],
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; emojis?: EmojiGuild[]; canEdit: boolean; servidores?: ServidorPadrao[] }) {
+  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], emojis = [], canEdit, servidores = [], catalogo = [],
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; emojis?: EmojiGuild[]; canEdit: boolean; servidores?: ServidorPadrao[]; catalogo?: string[] }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -170,22 +170,56 @@ export default function ConfigBoard({
             vazio" precisam ser distinguíveis, senão o vazio venceria a herança do tier. */}
         <div style={card}>
           <Titulo>Servidor da guerra <Sub>vai na DM de participar in-game · em branco = sem padrão</Sub></Titulo>
+          {/* O CATÁLOGO é editável porque a lista muda: a Pearl Abyss abre e fecha servidor, e no dia
+              em que mudar quem conserta é a staff, não um deploy. Um por linha, na ordem da tela do
+              jogo — é como a staff lê. Tirar um daqui NÃO apaga escolha nenhuma: ele some do seletor
+              e a escolha antiga continua aparecendo, porque é histórico. */}
+          <details style={{ marginBottom: 12 }}>
+            <summary style={{ cursor: "pointer", color: C.mute, fontSize: 11.5 }}>
+              lista de servidores do jogo ({catalogo.length}) — editar
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <textarea defaultValue={catalogo.join("\n")} disabled={!canEdit} rows={8}
+                onBlur={(e) => {
+                  const lista = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
+                  if (lista.join("\n") !== catalogo.join("\n")) api({ acao: "servidor-catalogo", lista }, "lista de servidores salva");
+                }}
+                style={{ ...input, width: "100%", boxSizing: "border-box", fontFamily: "'Share Tech Mono', monospace", fontSize: 12, resize: "vertical" }} />
+              <div style={{ color: C.borderSoft, fontSize: 11, marginTop: 3 }}>Um servidor por linha, na ordem em que aparecem no jogo.</div>
+            </div>
+          </details>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
             {TIPOS.map((t) => (
               <div key={t} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 12px", background: C.inputBg }}>
                 <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{rotuloGuerra(t)}</div>
                 {/* "" primeiro: é o padrão de quem não tem tier (siege, rosas) e o fallback dos que têm */}
-                {["", ...TIERS].map((tr) => (
-                  <div key={tr} style={{ marginBottom: 7 }}>
-                    <label style={{ color: C.mute, fontSize: 11, display: "block", marginBottom: 3 }}>
-                      {tr || "qualquer tier (padrão)"}
-                    </label>
-                    <input defaultValue={servidores.find((s) => s.tipo === t && s.tier === tr)?.servidor ?? ""}
-                      disabled={!canEdit} placeholder={tr ? "usa o padrão acima" : "ex.: Ulukita 1 / Calpheon 1"}
-                      onBlur={(e) => api({ acao: "servidor-padrao", tipo: t, tier: tr, servidor: e.target.value }, "servidor salvo")}
-                      style={{ ...input, width: "100%", padding: "5px 9px", fontSize: 12.5 }} />
-                  </div>
-                ))}
+                {/* só node war tem tier; siege e rosas usam a linha "qualquer tier" */}
+                {(t === "nodewar" ? ["", ...TIERS] : [""]).map((tr) => {
+                  const atual = servidores.find((s) => s.tipo === t && s.tier === tr)?.servidores ?? [];
+                  const trocar = (i: number, v: string) => {
+                    const lista = [...atual];
+                    lista[i] = v;
+                    api({ acao: "servidor-padrao", tipo: t, tier: tr, servidores: lista.filter(Boolean) }, "servidor salvo");
+                  };
+                  return (
+                    <div key={tr} style={{ marginBottom: 7 }}>
+                      <label style={{ color: C.mute, fontSize: 11, display: "block", marginBottom: 3 }}>
+                        {tr || "qualquer tier (padrão)"}
+                      </label>
+                      <div style={{ display: "flex", gap: 5 }}>
+                        {/* um seletor por slot: node war ocupa DOIS servidores, siege e rosas UM */}
+                        {Array.from({ length: slotsDoTipo(t) }).map((_, i) => (
+                          <select key={i} value={atual[i] ?? ""} disabled={!canEdit}
+                            onChange={(e) => trocar(i, e.target.value)}
+                            style={{ ...input, flex: 1, minWidth: 0, padding: "5px 7px", fontSize: 12.5, cursor: canEdit ? "pointer" : "default" }}>
+                            <option value="">—</option>
+                            {[...new Set([...catalogo, ...atual])].map((sv) => <option key={sv} value={sv}>{sv}</option>)}
+                          </select>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { C, CorResultado, corDoResultado } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
-import { TIPOS_GUERRA, ehTipoGuerra, rotuloGuerra } from "@/lib/tiposGuerra";
+import { TIPOS_GUERRA, ehTipoGuerra, rotuloGuerra, slotsDoTipo } from "@/lib/tiposGuerra";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
 import StatsWar from "./StatsWar";
 import ApagarEvento from "./ApagarEvento";
@@ -111,14 +111,14 @@ type Ev = { uuid: string; titulo: string; tituloRaw: string | null;
   /** a MENSAGEM do bot está fechada pra novas marcações — nada a ver com o status do evento */
   intencaoFechada: boolean;
   tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null;
-  servidor: string | null; };
+  servidores: string[]; };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [],
-  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [], servidorPadrao = null,
+  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [], servidorPadrao = [], catalogoServidores = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -131,7 +131,8 @@ export default function EventoBoard({
   chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
   warsSemana?: HistoricoSemana;  // quais guerras cada casinha representa, na mesma ordem
   foraDaRegua?: string[];        // quem já está fora das médias desta war
-  servidorPadrao?: string | null; // servidor do (tipo, tier) — placeholder quando o evento não tem override
+  servidorPadrao?: string[];      // servidores do (tipo, tier) — vale quando o evento não opina
+  catalogoServidores?: string[];  // a lista do jogo, editável em Definições
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
@@ -284,6 +285,8 @@ export default function EventoBoard({
   const nIngameSemDm = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.confirmouIngame).length;
   /** Resultado com estado otimista, descartado assim que o servidor confirma o mesmo valor. */
   const resultadoAtual = resultadoOtimista ?? evento?.resultado ?? null;
+  /** O que vale HOJE: o override do evento, ou o padrão do (tipo, tier) quando ele não opinou. */
+  const servidoresAtuais = evento?.servidores.length ? evento.servidores : servidorPadrao;
   useEffect(() => { setResultadoOtimista((o) => (o != null && o === evento?.resultado ? null : o)); }, [evento?.resultado]);
   // o contador da cobrança in-game virou `alvosIngame`, que segue o público escolhido no seletor
 
@@ -536,9 +539,24 @@ export default function EventoBoard({
    * virou outro formato). Sem conserto na tela, o erro é permanente e contamina os quadradinhos do
    * histórico, a ordenação do hub e a régua da estatística.
    */
-  async function editarEvento(campo: "tipo" | "data" | "servidor", valor: string) {
-    // servidor vazio é significativo (volta a seguir o padrão); os outros dois, não
-    if (!podeRenomear || !evento || (!valor && campo !== "servidor")) return;
+  /**
+   * Troca UM slot de servidor. Manda a lista inteira porque o override é "esta guerra acontece
+   * nestes servidores" — mandar só o slot obrigaria o servidor a saber qual era o estado anterior,
+   * e duas abas abertas se sobrescreveriam em silêncio. Esvaziar todos volta a seguir o padrão.
+   */
+  async function trocarServidor(slot: number, valor: string) {
+    if (!podeRenomear || !evento) return;
+    const base = evento.servidores.length ? [...evento.servidores] : [...servidorPadrao];
+    base[slot] = valor;
+    const lista = base.filter(Boolean);
+    setSalvando(true);
+    try { await api({ acao: "evento-servidores", eventoId: evento.eventoId, servidores: lista }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
+  async function editarEvento(campo: "tipo" | "data", valor: string) {
+    if (!podeRenomear || !evento || !valor) return;
     if (campo === "tipo" && evento.temWar && !confirm(
       `Trocar o tipo pra ${rotuloGuerra(valor)}?\n\nEste evento já tem estatística gravada. A war continua marcada como "${rotuloGuerra(evento.tipo)}" até você REGRAVAR o print — é a regravação que reescreve o tipo da war, e com ele a régua usada no painel.`)) return;
     setSalvando(true);
@@ -753,18 +771,24 @@ export default function EventoBoard({
                   {!ehTipoGuerra(evento.tipo) && <option value="">{evento.tipo}</option>}
                   {TIPOS_GUERRA.map((t) => <option key={t} value={t}>{rotuloGuerra(t)}</option>)}
                 </select>
-                {/* SERVIDOR: em branco segue o padrão de (tipo, tier), que aparece como placeholder.
-                    É o dado que vai na DM de "marque participar in-game" — sem ele a pessoa abre o
-                    jogo e adivinha pra onde ir. */}
-                <input defaultValue={evento.servidor ?? ""} disabled={salvando} maxLength={80}
-                  key={`srv-${evento.servidor ?? ""}`}
-                  placeholder={servidorPadrao ? `🌐 ${servidorPadrao}` : "🌐 servidor…"}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                  onBlur={(e) => { if (e.target.value.trim() !== (evento.servidor ?? "")) editarEvento("servidor", e.target.value); }}
-                  title={servidorPadrao
-                    ? `servidor desta guerra. Em branco segue o padrão do tipo: ${servidorPadrao}`
-                    : "servidor desta guerra. Não há padrão configurado pra este tipo — defina em Definições"}
-                  style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 7, color: evento.servidor ? C.texto : C.mute, padding: "2px 7px", fontSize: 12, fontFamily: "inherit", width: 170 }} />
+                {/* SERVIDORES: um <select> por slot do tipo (node war ocupa 2, siege e rosas 1).
+                    Todos vazios = segue o padrão de (tipo, tier), que aparece como opção "seguindo".
+                    É o que vai na DM de "marque participar in-game". */}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="🌐 servidores desta guerra">🌐
+                  {Array.from({ length: slotsDoTipo(evento.tipo) }).map((_, i) => (
+                    <select key={i} value={servidoresAtuais[i] ?? ""} disabled={salvando}
+                      onChange={(e) => trocarServidor(i, e.target.value)}
+                      title={evento.servidores.length
+                        ? "servidor desta guerra"
+                        : servidorPadrao.length ? `seguindo o padrão do tipo: ${servidorPadrao.join(" / ")}` : "sem padrão configurado — escolha aqui ou defina em Definições"}
+                      style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 7, padding: "2px 6px", fontSize: 12, fontFamily: "inherit", cursor: "pointer",
+                        color: evento.servidores.length ? C.texto : C.mute }}>
+                      <option value="">{servidorPadrao[i] ? `(${servidorPadrao[i]})` : "—"}</option>
+                      {/* o escolhido entra na lista mesmo se saiu do catálogo: histórico não se apaga */}
+                      {[...new Set([...catalogoServidores, ...evento.servidores])].map((sv) => <option key={sv} value={sv}>{sv}</option>)}
+                    </select>
+                  ))}
+                </span>
               </>
             ) : (
               <>{new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {rotuloGuerra(evento.tipo)}</>
