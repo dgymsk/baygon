@@ -1081,8 +1081,11 @@ export default function EventoBoard({
 
           {/* captura das estatísticas de combate — MESMO fluxo do /eventos, trazido pra cá */}
           <div style={{ borderTop: `1px solid ${C.borderSoft}`, marginTop: 16, paddingTop: 4 }}>
+            {/* podeRegua = podeRenomear (staff, SEM o gate de evento aberto): mexer na régua de uma
+                guerra passada é o caso normal, e o servidor já permite — ver war-fora-da-regua */}
             <ResultadoExtrair id={evento.eventoId} canEdit={canEdit} players={playersNomes}
               warIdInicial={evento.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
+              foraIniciais={foraDaRegua} podeRegua={podeRenomear}
               ativo={aba === "stats"} />
           </div>
         </div>

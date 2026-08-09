@@ -6,6 +6,7 @@ import { getDiscordConfig } from "@/lib/discordConfig";
 import { getGuildMeta } from "@/lib/guildConfig";
 import { canEditNow } from "@/lib/requireAuth";
 import { listNomesFamilia } from "@/lib/players";
+import { listarForaDaRegua } from "@/lib/foraDaRegua";
 import RosterView from "@/app/participacao/RosterView";
 import EventoAcoes from "./EventoAcoes";
 import ResultadoExtrair from "./ResultadoExtrair";
@@ -24,9 +25,9 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
   const guildTags = Object.fromEntries(gmeta.guildas.map((g) => [g.id, g.tag]));
   nomes.sort((a, b) => a.localeCompare(b, "pt-BR"));
   // pré-carrega a tabela e as alianças se já há war ligada — regravar não pode apagar o que foi digitado
-  const [statsIniciais, aliancasIniciais] = ev.warId != null
-    ? await Promise.all([desempenhoDaWar(ev.warId), aliancasDaWar(ev.warId)])
-    : [[], [] as string[]];
+  const [statsIniciais, aliancasIniciais, foraDaRegua] = ev.warId != null
+    ? await Promise.all([desempenhoDaWar(ev.warId), aliancasDaWar(ev.warId), listarForaDaRegua(ev.warId)])
+    : [[], [] as string[], [] as Awaited<ReturnType<typeof listarForaDaRegua>>];
 
   const RES_LABEL: Record<string, string> = { derrota: "Derrota", participacao: "Participação", vitoria: "Vitória" };
 
@@ -98,7 +99,8 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
         {/* FACETA 3 (parte 2): stats por membro extraídos do print (Opus) → wars/desempenho */}
         <div style={{ ...card, marginTop: 14 }}>
           <div style={secTitulo}>Stats da guerra (por membro)</div>
-          <ResultadoExtrair id={ev.id} canEdit={canEdit} players={nomes} warIdInicial={ev.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais} />
+          <ResultadoExtrair id={ev.id} canEdit={canEdit} players={nomes} warIdInicial={ev.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
+            foraIniciais={foraDaRegua.map((f) => f.nomeFamilia)} />
         </div>
       </div>
     </div>

@@ -29,10 +29,19 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 // Faceta RESULTADO (parte 2): extrai os stats do print via Claude Opus, revisa e grava em wars/desempenho.
-export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, statsIniciais, aliancasIniciais, ativo = true }: { id: number; canEdit: boolean; players: string[]; warIdInicial: number | null; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[];
+export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, statsIniciais, aliancasIniciais, ativo = true, foraIniciais = [], podeRegua }: { id: number; canEdit: boolean; players: string[]; warIdInicial: number | null; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[];
   /** aba visível. As abas do hub ficam montadas pra não perder estado, então sem isto o Ctrl+V da
    *  conferência in-game cairia aqui também, e o print seria lido pelo extrator errado. */
-  ativo?: boolean }) {
+  ativo?: boolean;
+  foraIniciais?: string[];   // já marcados como fora da régua nesta war
+  /**
+   * Quem pode mexer na RÉGUA. Separado do `canEdit` de propósito: no hub o `canEdit` exige evento
+   * aberto, e corrigir a régua de uma guerra passada é justamente o que se faz depois que ela
+   * acabou — o servidor já deixa (a ação fica fora do gate de evento encerrado), era a tela que
+   * escondia o botão. Sem valor explícito, segue o `canEdit`.
+   */
+  podeRegua?: boolean }) {
+  const podeMexerRegua = podeRegua ?? canEdit;
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   // pré-carrega os stats já gravados da war ligada (senão regravar seria replace-all destrutivo)
@@ -59,6 +68,41 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
   const chaveAliancas = (aliancasIniciais ?? []).join("");
   useEffect(() => { setAliancas(aliancasIniciais ?? []); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [chaveAliancas]);
   const [aliancaTxt, setAliancaTxt] = useState("");
+
+  /**
+   * FORA DA RÉGUA, aqui na grade dos números salvos.
+   *
+   * O toggle já existia na tabela "Números da war" do hub, mas ESTA é a janela em que se olha o
+   * número do jogador — é aqui que se percebe que ele está torto porque mandaram morrer. E em
+   * /eventos esta grade é a única que existe, então lá não havia botão nenhum.
+   *
+   * Ressincroniza por CONTEÚDO, igual às alianças: no hub a aba fica montada (só escondida por
+   * display:none), então sem isto o que outro staff marcou nunca chegaria nesta tela.
+   */
+  const [fora, setFora] = useState<string[]>(foraIniciais);
+  const chaveFora = foraIniciais.join("|");
+  useEffect(() => { setFora(foraIniciais); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [chaveFora]);
+  const foraSet = useMemo(() => new Set(fora), [fora]);
+  const [reguaOcupada, setReguaOcupada] = useState<string | null>(null);
+  const [erroRegua, setErroRegua] = useState("");
+
+  async function alternarRegua(nomeFamilia: string) {
+    if (warId == null || !nomeFamilia) return;
+    const alvo = !foraSet.has(nomeFamilia);
+    setReguaOcupada(nomeFamilia); setErroRegua("");
+    try {
+      const res = await fetch("/api/hub", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acao: "war-fora-da-regua", warId, nomeFamilia, fora: alvo }) });
+      const d = await res.json().catch(() => ({}));
+      // 404 = o jogador não tem carimbo nesta war. Acontece com linha recém-adicionada e ainda não
+      // gravada; dizer isso é melhor do que o botão não reagir e parecer quebrado.
+      if (res.status === 404) throw new Error(`${nomeFamilia} ainda não está gravado nesta war — clique em Gravar antes de tirar da régua.`);
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      const gravado = (d as { fora?: boolean }).fora === true;   // vale o que o SERVIDOR gravou
+      setFora((p) => (gravado ? [...new Set([...p, nomeFamilia])] : p.filter((x) => x !== nomeFamilia)));
+    } catch (e) { setErroRegua((e as Error).message); }
+    finally { setReguaOcupada(null); }
+  }
 
   function addAlianca(bruto: string) {
     // vírgula e ponto-e-vírgula viram separador: colar "Bloodline, Vortex" entra como duas
@@ -344,7 +388,16 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
               ⚠ {divergentes} célula(s) em <b>laranja</b>: dois prints leram valores diferentes pra mesma pessoa. Vale o que está no campo — passe o mouse pra ver o outro e corrija se preciso. Nada é somado.
             </div>
           )}
-          <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>{linhas.length} linha(s). Valores já normalizados (635.1k→635100, 09:56→596s) — edite se a IA errou; passe o mouse pra ver o valor cru lido.</div>
+          {erroRegua && <div style={{ color: C.vermelho, fontSize: 12, marginBottom: 6 }}>⚠ {erroRegua}</div>}
+          {fora.length > 0 && (
+            <div style={{ color: C.amarelo, fontSize: 12, marginBottom: 6 }}>
+              ⊘ <b>{fora.length}</b> fora da régua nesta war ({fora.join(", ")}) — os números continuam aqui e no ranking, mas não entram nas médias (core, grupo e guilda).
+            </div>
+          )}
+          <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>
+            {linhas.length} linha(s). Valores já normalizados (635.1k→635100, 09:56→596s) — edite se a IA errou; passe o mouse pra ver o valor cru lido.
+            {podeMexerRegua && warId != null && <> Clique no <b>○</b> ao lado do nome pra tirar alguém das médias desta war.</>}
+          </div>
           <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 10 }}>
             <table style={{ borderCollapse: "collapse", fontSize: 11.5 }}>
               <thead>
@@ -362,7 +415,19 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
                   const selBorda = modo === "novo" ? C.verde : modo === "ignorar" ? C.amarelo : C.border2;
                   return (
                   <tr key={r.key} style={{ background: rowBg }}>
-                    <td style={{ padding: "3px 5px", position: "sticky", left: 0, background: modo === "ok" ? C.surface : rowBg, zIndex: 1, borderRight: `1px solid ${C.border2}` }}>
+                    <td style={{ padding: "3px 5px", position: "sticky", left: 0, background: modo === "ok" ? C.surface : rowBg, zIndex: 1, borderRight: `1px solid ${C.border2}`, whiteSpace: "nowrap" }}>
+                      {/* ⊘ = fora da régua: o número dele continua nesta grade e no ranking, só não
+                          entra nas médias desta war. É o caso de quem morreu a mando (segurar,
+                          puxar, resetar) — o lixo estatístico é da ORDEM, não do jogador.
+                          Só pra linha JÁ GRAVADA (modo "ok" + war existente): sem carimbo em
+                          war_player não há o que marcar, e o servidor devolveria 404. */}
+                      {podeMexerRegua && warId != null && modo === "ok" && (
+                        <button onClick={() => alternarRegua(r.nome_familia)} disabled={reguaOcupada === r.nome_familia}
+                          title={foraSet.has(r.nome_familia) ? "voltar a contar nas médias desta war" : "não contabilizar nas médias desta war (morreu a mando, testou build, etc.)"}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px 0 0", fontSize: 11, color: foraSet.has(r.nome_familia) ? C.amarelo : C.borderSoft }}>
+                          {foraSet.has(r.nome_familia) ? "⊘" : "○"}
+                        </button>
+                      )}
                       <select value={r.novo ? NOVO : r.nome_familia} title={`lido: ${r.familiaLida}`}
                         onChange={(e) => (e.target.value === NOVO ? setNovo(r.key) : setNome(r.key, e.target.value))}
                         style={{ background: C.inputBg, border: `1px solid ${selBorda}`, borderRadius: 5, color: selCor, padding: "3px 5px", fontSize: 11.5, outline: "none", maxWidth: 180 }}>
