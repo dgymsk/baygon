@@ -51,6 +51,57 @@ export type DadosLista = {
   vazio?: string | null;  // emoji transparente que reserva o slot da coroa
 };
 
+/**
+ * A mesma mensagem, DEPOIS que a guerra acabou.
+ *
+ * Encerrar o evento troca a escalação inteira por um cartão de resultado. O motivo é que a lista
+ * publicada envelhece mal: ela continua dizendo "⏳ aguardando" e "🎮 está no jogo" de uma guerra
+ * que terminou, e quem rola o canal na semana seguinte lê aquilo como se fosse a de hoje. Some
+ * também as menções, que faziam a lista velha aparecer na busca de cada pessoa.
+ *
+ * É EDIÇÃO da mesma mensagem, não apagar e postar outra: o link que já foi compartilhado continua
+ * valendo, e o histórico do canal não ganha um buraco.
+ */
+export type DadosEncerramento = {
+  titulo: string;
+  data?: string;
+  tipo?: string | null;        // nodewar | siege — vira "na Node War" / "na Siege"
+  resultado?: string | null;   // vitoria | participacao | derrota; null = encerrado sem resultado
+  escalados?: number;
+  ingame?: number;
+  comEstatistica?: number;
+};
+
+const ROTULO_TIPO: Record<string, string> = { nodewar: "Node War", siege: "Siege" };
+/** Cores REAIS (a paleta do site é carmesim pra tudo — aqui é o Discord, e verde tem que ser verde). */
+const COR_RESULTADO: Record<string, number> = { vitoria: 0x3fbf5f, participacao: 0xe0bd3a, derrota: 0xe04b4b };
+const FRASE: Record<string, string> = { vitoria: "Vitória", participacao: "Participação", derrota: "Derrota" };
+
+export function montarEncerramento(d: DadosEncerramento) {
+  const r = (d.resultado ?? "").toLowerCase();
+  const tipoRot = d.tipo ? ROTULO_TIPO[d.tipo] ?? d.tipo : null;
+  // "Vitória na Siege" quando os dois são conhecidos; sem resultado, só "Evento concluído" — chutar
+  // um resultado que ninguém gravou seria pior que não dizer nada
+  const desfecho = FRASE[r] ? `${FRASE[r]}${tipoRot ? ` na ${tipoRot}` : ""}` : null;
+  const titulo = `🏁 Evento concluído${desfecho ? ` — ${desfecho}` : ""}`.slice(0, 256);
+
+  const L: string[] = [`**${safeLink(d.titulo)}**${d.data ? ` · ${d.data}` : ""}`];
+  const n: string[] = [];
+  if (d.escalados) n.push(`👥 ${d.escalados} escalados`);
+  if (d.ingame) n.push(`🎮 ${d.ingame} in-game`);
+  if (d.comEstatistica) n.push(`📊 ${d.comEstatistica} com estatística`);
+  if (n.length) L.push(n.join(" · "));
+  L.push("", "_A escalação saiu do ar porque a guerra acabou. O histórico completo fica no site._");
+
+  return {
+    embeds: [{
+      title: titulo,
+      description: L.join("\n").slice(0, 4096),
+      color: COR_RESULTADO[r] ?? 0x8f8f8f,   // cinza quando não há resultado gravado
+    }],
+  };
+}
+
 export function montarLista(d: DadosLista) {
   const tags = d.tags ?? {};
   const porParty = new Map<number, EscaladoL[]>();

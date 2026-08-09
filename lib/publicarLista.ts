@@ -2,7 +2,7 @@ import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { getIntencaoConfig } from "@/lib/intencaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
-import { montarLista, type EscaladoL, type PartyL } from "@/lib/listaEscalacao";
+import { montarLista, montarEncerramento, type EscaladoL, type PartyL } from "@/lib/listaEscalacao";
 import { getPreset } from "@/lib/intencaoPreset";
 import { listParties, partiesDoEvento } from "@/lib/party";
 import { perfilGear } from "@/lib/players";
@@ -22,12 +22,15 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
 
   const posts = (await sql`
     SELECT p.message_id, p.tipo, p.preset_id::int AS preset_id, p.lista_message_id, p.lista_channel_id,
-           COALESCE(e.titulo, e.tipo) AS titulo, to_char(e.data, 'DD/MM') AS data, e.tamanho_max::int AS tamanho_max
+           COALESCE(e.titulo, e.tipo) AS titulo, to_char(e.data, 'DD/MM') AS data, e.tamanho_max::int AS tamanho_max,
+           e.status, e.tipo AS evento_tipo, r.resultado, r.war_id::int AS war_id
     FROM intencao_post p JOIN evento e ON e.id = p.evento_id
+    LEFT JOIN evento_resultado r ON r.evento_id = e.id
     WHERE p.evento_id = ${eventoId} ORDER BY p.criado DESC LIMIT 1`) as
-    { message_id: string; tipo: string; preset_id: number | null; lista_message_id: string | null; lista_channel_id: string | null; titulo: string; data: string; tamanho_max: number | null }[];
+    { message_id: string; tipo: string; preset_id: number | null; lista_message_id: string | null; lista_channel_id: string | null; titulo: string; data: string; tamanho_max: number | null; status: string; evento_tipo: string; resultado: string | null; war_id: number | null }[];
   const post = posts[0];
   if (!post) return { ok: false, erro: "evento sem chamada de intenção" };
+  const encerrado = post.status === "finalizado";
   // atualização automática só EDITA o que já existe: marcar presença não pode fazer aparecer uma
   // lista no canal do nada — publicar é decisão da staff, no botão
   if (o.soSePublicada && !(post.lista_message_id && post.lista_channel_id)) return { ok: true, editou: false };
@@ -38,6 +41,57 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
     || cfg[post.tipo as Tipo]?.canalChamada
     || (await getParticipacaoConfig())[post.tipo as Tipo]?.channelId;
   if (!canal) return { ok: false, erro: "nenhum canal configurado para a lista" };
+
+  /**
+   * Edita a mensagem existente; se ela sumiu (apagada no Discord), posta uma nova.
+   * Declaração de função (não const) de propósito: é usada logo acima, no ramo do encerramento.
+   */
+  async function enviar(payload: object): Promise<{ ok: boolean; erro?: string; editou?: boolean }> {
+    // As menções ficam DENTRO do embed, e embed não notifica ninguém no Discord — elas rendem o chip
+    // (nome do servidor, avatar no hover, clicável) sem ping. É o que se quer aqui: a lista é editada
+    // a cada mudança de presença ou convocação, e um ping por edição seria insuportável.
+    // Se um dia quiserem avisar de fato, o caminho é uma mensagem de texto à parte, fora do embed.
+    const body = JSON.stringify({ allowed_mentions: { parse: [] }, ...payload });
+    if (post.lista_message_id && post.lista_channel_id) {
+      const r = await botFetch(`/channels/${post.lista_channel_id}/messages/${post.lista_message_id}`, { method: "PATCH", body });
+      if (r.ok) return { ok: true, editou: true };
+      if (r.status !== 404) return { ok: false, erro: `Discord ${r.status}` };
+      // 404 = a mensagem foi apagada no Discord. No espelho automático isso ENCERRA: repostar faria a
+      // escalação de uma war antiga reaparecer hoje no canal só porque alguém corrigiu o nome dela.
+      // Postar de novo é decisão da staff, no botão — que chama sem `soSePublicada`.
+      await sql`UPDATE intencao_post SET lista_message_id = NULL, lista_channel_id = NULL WHERE message_id = ${post.message_id}`;
+      if (o.soSePublicada) return { ok: true, editou: false };
+    }
+    const res = await botFetch(`/channels/${canal}/messages`, { method: "POST", body });
+    if (!res.ok) return { ok: false, erro: `Discord ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}` };
+    const msg = (await res.json()) as { id: string };
+    await sql`UPDATE intencao_post SET lista_message_id = ${msg.id}, lista_channel_id = ${canal} WHERE message_id = ${post.message_id}`;
+    return { ok: true, editou: false };
+  }
+
+  /**
+   * Evento ENCERRADO troca a escalação por um cartão de resultado — ver montarEncerramento.
+   *
+   * Sai antes do carregamento pesado de propósito: gear, emojis do servidor, fila da chamada e
+   * catálogo de parties não têm uso nenhum aqui, e isto roda dentro do encerrar.
+   *
+   * Só EDITA, nunca posta do zero: um "Evento concluído" solto num canal onde a escalação nunca
+   * apareceu é ruído — a mensagem de encerramento só faz sentido como sucessora de uma lista.
+   */
+  if (encerrado) {
+    if (!(post.lista_message_id && post.lista_channel_id)) return { ok: true, editou: false };
+    const [esc, ing, est] = (await Promise.all([
+      sql`SELECT count(*)::int AS n FROM evento_escalacao WHERE evento_id = ${eventoId} AND party_id IS NOT NULL`,
+      sql`SELECT count(*)::int AS n FROM evento_presenca   WHERE evento_id = ${eventoId} AND participar`,
+      post.war_id != null
+        ? sql`SELECT count(DISTINCT nome_familia)::int AS n FROM desempenho WHERE war_id = ${post.war_id}`
+        : Promise.resolve([{ n: 0 }]),
+    ])) as { n: number }[][];
+    return enviar(montarEncerramento({
+      titulo: post.titulo, data: post.data, tipo: post.evento_tipo, resultado: post.resultado,
+      escalados: esc[0]?.n ?? 0, ingame: ing[0]?.n ?? 0, comEstatistica: est[0]?.n ?? 0,
+    }));
+  }
 
   const [preset, cat, perfil, emojis, meta, emojisServidor, linhas] = await Promise.all([
     post.preset_id ? getPreset(post.preset_id) : Promise.resolve(null),
@@ -96,26 +150,5 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
       return e ? `<${e.animated ? "a" : ""}:${e.name}:${e.id}>` : null;
     })(),
   });
-  // As menções ficam DENTRO do embed, e embed não notifica ninguém no Discord — elas rendem o chip
-  // (nome do servidor, avatar no hover, clicável) sem ping. É o que se quer aqui: a lista é editada
-  // a cada mudança de presença ou convocação, e um ping por edição seria insuportável.
-  // Se um dia quiserem avisar de fato, o caminho é uma mensagem de texto à parte, fora do embed.
-  const body = JSON.stringify({ allowed_mentions: { parse: [] }, ...payload });
-
-  // edita a mensagem existente; se ela sumiu (apagada no Discord), posta uma nova
-  if (post.lista_message_id && post.lista_channel_id) {
-    const r = await botFetch(`/channels/${post.lista_channel_id}/messages/${post.lista_message_id}`, { method: "PATCH", body });
-    if (r.ok) return { ok: true, editou: true };
-    if (r.status !== 404) return { ok: false, erro: `Discord ${r.status}` };
-    // 404 = a mensagem foi apagada no Discord. No espelho automático isso ENCERRA: repostar faria a
-    // escalação de uma war antiga reaparecer hoje no canal só porque alguém corrigiu o nome dela.
-    // Postar de novo é decisão da staff, no botão — que chama sem `soSePublicada`.
-    await sql`UPDATE intencao_post SET lista_message_id = NULL, lista_channel_id = NULL WHERE message_id = ${post.message_id}`;
-    if (o.soSePublicada) return { ok: true, editou: false };
-  }
-  const res = await botFetch(`/channels/${canal}/messages`, { method: "POST", body });
-  if (!res.ok) return { ok: false, erro: `Discord ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}` };
-  const msg = (await res.json()) as { id: string };
-  await sql`UPDATE intencao_post SET lista_message_id = ${msg.id}, lista_channel_id = ${canal} WHERE message_id = ${post.message_id}`;
-  return { ok: true, editou: false };
+  return enviar(payload);
 }

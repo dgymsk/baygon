@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { C, CorResultado } from "@/lib/theme";
+import { C, CorResultado, corDoResultado } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
@@ -38,6 +38,8 @@ import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/Result
  */
 const VERDE = CorResultado.vitoria.cor;
 const RUBRO = CorResultado.derrota.cor;
+
+const RES_ROTULO: Record<string, string> = { vitoria: "Vitória", participacao: "Participação", derrota: "Derrota" };
 
 export type JogadorVM = {
   chave: string; familia: string; userId: string;
@@ -141,6 +143,7 @@ export default function EventoBoard({
   const [nomeOtimista, setNomeOtimista] = useState<string | null>(null);
   const [salvandoNome, setSalvandoNome] = useState(false);
   const [ptsOtimista, setPtsOtimista] = useState<number[] | null>(null);
+  const [resultadoOtimista, setResultadoOtimista] = useState<string | null>(null);
   const [publicoConv, setPublicoConv] = useState("nao_receberam");
   const [publicoIntencao, setPublicoIntencao] = useState("calados_nao_receberam");
   const [publicoIngame, setPublicoIngame] = useState("confirmou_nao_recebeu");
@@ -276,6 +279,9 @@ export default function EventoBoard({
   const nAguardando = [...todos.values()].filter((j) => semDm(j) && j.convidado).length;
   const nSemConvocar = [...todos.values()].filter((j) => semDm(j) && !j.convidado).length;
   const nIngameSemDm = [...todos.values()].filter((j) => partyDe(j) != null && j.confirmouEscalacao == null && j.confirmouIngame).length;
+  /** Resultado com estado otimista, descartado assim que o servidor confirma o mesmo valor. */
+  const resultadoAtual = resultadoOtimista ?? evento?.resultado ?? null;
+  useEffect(() => { setResultadoOtimista((o) => (o != null && o === evento?.resultado ? null : o)); }, [evento?.resultado]);
   // o contador da cobrança in-game virou `alvosIngame`, que segue o público escolhido no seletor
 
   async function api(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -502,11 +508,33 @@ export default function EventoBoard({
    * página continua visível pra consulta: o histórico é o motivo de o evento existir depois da war.
    * Diferente de fechar a INTENÇÃO, que só desliga a marcação no bot.
    */
+  /**
+   * Resultado da guerra (vitória/participação/derrota). Mora em `evento_resultado` e já existia na
+   * tela antiga de /eventos; trazido pra cá porque é aqui que se encerra — e desde que encerrar
+   * troca a lista publicada pelo cartão "🏁 Evento concluído — Vitória na Siege", o resultado
+   * deixou de ser um dado só do site e virou o texto da mensagem.
+   */
+  async function definirResultado(r: string) {
+    if (!podeRenomear || !evento || !r) return;
+    setSalvando(true);
+    try {
+      const res = await fetch(`/api/eventos/${evento.eventoId}/resultado`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resultado: r }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      setResultadoOtimista(r); setErro(""); router.refresh();
+    } catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   async function encerrarEvento(encerrar: boolean) {
     if (!podeRenomear || !evento) return;
+    // sem resultado gravado o cartão do Discord sai sem desfecho ("🏁 Evento concluído", cinza).
+    // Melhor avisar antes do que a staff descobrir olhando o canal.
+    const semResultado = encerrar && !resultadoAtual;
     if (!confirm(encerrar
-      ? "Encerrar o evento?\n\nTudo fica travado: escalação, convocação, presença e estatística. A página continua visível pra consulta, e dá pra reabrir depois."
-      : "Reabrir o evento?\n\nVolta a permitir escalar, convocar e gravar estatística.")) return;
+      ? `Encerrar o evento?\n\nTudo fica travado: escalação, convocação, presença e estatística. A página continua visível pra consulta, e dá pra reabrir depois.\n\nA escalação publicada no Discord vira ${semResultado ? "um cartão de encerramento SEM resultado — grave vitória/derrota antes se quiser que apareça." : `“Evento concluído — ${RES_ROTULO[resultadoAtual!] ?? resultadoAtual}”.`}`
+      : "Reabrir o evento?\n\nVolta a permitir escalar, convocar e gravar estatística.\n\nA mensagem no Discord volta a ser a escalação completa.")) return;
     setSalvando(true);
     try { await api({ acao: "evento-encerrar", eventoId: evento.eventoId, encerrar }); setErro(""); setAviso(encerrar ? "🏁 Evento encerrado — tudo travado, tudo visível." : "↩ Evento reaberto."); router.refresh(); }
     catch (e) { setErro((e as Error).message); }
@@ -693,7 +721,9 @@ export default function EventoBoard({
             {new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {evento.tipo}
             {evento.tier && <span style={{ color: corTier[evento.tier], fontWeight: 700 }}> · {evento.tier}</span>}
             {evento.status !== "aberto" && <span style={{ color: C.amarelo }}> · 🔒 {evento.status}</span>}
-            {evento.resultado && <span style={{ color: evento.resultado === "vitoria" ? C.verde : C.vermelho }}> · {evento.resultado}</span>}
+            {/* `C.verde` e `C.vermelho` são o MESMO carmesim nesta paleta — vitória e derrota saíam
+                idênticas. corDoResultado é a exceção com verde/amarelo/vermelho de verdade. */}
+            {resultadoAtual && <span style={{ color: corDoResultado(resultadoAtual)?.cor ?? C.mute, fontWeight: 700 }}> · {RES_ROTULO[resultadoAtual] ?? resultadoAtual}</span>}
           </div>
         </div>
         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
@@ -767,6 +797,17 @@ export default function EventoBoard({
           )}
           {canEdit && nEscalados > 0 && <button onClick={limpar} style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>↺ Limpar</button>}
           <Link className="navlink" href={`/hub/${evento.uuid}/resumo`}>📄 Resumo</Link>
+          {/* resultado da guerra: é o texto do cartão que substitui a escalação no Discord ao
+              encerrar, então tem que estar ao alcance do mesmo botão */}
+          {podeRenomear && (
+            <select value={resultadoAtual ?? ""} disabled={salvando} onChange={(e) => definirResultado(e.target.value)}
+              title="resultado da guerra — vai no cartão que substitui a escalação no Discord"
+              style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "5px 9px", fontSize: 12.5, fontFamily: "inherit", cursor: "pointer",
+                color: resultadoAtual ? (corDoResultado(resultadoAtual)?.cor ?? C.texto) : C.mute, fontWeight: resultadoAtual ? 700 : 400 }}>
+              <option value="">resultado…</option>
+              {Object.entries(RES_ROTULO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          )}
           {podeRenomear && (
             <button onClick={() => encerrarEvento(evento.status !== "finalizado")} disabled={salvando}
               title={evento.status === "finalizado" ? "volta a permitir escalar, convocar e gravar" : "trava tudo, mas a página continua visível pra consulta"}

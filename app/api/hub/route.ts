@@ -212,6 +212,9 @@ export async function POST(req: Request) {
         try { mensagemAtualizada = (await sincronizarMensagem(post[0].message_id)).ok; }
         catch (e) { console.error("redesenho da chamada falhou", e); mensagemAtualizada = false; }
       }
+      // e a LISTA da escalação vira o cartão de resultado (ou volta a ser lista, ao reabrir):
+      // `publicarLista` decide pelo status, então os dois sentidos saem do mesmo lugar
+      await espelharLista();
       return NextResponse.json({ ok: true, status: rows[0].status, mensagemAtualizada });
     }
 
