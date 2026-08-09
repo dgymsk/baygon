@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
-import { ehTipo } from "@/lib/participacaoConfig";
+import { ehTipoGuerra as ehTipo } from "@/lib/tiposGuerra";
 import { tierOk, type Tier } from "@/lib/tier";
 
 /**

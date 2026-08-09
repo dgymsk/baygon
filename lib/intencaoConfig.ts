@@ -1,5 +1,5 @@
 import { sql } from "@/lib/db";
-import { TIPOS, type Tipo } from "@/lib/participacaoConfig";
+import { TIPOS_GUERRA as TIPOS, type TipoGuerra as Tipo } from "@/lib/tiposGuerra";
 
 /**
  * Canais do bot de intenção, por tipo de war. São DOIS e de propósito:

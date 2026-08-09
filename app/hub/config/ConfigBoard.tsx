@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
+import { TIPOS_GUERRA as TIPOS, rotuloGuerra } from "@/lib/tiposGuerra";
 import EmojiPicker from "@/app/emojis/EmojiPicker";
 import type { EmojiGuild } from "@/lib/discordApi";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
@@ -22,7 +23,7 @@ import type { IntencaoConfig } from "@/lib/intencaoConfig";
  *  LENDÁRIO— atributo fixo da pessoa. NUNCA aparece no bot; só destaca o card na escalação.
  */
 type Jog = { nome: string; lendario: boolean; ativo: boolean; guilda: string | null };
-const TIPOS = ["nodewar", "siege"] as const;
+
 
 export default function ConfigBoard({
   funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], emojis = [], canEdit,
@@ -166,7 +167,7 @@ export default function ConfigBoard({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12 }}>
             {TIPOS.map((t) => (
               <div key={t} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 12px", background: C.inputBg }}>
-                <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, textTransform: "capitalize", marginBottom: 8 }}>{t}</div>
+                <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{rotuloGuerra(t)}</div>
                 {([["canalChamada", "Chamada (marcar função)"], ["canalLista", "Lista (escalação pronta)"]] as const).map(([k, rot]) => (
                   <div key={k} style={{ marginBottom: 7 }}>
                     <label style={{ color: C.mute, fontSize: 11, display: "block", marginBottom: 3 }}>{rot}</label>

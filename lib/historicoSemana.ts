@@ -16,6 +16,12 @@ import { chaveNome } from "@/lib/nomes";
  * 2. "ESCALADO E NÃO JOGOU" exige que a war TENHA estatística. Sem o print gravado ninguém faltou:
  *    a informação não existe, e o X vermelho seria acusação igualmente falsa. Esse caso vira
  *    `sem_stat`.
+ *
+ * 3. SÓ EVENTO FINALIZADO VIRA QUADRADO. Enquanto o evento está aberto, "marcou e não foi escalado"
+ *    é só o retrato de um trabalho em andamento — a escalação ainda vai ser montada, e a pessoa
+ *    aparecia de laranja no card como se tivesse ficado de fora. Mesma coisa pro cinza de "não
+ *    respondeu": ele ainda tem tempo de responder. A história de alguém só fecha quando a guerra
+ *    fecha.
  */
 export type EstadoWar =
   | "jogou"          // escalado e jogou — verde
@@ -76,12 +82,23 @@ export async function historicoSemana(eventoAtualId: number): Promise<HistoricoS
   const dataAtual = (await sql`SELECT data::text AS data FROM evento WHERE id = ${eventoAtualId}`) as { data: string }[];
   const corte = dataAtual[0]?.data ?? null;
 
-  // node wars: as 6 últimas ANTES desta (o evento aberto não entra — é ele que está sendo decidido)
+  /**
+   * As 6 últimas node wars ANTES desta, e só as FINALIZADAS.
+   *
+   * O `e.id <> atual` sozinho não bastava: qualquer outro evento ainda aberto (a node war de
+   * amanhã, um evento criado pra semana que vem) já virava quadrado, e todo mundo que tinha
+   * marcado nele aparecia de laranja — "marcou e não foi escalado" — antes de a escalação sequer
+   * ter sido montada. Com o filtro de status, o `<> atual` vira redundância defensiva: o evento
+   * que está sendo montado nunca está finalizado.
+   *
+   * Os OUTROS tipos (rosas etc.) não entram em quadrado nem em bola: cada linha do histórico é uma
+   * série homogênea, e misturar formatos de guerra na mesma sequência tornaria a comparação falsa.
+   */
   const nw = (await sql`
     SELECT e.id::int AS evento_id, e.data::text AS data, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo,
            r.war_id::int AS war_id
     FROM evento e LEFT JOIN evento_resultado r ON r.evento_id = e.id
-    WHERE e.id <> ${eventoAtualId} AND e.tipo = 'nodewar'
+    WHERE e.id <> ${eventoAtualId} AND e.tipo = 'nodewar' AND e.status = 'finalizado'
       AND (${corte}::date IS NULL OR e.data <= ${corte}::date)
     ORDER BY e.data DESC, e.id DESC LIMIT ${QUADRADOS}`) as { evento_id: number; data: string; titulo: string; tipo: string; war_id: number | null }[];
 
@@ -89,7 +106,7 @@ export async function historicoSemana(eventoAtualId: number): Promise<HistoricoS
     SELECT e.id::int AS evento_id, e.data::text AS data, COALESCE(e.titulo, e.tipo) AS titulo, e.tipo,
            r.war_id::int AS war_id
     FROM evento e LEFT JOIN evento_resultado r ON r.evento_id = e.id
-    WHERE e.id <> ${eventoAtualId} AND e.tipo = 'siege'
+    WHERE e.id <> ${eventoAtualId} AND e.tipo = 'siege' AND e.status = 'finalizado'
       AND (${corte}::date IS NULL OR e.data <= ${corte}::date)
     ORDER BY e.data DESC, e.id DESC LIMIT 1`) as { evento_id: number; data: string; titulo: string; tipo: string; war_id: number | null }[];
 

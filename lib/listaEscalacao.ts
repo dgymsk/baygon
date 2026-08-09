@@ -15,6 +15,7 @@
  * inteira é redesenhada num nível de detalhe mais barato — ver `linha`.
  */
 import { LIM_TOTAL, custoLinhas, cortarAteCaber, empacotarDescricoes, linhasDeNomes } from "@/lib/embedLimite";
+import { rotuloGuerra } from "@/lib/tiposGuerra";
 
 export type PartyL = { id: number; nome: string; icone: string | null };
 export type EscaladoL = {
@@ -72,14 +73,13 @@ export type DadosEncerramento = {
   comEstatistica?: number;
 };
 
-const ROTULO_TIPO: Record<string, string> = { nodewar: "Node War", siege: "Siege" };
 /** Cores REAIS (a paleta do site é carmesim pra tudo — aqui é o Discord, e verde tem que ser verde). */
 const COR_RESULTADO: Record<string, number> = { vitoria: 0x3fbf5f, participacao: 0xe0bd3a, derrota: 0xe04b4b };
 const FRASE: Record<string, string> = { vitoria: "Vitória", participacao: "Participação", derrota: "Derrota" };
 
 export function montarEncerramento(d: DadosEncerramento) {
   const r = (d.resultado ?? "").toLowerCase();
-  const tipoRot = d.tipo ? ROTULO_TIPO[d.tipo] ?? d.tipo : null;
+  const tipoRot = d.tipo ? rotuloGuerra(d.tipo) : null;
   // "Vitória na Siege" quando os dois são conhecidos; sem resultado, só "Evento concluído" — chutar
   // um resultado que ninguém gravou seria pior que não dizer nada
   const desfecho = FRASE[r] ? `${FRASE[r]}${tipoRot ? ` na ${tipoRot}` : ""}` : null;

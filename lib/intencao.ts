@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
-import { rotuloTipo, type Tipo } from "@/lib/participacaoConfig";
+import { rotuloGuerra, type TipoGuerra } from "@/lib/tiposGuerra";
+import { cfgDoTipo } from "@/lib/participacaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
 import { listFuncoes } from "@/lib/funcao";
 import { getPreset, listElencoEsperado } from "@/lib/intencaoPreset";
@@ -67,7 +68,7 @@ export async function montarPayload(messageId: string, presetId: number): Promis
   const info = await funcoesDoPreset(presetId);
   if (!info) return null;
   const fechada = !(await eventoAberto(messageId));
-  const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
+  const cfg = cfgDoTipo(await getParticipacaoConfig(), info.tipo);
   const [marcas, respostas, membros, perfil, emojis, meta] = await Promise.all([
     getMarcas(messageId), getRespostasInt(messageId), listElencoEsperado(),
     perfilGear(), getEmojiMapResolvido(), getGuildMeta(),
@@ -112,11 +113,11 @@ export async function postarIntencao(presetId: number, o: { titulo?: string | nu
   const info = await funcoesDoPreset(presetId);
   if (!info) return { ok: false, erro: "preset não encontrado" };
   if (!info.funcoes.length) return { ok: false, erro: "nenhuma função cadastrada — crie ao menos uma em Definições" };
-  const cfg = (await getParticipacaoConfig())[info.tipo as Tipo];
+  const cfg = cfgDoTipo(await getParticipacaoConfig(), info.tipo);
   // canal da CHAMADA vem da config do hub; cai no da tela /participacao pra não quebrar o legado
   // prioridade: canal do PRESET → canal da chamada do tipo → canal antigo de /participacao
-  const canal = info.canalId || (await getIntencaoConfig())[info.tipo as Tipo]?.canalChamada || cfg.channelId;
-  if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloTipo(info.tipo as Tipo)} não configurado` };
+  const canal = info.canalId || (await getIntencaoConfig())[info.tipo as TipoGuerra]?.canalChamada || cfg.channelId;
+  if (!canal) return { ok: false, erro: `canal da chamada de ${rotuloGuerra(info.tipo)} não configurado` };
 
   // nome do evento: o que a staff digitou (ou o modelo da agenda já resolvido). Sem nada, o padrão
   // é a DATA do disparo — é como a staff nomeia, e é o que faz os três caminhos (botão do hub,

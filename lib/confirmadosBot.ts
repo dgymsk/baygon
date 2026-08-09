@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { rotuloGuerra } from "@/lib/tiposGuerra";
 import { listEventos, situacaoAoVivoPorEvento } from "@/lib/eventos";
 import type { Confirmados, GrupoConf, PlayerConf } from "@/lib/confirmados";
 import type { SituacaoNN, MembroSit } from "@/lib/participacaoSituacao";
@@ -10,7 +11,7 @@ import type { SituacaoNN, MembroSit } from "@/lib/participacaoSituacao";
  * Vagas, Conferência in-game) são reaproveitados sem mudança.
  */
 
-const rotulo = (t: string) => (t === "siege" ? "Siege" : t === "nodewar" ? "Nodewar" : t);
+const rotulo = rotuloGuerra;
 
 /** Mesma codificação do /confirmados (Apollo): custom emoji → "c<id>", unicode → "u<char>", senão null.
  *  O componente Icone dos boards usa o 1º char como marcador de tipo (c/u) — NÃO pode ser chave arbitrária. */

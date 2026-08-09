@@ -33,6 +33,7 @@ const comandos = [
   // bot de INTENÇÃO (stack nova): um botão por PT, marca quantas quiser, sem limite de vaga
   { name: "intencao-nodewar", type: 1, description: "Posta a chamada de intenção da Nodewar (um botão por PT)." },
   { name: "intencao-siege", type: 1, description: "Posta a chamada de intenção da Siege (um botão por PT)." },
+  { name: "intencao-rosas", type: 1, description: "Posta a chamada de intenção das Rosas (um botão por PT)." },
   { name: "responder", type: 1, description: "Envia uma resposta/observação livre (fica registrada no log).", options: [
     { name: "texto", description: "O que você quer registrar", type: 3, required: true },
   ] },

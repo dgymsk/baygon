@@ -12,6 +12,19 @@ export type Tipo = (typeof TIPOS)[number];
 export const ehTipo = (t: unknown): t is Tipo => t === "nodewar" || t === "siege";
 export const rotuloTipo = (t: Tipo) => (t === "siege" ? "Siege" : "Nodewar");
 
+/**
+ * Config do bot ANTIGO pra um tipo qualquer de evento — inclusive os que ele não conhece.
+ *
+ * O bot novo (intenção) tem mais tipos que este aqui: `rosas` existe como evento e NÃO existe no
+ * formato deste config, que é um objeto de duas chaves gravado no banco. Indexar direto devolveria
+ * `undefined` e estouraria em runtime na leitura de `.channelId`. O padrão vazio faz o caminho
+ * seguir e o chamador dizer "canal de Rosas não configurado", que é a verdade — em vez de cair no
+ * canal da node war, que seria postar a chamada errada no lugar errado.
+ */
+export function cfgDoTipo(cfg: ParticipacaoConfig, tipo: string): TipoCfg {
+  return (cfg as Partial<Record<string, TipoCfg>>)[tipo] ?? tipoPadrao(tipo);
+}
+
 function tipoPadrao(label: string): TipoCfg {
   return { channelId: "", titulo: `Participação — ${label}`, mensagem: "Vai participar da war hoje? Marque abaixo.", pingRoleId: "", imagem: "", agenda: { ativo: false, dias: [], hora: "20:00" } };
 }

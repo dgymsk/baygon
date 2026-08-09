@@ -3,6 +3,7 @@ import { requireEditor } from "@/lib/requireAuth";
 import { sql } from "@/lib/db";
 import { METRICAS_RESULTADO } from "@/lib/metricasResultado";
 import { chaveNome } from "@/lib/nomes";
+import { tipoGuerraOu } from "@/lib/tiposGuerra";
 
 const METRICAS_OK = new Set(METRICAS_RESULTADO.map((m) => m.metrica));
 // nome de player novo: tira controles, colapsa espaço e limita tamanho (vira PK — input confiado do client).
@@ -58,14 +59,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   /**
    * TIPO DA GUERRA, gravado em `wars.tipo` — é ele que faz a régua da siege usar o papel de siege.
    *
-   * Coerção dura como em lib/eventos.ts (`o.tipo === "siege" ? "siege" : "nodewar"`): `evento.tipo`
-   * é TEXT sem CHECK, e `wars.tipo` tem CHECK — qualquer lixo aqui derrubaria a gravação inteira.
+   * Coerção dura pela mesma função do resto do app: `evento.tipo` é TEXT sem CHECK no banco e
+   * `wars.tipo` TEM CHECK — qualquer lixo aqui derrubaria a gravação inteira.
    *
    * Sem esta parte a migração conserta as wars já gravadas e a PRÓXIMA siege entra com tipo NULL,
    * volta a ser pontuada como node war, e ainda com cara de resolvido.
    */
-  const tipoWar: "nodewar" | "siege" = ev[0].tipo === "siege" ? "siege" : "nodewar";
-  const ehSiege = tipoWar === "siege";
+  const tipoWar = tipoGuerraOu(ev[0].tipo);
+  const ehSiege = tipoWar === "siege";   // rosas herda o papel de node war — ver migrate_tipo_rosas
   const erRow = (await sql`SELECT resultado, war_id::int AS war_id FROM evento_resultado WHERE evento_id = ${eid}`) as { resultado: string | null; war_id: number | null }[];
   const resultadoWar = erRow[0]?.resultado ? erRow[0].resultado.toLowerCase() : null; // canônico minúsculo (= evento_resultado/RESULTADOS)
 

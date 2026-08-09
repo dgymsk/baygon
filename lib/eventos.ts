@@ -4,6 +4,7 @@ import { listPlayers } from "@/lib/players";
 import { chaveNome } from "@/lib/nomes";
 import { montarSituacao, type SituacaoNN, type PerfilGear } from "@/lib/participacaoSituacao";
 import { tierOk, type Tier } from "@/lib/tier";
+import { tipoGuerraOu } from "@/lib/tiposGuerra";
 
 /**
  * HUB de EVENTOS. Cada disparo cria 1 evento; a rodada de participação (participacao_post) é a 1ª
@@ -291,7 +292,7 @@ export async function resumoExclusao(id: number): Promise<ResumoExclusao> {
  * `presetId` decide quais PTs viram as colunas da escalação — sem ele o board abre sem coluna nenhuma.
  */
 export async function criarEventoManual(o: { tipo: string; data?: string; titulo?: string | null; status?: EventoStatus; presetId?: number | null; tier?: unknown }): Promise<Evento> {
-  const tipo = o.tipo === "siege" ? "siege" : "nodewar";
+  const tipo = tipoGuerraOu(o.tipo);
   const data = o.data && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
   const titulo = o.titulo ? String(o.titulo).slice(0, 200) : null;
   // valida aqui pra não estourar no CHECK do banco (que viraria 500 sem explicação)
@@ -318,6 +319,35 @@ export async function renomearEvento(id: number, titulo: unknown): Promise<{ ok:
   const rows = (await sql`UPDATE evento SET titulo = ${t || null} WHERE id = ${id} RETURNING titulo, tipo`) as { titulo: string | null; tipo: string }[];
   if (!rows[0]) return { ok: false, titulo: null };
   return { ok: true, titulo: rows[0].titulo ?? rows[0].tipo };
+}
+
+/**
+ * TIPO e DIA do evento, corrigíveis depois de criado.
+ *
+ * Os dois nascem de automatismo — o tipo vem do preset da chamada, a data do relógio de Brasília no
+ * momento em que o bot postou — e os dois erram por motivos banais: a chamada saiu com o preset
+ * errado, ou a guerra acabou virando outro formato. Sem conserto, o erro é permanente e contamina o
+ * que depende deles: `wars.tipo` (que decide se a régua é a de siege), os quadradinhos do histórico
+ * e a ordenação do hub.
+ *
+ * `data` só troca com `YYYY-MM-DD` válido; qualquer outra coisa deixa como está, em vez de zerar.
+ * O tipo passa por `tipoGuerraOu`, que é a mesma coerção usada na gravação da war.
+ *
+ * Isto NÃO reescreve `wars.tipo` de uma war já gravada: quem faz isso é a regravação do print (que
+ * converge pro evento). Trocar o tipo de um evento que já tem estatística exige regravar — está
+ * dito na tela.
+ */
+export async function editarEvento(id: number, o: { tipo?: unknown; data?: unknown }): Promise<{ ok: boolean; tipo?: string; data?: string }> {
+  const tipo = o.tipo === undefined ? null : tipoGuerraOu(o.tipo);
+  const data = typeof o.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
+  if (!tipo && !data) return { ok: false };
+  const rows = (await sql`
+    UPDATE evento
+       SET tipo = COALESCE(${tipo}, tipo),
+           data = COALESCE(${data}::date, data)
+     WHERE id = ${id} RETURNING tipo, data::text AS data`) as { tipo: string; data: string }[];
+  if (!rows[0]) return { ok: false };
+  return { ok: true, tipo: rows[0].tipo, data: rows[0].data };
 }
 
 /** Stats já gravados de uma war (formato longo → agrupado por jogador) — pré-carrega a tabela de revisão

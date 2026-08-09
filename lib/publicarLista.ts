@@ -2,6 +2,7 @@ import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { getIntencaoConfig } from "@/lib/intencaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
+import { cfgDoTipo } from "@/lib/participacaoConfig";
 import { montarLista, montarEncerramento, type EscaladoL, type PartyL } from "@/lib/listaEscalacao";
 import { getPreset } from "@/lib/intencaoPreset";
 import { listParties, partiesDoEvento } from "@/lib/party";
@@ -10,7 +11,7 @@ import { getEmojiMapResolvido } from "@/lib/emojiConfig";
 import { listarEmojisGuild } from "@/lib/discordApi";
 import { getGuildMeta } from "@/lib/guildConfig";
 import { filaDaChamada } from "@/lib/threadChamada";
-import { type Tipo } from "@/lib/participacaoConfig";
+import { type TipoGuerra as Tipo } from "@/lib/tiposGuerra";
 
 /**
  * Publica a escalação no canal da LISTA (separado do canal da chamada). É UMA mensagem por
@@ -37,9 +38,11 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
 
   const cfg = await getIntencaoConfig();
   // canal da lista vazio → cai no canal da chamada, senão o botão não faria nada em silêncio
+  // o bot antigo só conhece nodewar/siege — cfgDoTipo devolve vazio pros demais (ex.: rosas) em vez
+  // de estourar, e o erro que sobe é "nenhum canal configurado", que é a verdade
   const canal = cfg[post.tipo as Tipo]?.canalLista
     || cfg[post.tipo as Tipo]?.canalChamada
-    || (await getParticipacaoConfig())[post.tipo as Tipo]?.channelId;
+    || cfgDoTipo(await getParticipacaoConfig(), post.tipo).channelId;
   if (!canal) return { ok: false, erro: "nenhum canal configurado para a lista" };
 
   /**

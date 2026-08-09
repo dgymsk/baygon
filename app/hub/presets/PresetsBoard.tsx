@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
+import { TIPOS_GUERRA as TIPOS, rotuloGuerra } from "@/lib/tiposGuerra";
 import { TIERS, corTier } from "@/lib/tier";
 import type { Preset } from "@/lib/intencaoPreset";
 import type { Funcao } from "@/lib/funcao";
@@ -20,7 +21,7 @@ import type { Party } from "@/lib/party";
  * Definições continua dona dos CATÁLOGOS (função, party, lendário). Aqui só se referencia o que já
  * existe lá — criar função nova continua sendo lá, num lugar só.
  */
-const TIPOS = ["nodewar", "siege"] as const;
+
 
 export default function PresetsBoard({ presets, funcoes, parties, canEdit }: {
   presets: Preset[]; funcoes: Funcao[]; parties: Party[]; canEdit: boolean;
@@ -76,7 +77,7 @@ export default function PresetsBoard({ presets, funcoes, parties, canEdit }: {
         </p>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {TIPOS.map((t) => <button key={t} onClick={() => { setTipo(t); setSelId(null); }} style={{ ...chip(tipo === t), cursor: "pointer", textTransform: "capitalize" }}>{t}</button>)}
+          {TIPOS.map((t) => <button key={t} onClick={() => { setTipo(t); setSelId(null); }} style={{ ...chip(tipo === t), cursor: "pointer" }}>{rotuloGuerra(t)}</button>)}
         </div>
 
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>

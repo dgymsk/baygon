@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { C, CorResultado, corDoResultado } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
+import { TIPOS_GUERRA, ehTipoGuerra, rotuloGuerra } from "@/lib/tiposGuerra";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
 import StatsWar from "./StatsWar";
 import ApagarEvento from "./ApagarEvento";
@@ -527,6 +528,22 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
 
+  /**
+   * TIPO e DIA. Os dois nascem de automatismo — o tipo vem do preset da chamada, a data do relógio
+   * no momento em que o bot postou — e os dois erram por motivo banal (preset errado, guerra que
+   * virou outro formato). Sem conserto na tela, o erro é permanente e contamina os quadradinhos do
+   * histórico, a ordenação do hub e a régua da estatística.
+   */
+  async function editarEvento(campo: "tipo" | "data", valor: string) {
+    if (!podeRenomear || !evento || !valor) return;
+    if (campo === "tipo" && evento.temWar && !confirm(
+      `Trocar o tipo pra ${rotuloGuerra(valor)}?\n\nEste evento já tem estatística gravada. A war continua marcada como "${rotuloGuerra(evento.tipo)}" até você REGRAVAR o print — é a regravação que reescreve o tipo da war, e com ele a régua usada no painel.`)) return;
+    setSalvando(true);
+    try { await api({ acao: "evento-editar", eventoId: evento.eventoId, [campo]: valor }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   async function encerrarEvento(encerrar: boolean) {
     if (!podeRenomear || !evento) return;
     // sem resultado gravado o cartão do Discord sai sem desfecho ("🏁 Evento concluído", cinza).
@@ -717,8 +734,26 @@ export default function EventoBoard({
               {podeRenomear && <span style={{ color: C.borderSoft, fontSize: 13, marginLeft: 8, verticalAlign: "middle" }}>✎</span>}
             </h1>
           )}
-          <div style={{ color: C.mute, fontSize: 12.5, marginTop: 3 }}>
-            {new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {evento.tipo}
+          <div style={{ color: C.mute, fontSize: 12.5, marginTop: 3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {/* dia e tipo VIRAM CAMPO pra staff: os dois vêm de automatismo (relógio do bot e preset
+                da chamada) e erram por motivo banal. Pra quem não edita, continuam texto. */}
+            {podeRenomear ? (
+              <>
+                <input type="date" value={evento.data.slice(0, 10)} disabled={salvando}
+                  onChange={(e) => editarEvento("data", e.target.value)}
+                  title="dia da guerra — muda a ordem no hub e quais guerras entram no histórico"
+                  style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 7, color: C.texto, padding: "2px 6px", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }} />
+                <select value={ehTipoGuerra(evento.tipo) ? evento.tipo : ""} disabled={salvando}
+                  onChange={(e) => editarEvento("tipo", e.target.value)}
+                  title="formato da guerra — decide a régua da estatística e em qual série do histórico ele entra"
+                  style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 7, color: C.texto, padding: "2px 6px", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
+                  {!ehTipoGuerra(evento.tipo) && <option value="">{evento.tipo}</option>}
+                  {TIPOS_GUERRA.map((t) => <option key={t} value={t}>{rotuloGuerra(t)}</option>)}
+                </select>
+              </>
+            ) : (
+              <>{new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {rotuloGuerra(evento.tipo)}</>
+            )}
             {evento.tier && <span style={{ color: corTier[evento.tier], fontWeight: 700 }}> · {evento.tier}</span>}
             {evento.status !== "aberto" && <span style={{ color: C.amarelo }}> · 🔒 {evento.status}</span>}
             {/* `C.verde` e `C.vermelho` são o MESMO carmesim nesta paleta — vitória e derrota saíam

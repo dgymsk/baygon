@@ -9,6 +9,7 @@ import { casarNome } from "@/lib/casarNome";
 import { chaveNome } from "@/lib/nomes";
 import { anunciarNaThread } from "@/lib/threadChamada";
 import { publicarLista } from "@/lib/publicarLista";
+import { ehTipoGuerra } from "@/lib/tiposGuerra";
 import { eventoAberto, podeMarcar } from "@/lib/intencao";
 import { roleDaFuncao } from "@/lib/funcao";
 import { eventoExiste } from "@/lib/eventos";
@@ -188,7 +189,8 @@ export async function POST(req: Request) {
     }
 
     // /intencao-* — bot NOVO (marca por PT, sem limite de vaga). Staff, igual ao antigo.
-    const mIntCmd = nome.match(/^intencao-(nodewar|siege)$/);
+    const mIntCmd = nome.match(/^intencao-([a-z]+)$/);
+    if (mIntCmd && !ehTipoGuerra(mIntCmd[1])) return efemero("⛔ Tipo de guerra desconhecido.");
     if (mIntCmd) {
       if (!(await ehStaff(body.member?.roles))) return efemero("⛔ Sem permissão — apenas staff pode disparar.");
       const tokenInt = String(body.token ?? "");
