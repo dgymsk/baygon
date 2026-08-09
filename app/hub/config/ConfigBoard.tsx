@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { TIPOS_GUERRA as TIPOS, rotuloGuerra } from "@/lib/tiposGuerra";
+import { TIERS } from "@/lib/tier";
+import type { ServidorPadrao } from "@/lib/servidorGuerra";
 import EmojiPicker from "@/app/emojis/EmojiPicker";
 import type { EmojiGuild } from "@/lib/discordApi";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
@@ -26,8 +28,8 @@ type Jog = { nome: string; lendario: boolean; ativo: boolean; guilda: string | n
 
 
 export default function ConfigBoard({
-  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], emojis = [], canEdit,
-}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; emojis?: EmojiGuild[]; canEdit: boolean }) {
+  funcoes, parties, presets, membros, jogadores, canais, guildas, roles = [], emojis = [], canEdit, servidores = [],
+}: { funcoes: Funcao[]; parties: Party[]; presets: Preset[]; membros: PlayerFuncao[]; jogadores: Jog[]; canais: IntencaoConfig; guildas: GuildEntry[]; roles?: { id: string; name: string }[]; emojis?: EmojiGuild[]; canEdit: boolean; servidores?: ServidorPadrao[] }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ k: "ok" | "err"; t: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -159,6 +161,34 @@ export default function ConfigBoard({
               <button disabled={busy || !nf.nome.trim()} onClick={() => { api({ acao: "funcao-criar", nome: nf.nome, emoji: nf.emoji }, "função criada"); setNf({ nome: "", emoji: "" }); }} style={btn(C.verde)}>+ Função</button>
             </div>
           )}
+        </div>
+
+        {/* SERVIDOR DA GUERRA por (tipo, tier). Vai na DM de "marque participar in-game": é o dado
+            que falta pra pessoa abrir o jogo e ir pro lugar certo, e ele quase nunca muda — então
+            mora aqui, e não em cada evento. O evento pode sobrescrever quando a guerra sair fora do
+            padrão. Vazio APAGA o padrão, em vez de gravar string vazia: "não configurado" e "é
+            vazio" precisam ser distinguíveis, senão o vazio venceria a herança do tier. */}
+        <div style={card}>
+          <Titulo>Servidor da guerra <Sub>vai na DM de participar in-game · em branco = sem padrão</Sub></Titulo>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+            {TIPOS.map((t) => (
+              <div key={t} style={{ border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 12px", background: C.inputBg }}>
+                <div style={{ color: C.amarelo, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{rotuloGuerra(t)}</div>
+                {/* "" primeiro: é o padrão de quem não tem tier (siege, rosas) e o fallback dos que têm */}
+                {["", ...TIERS].map((tr) => (
+                  <div key={tr} style={{ marginBottom: 7 }}>
+                    <label style={{ color: C.mute, fontSize: 11, display: "block", marginBottom: 3 }}>
+                      {tr || "qualquer tier (padrão)"}
+                    </label>
+                    <input defaultValue={servidores.find((s) => s.tipo === t && s.tier === tr)?.servidor ?? ""}
+                      disabled={!canEdit} placeholder={tr ? "usa o padrão acima" : "ex.: Ulukita 1 / Calpheon 1"}
+                      onBlur={(e) => api({ acao: "servidor-padrao", tipo: t, tier: tr, servidor: e.target.value }, "servidor salvo")}
+                      style={{ ...input, width: "100%", padding: "5px 9px", fontSize: 12.5 }} />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* CANAIS — dois, de propósito: a chamada é pra todo mundo responder, a lista é o resultado */}

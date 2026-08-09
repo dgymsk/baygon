@@ -110,14 +110,15 @@ type Ev = { uuid: string; titulo: string; tituloRaw: string | null;
   tamanhoMax: number | null; tamanhoMaxPreset: number | null;
   /** a MENSAGEM do bot está fechada pra novas marcações — nada a ver com o status do evento */
   intencaoFechada: boolean;
-  tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null };
+  tipo: string; tier: Tier | null; exigeRegistro: boolean; data: string; status: string; resultado: string | null; temWar: boolean; eventoId: number; messageId: string | null; warId: number | null; presetId: number | null;
+  servidor: string | null; };
 export type EvLink = { uuid: string; titulo: string; data: string; status: string };
 export type PresetLite = { id: number; nome: string; tipo: string };
 
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [],
-  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [],
+  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [], servidorPadrao = null,
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -130,6 +131,7 @@ export default function EventoBoard({
   chamadas?: LoteResumo[];       // histórico de disparos de DM deste evento
   warsSemana?: HistoricoSemana;  // quais guerras cada casinha representa, na mesma ordem
   foraDaRegua?: string[];        // quem já está fora das médias desta war
+  servidorPadrao?: string | null; // servidor do (tipo, tier) — placeholder quando o evento não tem override
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
@@ -534,8 +536,9 @@ export default function EventoBoard({
    * virou outro formato). Sem conserto na tela, o erro é permanente e contamina os quadradinhos do
    * histórico, a ordenação do hub e a régua da estatística.
    */
-  async function editarEvento(campo: "tipo" | "data", valor: string) {
-    if (!podeRenomear || !evento || !valor) return;
+  async function editarEvento(campo: "tipo" | "data" | "servidor", valor: string) {
+    // servidor vazio é significativo (volta a seguir o padrão); os outros dois, não
+    if (!podeRenomear || !evento || (!valor && campo !== "servidor")) return;
     if (campo === "tipo" && evento.temWar && !confirm(
       `Trocar o tipo pra ${rotuloGuerra(valor)}?\n\nEste evento já tem estatística gravada. A war continua marcada como "${rotuloGuerra(evento.tipo)}" até você REGRAVAR o print — é a regravação que reescreve o tipo da war, e com ele a régua usada no painel.`)) return;
     setSalvando(true);
@@ -750,6 +753,18 @@ export default function EventoBoard({
                   {!ehTipoGuerra(evento.tipo) && <option value="">{evento.tipo}</option>}
                   {TIPOS_GUERRA.map((t) => <option key={t} value={t}>{rotuloGuerra(t)}</option>)}
                 </select>
+                {/* SERVIDOR: em branco segue o padrão de (tipo, tier), que aparece como placeholder.
+                    É o dado que vai na DM de "marque participar in-game" — sem ele a pessoa abre o
+                    jogo e adivinha pra onde ir. */}
+                <input defaultValue={evento.servidor ?? ""} disabled={salvando} maxLength={80}
+                  key={`srv-${evento.servidor ?? ""}`}
+                  placeholder={servidorPadrao ? `🌐 ${servidorPadrao}` : "🌐 servidor…"}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  onBlur={(e) => { if (e.target.value.trim() !== (evento.servidor ?? "")) editarEvento("servidor", e.target.value); }}
+                  title={servidorPadrao
+                    ? `servidor desta guerra. Em branco segue o padrão do tipo: ${servidorPadrao}`
+                    : "servidor desta guerra. Não há padrão configurado pra este tipo — defina em Definições"}
+                  style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 7, color: evento.servidor ? C.texto : C.mute, padding: "2px 7px", fontSize: 12, fontFamily: "inherit", width: 170 }} />
               </>
             ) : (
               <>{new Date(evento.data).toLocaleDateString("pt-BR", { timeZone: "UTC", weekday: "long", day: "2-digit", month: "2-digit" })} · {rotuloGuerra(evento.tipo)}</>

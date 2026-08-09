@@ -2,6 +2,7 @@ import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { motivoDaFalha, registrarEnvio, rotuloMotivo, SEM_DISCORD, type FalhaDM } from "@/lib/entregaDM";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { servidorDoEvento } from "@/lib/servidorGuerra";
 import { chaveNome } from "@/lib/nomes";
 
 /**
@@ -225,7 +226,7 @@ export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; publico
 
 /** O corpo da DM, por tipo. Convocar tem botões (a resposta volta pro banco); cobrar in-game não —
  *  o site não tem como saber que a pessoa marcou no jogo, e um botão aqui fingiria resolver. */
-function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: string | null, link: string | null): Record<string, unknown> {
+function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: string | null, link: string | null, servidor: string | null = null): Record<string, unknown> {
   if (tipo === "intencao") {
     return {
       allowed_mentions: { parse: [] },
@@ -257,11 +258,16 @@ function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: strin
       }],
     };
   }
+  // in-game: o SERVIDOR vem antes da instrução, porque é o dado que falta pra pessoa agir — "abra o
+  // jogo e marque participar" sem dizer ONDE deixa a pessoa adivinhando. Sem padrão configurado nem
+  // override, a linha some inteira em vez de sair "Servidor: —".
   return {
     allowed_mentions: { parse: [] },
     embeds: [{
       title: `🎮 Marque participar in-game — ${titulo}`.slice(0, 256),
-      description: `Você está escalado${party ? ` na **${party}**` : ""}, mas ainda não apareceu na lista de participantes do jogo.\n\nAbra o Black Desert e marque **participar** na guerra. Quem não marca não entra na conta.`,
+      description: `Você está escalado${party ? ` na **${party}**` : ""}, mas ainda não apareceu na lista de participantes do jogo.`
+        + (servidor ? `\n\n🌐 Servidor da guerra: **${servidor}**` : "")
+        + "\n\nAbra o Black Desert e marque **participar** na guerra. Quem não marca não entra na conta.",
       color: 0xd6b22a,
     }],
   };
@@ -373,6 +379,9 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
   await sql`UPDATE dm_lote_alvo SET status = 'pendente' WHERE lote_id = ${loteId} AND status = 'enviando' AND (tentado IS NULL OR tentado < now() - interval '2 minutes')`;
   // link direto pra mensagem da chamada — é o que faz o lembrete ser acionável em vez de recado
   const link = lote.tipo === "intencao" ? await linkDaChamada(lote.evento_id) : null;
+  // SERVIDOR da guerra — sem ele o pedido de marcar in-game manda a pessoa abrir o jogo e adivinhar
+  // pra onde ir. Lido uma vez por lote, e não por destinatário. Só o pedido de in-game precisa.
+  const servidor = lote.tipo === "ingame" ? await servidorDoEvento(lote.evento_id) : null;
 
   const pend = (await sql`
     UPDATE dm_lote_alvo SET status = 'enviando', tentado = now()
@@ -394,7 +403,7 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
         if (!dm.ok) erro = await motivoDaFalha(dm, "abrir");
         else {
           const ch = (await dm.json()) as { id: string };
-          const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party, link)) }, 2);
+          const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party, link, servidor)) }, 2);
           if (!res.ok) erro = await motivoDaFalha(res, "enviar");
         }
       } catch (e) { erro = (e as Error).message; }

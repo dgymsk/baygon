@@ -337,17 +337,23 @@ export async function renomearEvento(id: number, titulo: unknown): Promise<{ ok:
  * converge pro evento). Trocar o tipo de um evento que já tem estatística exige regravar — está
  * dito na tela.
  */
-export async function editarEvento(id: number, o: { tipo?: unknown; data?: unknown }): Promise<{ ok: boolean; tipo?: string; data?: string }> {
+export async function editarEvento(id: number, o: { tipo?: unknown; data?: unknown; servidor?: unknown }):
+  Promise<{ ok: boolean; tipo?: string; data?: string; servidor?: string | null }> {
   const tipo = o.tipo === undefined ? null : tipoGuerraOu(o.tipo);
   const data = typeof o.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.data) ? o.data : null;
-  if (!tipo && !data) return { ok: false };
+  // servidor tem TRÊS estados, e por isso não entra no COALESCE junto com os outros: ausente = não
+  // mexe, texto = override desta guerra, vazio = volta a seguir o padrão de (tipo, tier).
+  const mexeServidor = o.servidor !== undefined;
+  const servidor = typeof o.servidor === "string" ? o.servidor.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+  if (!tipo && !data && !mexeServidor) return { ok: false };
   const rows = (await sql`
     UPDATE evento
        SET tipo = COALESCE(${tipo}, tipo),
-           data = COALESCE(${data}::date, data)
-     WHERE id = ${id} RETURNING tipo, data::text AS data`) as { tipo: string; data: string }[];
+           data = COALESCE(${data}::date, data),
+           servidor = CASE WHEN ${mexeServidor}::boolean THEN ${servidor || null} ELSE servidor END
+     WHERE id = ${id} RETURNING tipo, data::text AS data, servidor`) as { tipo: string; data: string; servidor: string | null }[];
   if (!rows[0]) return { ok: false };
-  return { ok: true, tipo: rows[0].tipo, data: rows[0].data };
+  return { ok: true, tipo: rows[0].tipo, data: rows[0].data, servidor: rows[0].servidor };
 }
 
 /** Stats já gravados de uma war (formato longo → agrupado por jogador) — pré-carrega a tabela de revisão

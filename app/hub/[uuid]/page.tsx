@@ -6,6 +6,7 @@ import { getPreset, listPresets, listPlayerFuncoes } from "@/lib/intencaoPreset"
 import { desempenhoDaWar, aliancasDaWar } from "@/lib/eventos";
 import { historicoSemana } from "@/lib/historicoSemana";
 import { listarForaDaRegua } from "@/lib/foraDaRegua";
+import { padraoDoEvento } from "@/lib/servidorGuerra";
 import { getMarcas, getRespostasInt } from "@/lib/intencao";
 import { getEscalacao } from "@/lib/escalacao";
 import { getPresenca } from "@/lib/presencaEvento";
@@ -34,13 +35,13 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const rows = (await sql`
     SELECT e.id::int AS evento_id, p.message_id, COALESCE(e.preset_id, p.preset_id)::int AS preset_id,
            e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.titulo AS titulo_raw, e.tamanho_max::int AS tamanho_max, COALESCE(p.fechada, FALSE) AS intencao_fechada, e.tipo, e.tier, e.exige_registro, e.data::text AS data, e.status,
-           r.resultado, r.war_id::int AS war_id
+           r.resultado, r.war_id::int AS war_id, e.servidor
     FROM evento e
     LEFT JOIN LATERAL (SELECT ip.message_id, ip.preset_id, ip.fechada FROM intencao_post ip
                        WHERE ip.evento_id = e.id ORDER BY ip.criado DESC LIMIT 1) p ON TRUE
     LEFT JOIN evento_resultado r ON r.evento_id = e.id
     WHERE e.uuid = ${uuid}::uuid LIMIT 1
-  `) as { evento_id: number; message_id: string | null; preset_id: number | null; uuid: string; titulo: string; titulo_raw: string | null; tamanho_max: number | null; intencao_fechada: boolean; tipo: string; tier: Tier | null; exige_registro: boolean; data: string; status: string; resultado: string | null; war_id: number | null }[];
+  `) as { evento_id: number; message_id: string | null; preset_id: number | null; uuid: string; titulo: string; titulo_raw: string | null; tamanho_max: number | null; intencao_fechada: boolean; tipo: string; tier: Tier | null; exige_registro: boolean; data: string; status: string; resultado: string | null; war_id: number | null; servidor: string | null }[];
 
   const ev = rows[0];
   if (!ev) {
@@ -48,7 +49,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   }
   const temChamada = ev.message_id != null;
 
-  const [preset, funcoes, parties, partiesProprias, chamadas, semana, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, foraDaRegua, vizinhos, playerFuncoes, fila] = await Promise.all([
+  const [preset, funcoes, parties, partiesProprias, chamadas, semana, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, foraDaRegua, vizinhos, servidorPadrao, playerFuncoes, fila] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     listFuncoes(), listParties(), partiesDoEvento(ev.evento_id), historicoLotes(ev.evento_id),
     historicoSemana(ev.evento_id),
@@ -65,6 +66,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     // não estava na lista.
     sql`SELECT e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.data::text AS data, e.status
         FROM evento e ORDER BY e.data DESC, e.criado DESC, e.id DESC LIMIT 40`,
+    padraoDoEvento(ev.evento_id),   // servidor do (tipo, tier) — placeholder do campo na tela
     listPlayerFuncoes(), // pool de quem não teve chamada
     // fila de chegada: o "quem marcou primeiro", que agora aparece no card
     ev.message_id ? filaDaChamada(ev.message_id) : Promise.resolve([] as Awaited<ReturnType<typeof filaDaChamada>>),
@@ -199,10 +201,10 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
 
   return (
     <EventoBoard
-      evento={{ uuid: ev.uuid, titulo: ev.titulo, tituloRaw: ev.titulo_raw, tamanhoMax: ev.tamanho_max, tamanhoMaxPreset: preset?.tamanho_max ?? null, intencaoFechada: ev.intencao_fechada, tipo: ev.tipo, tier: ev.tier, exigeRegistro: ev.exige_registro, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id }}
+      evento={{ uuid: ev.uuid, titulo: ev.titulo, tituloRaw: ev.titulo_raw, tamanhoMax: ev.tamanho_max, tamanhoMaxPreset: preset?.tamanho_max ?? null, intencaoFechada: ev.intencao_fechada, tipo: ev.tipo, tier: ev.tier, exigeRegistro: ev.exige_registro, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id, servidor: ev.servidor }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
       catalogoParties={parties.map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }))} partiesProprias={partiesProprias != null}
-      chamadas={chamadas} warsSemana={semana} foraDaRegua={foraDaRegua.map((f) => f.nomeFamilia)}
+      chamadas={chamadas} warsSemana={semana} foraDaRegua={foraDaRegua.map((f) => f.nomeFamilia)} servidorPadrao={servidorPadrao}
       canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} podeRenomear={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
       playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}

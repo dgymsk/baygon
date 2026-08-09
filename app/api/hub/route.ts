@@ -6,6 +6,7 @@ import { criarFuncao, atualizarFuncao, excluirFuncao, ordenarFuncoes, listFuncoe
 import { criarParty, atualizarParty, excluirParty, ordenarParties, listParties, setLendario, setPartiesDoEvento } from "@/lib/party";
 import { listPresets, getPreset, criarPreset, atualizarPreset, excluirPreset, addPlayerFuncao, delPlayerFuncao } from "@/lib/intencaoPreset";
 import { criarEventoManual, deletarEvento, resumoExclusao, renomearEvento, editarEvento } from "@/lib/eventos";
+import { setServidorPadrao, listServidores } from "@/lib/servidorGuerra";
 import { silenciarOrfas } from "@/lib/silenciarEvento";
 import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem, fecharIntencao } from "@/lib/intencao";
@@ -159,14 +160,21 @@ export async function POST(req: Request) {
       return NextResponse.json(r);
     }
 
+    // padrão de servidor por (tipo, tier) — configuração da aliança, vale pros próximos eventos
+    case "servidor-padrao": {
+      const r = await setServidorPadrao(b.tipo, b.tier, b.servidor);
+      if (!r.ok) return NextResponse.json({ error: r.erro }, { status: 400 });
+      return NextResponse.json({ servidores: await listServidores() });
+    }
+
     /**
-     * TIPO e DIA do evento. Fora do gate de OPERACAO junto com renomear e a régua: consertar o
+     * TIPO, DIA e SERVIDOR do evento. Fora do gate de OPERACAO junto com renomear e a régua: consertar o
      * cabeçalho de uma guerra que já passou é o caso mais comum de edição, e travar isso seria
      * travar o conserto.
      */
     case "evento-editar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      const r = await editarEvento(eid(), { tipo: b.tipo, data: b.data });
+      const r = await editarEvento(eid(), { tipo: b.tipo, data: b.data, servidor: b.servidor });
       if (!r.ok) return NextResponse.json({ error: "evento não encontrado ou nada pra mudar" }, { status: 404 });
       // a lista publicada leva a data no cabeçalho, e o cartão de encerramento leva o tipo
       await espelharLista();
