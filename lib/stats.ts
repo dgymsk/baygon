@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { TIPOS_SEM_REGUA } from "@/lib/tiposGuerra";
 
 /**
  * Médias de performance por player (relativas à régua), para a tela de membros.
@@ -26,7 +27,9 @@ export async function mediasMembros(n = 5): Promise<MediasMap> {
       -- papel POR WAR (ver lib/score.ts): cada war usa a régua do tipo dela
       JOIN papel_na_war p ON p.war_id = d.war_id AND p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
+      -- rosas fora da régua (ver TIPOS_SEM_REGUA): lá o jogo só dá abates e mortes
       WHERE d.metrica = ANY(${STAT_METRICAS}::text[])
+        AND COALESCE(w.tipo,'') <> ALL(${TIPOS_SEM_REGUA}::text[])
     ),
     bench AS (  -- régua por war/grupo/métrica: core se houver, senão grupo daquela war
       SELECT war_id, grupo, metrica,
@@ -77,6 +80,7 @@ export async function statsEu(familia: string, n = 5): Promise<EuMetrica[]> {
     WITH minhas AS (  -- últimas N wars que o player jogou
       SELECT w.war_id FROM wars w
       WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
+        AND COALESCE(w.tipo,'') <> ALL(${TIPOS_SEM_REGUA}::text[])   -- rosas não entra na régua
       ORDER BY w.data DESC LIMIT ${n}
     ),
     /**

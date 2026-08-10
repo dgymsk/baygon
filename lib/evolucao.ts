@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { TIPOS_SEM_REGUA } from "@/lib/tiposGuerra";
 
 /**
  * Série temporal de performance (% vs régua do CORE, lente core_grupo),
@@ -41,7 +42,10 @@ export async function evolucao(
       JOIN papel_na_war p ON p.war_id = d.war_id AND p.nome_familia = d.nome_familia
       JOIN metricas m ON m.metrica = d.metrica
       LEFT JOIN war_player wp ON wp.war_id = d.war_id AND wp.nome_familia = d.nome_familia
+      -- rosas fora: não tem estatística de combate, só abates/mortes da lista de participação.
+      -- COALESCE porque war órfã tem tipo NULL, e <> ALL com NULL a eliminaria sem querer.
       WHERE w.data BETWEEN ${from}::date AND ${to}::date
+        AND COALESCE(w.tipo,'') <> ALL(${TIPOS_SEM_REGUA}::text[])
     ),
     scoped AS (
       SELECT wd.* FROM wd

@@ -34,3 +34,22 @@ export const METRICAS_RESULTADO: { metrica: string; rotulo: string; dica: string
   { metrica: "tempo_morto",         rotulo: "Tempo Morto",   dica: "Tempo Morto",                            formato: "tempo" },
   { metrica: "tempo_sobrevivencia", rotulo: "Tempo Vivo",    dica: "Tempo Vivo",                             formato: "tempo" },
 ];
+
+/**
+ * As métricas que o print daquele TIPO de guerra entrega.
+ *
+ * Rosas não tem tela de estatística de combate no jogo — o que existe é a lista de participação,
+ * com abates e mortes e mais nada. Desenhar as 15 colunas ali seria pedir à staff que preenchesse
+ * 13 campos que o jogo nunca mostra.
+ *
+ * As chaves são as MESMAS (`kills`, `mortes`), e não métricas próprias de rosas: é o mesmo fato do
+ * mundo, e duplicá-las quebraria o histórico de quem quisesse somar abates de todas as guerras.
+ * O que separa rosas do resto é a régua (ver TIPOS_SEM_REGUA em lib/tiposGuerra), não a métrica.
+ */
+export const METRICAS_ROSAS = ["kills", "mortes"];
+
+export function metricasDoTipo(tipo: string | null | undefined) {
+  if (tipo !== "rosas") return METRICAS_RESULTADO;
+  const por = new Map(METRICAS_RESULTADO.map((m) => [m.metrica, m]));
+  return METRICAS_ROSAS.map((k) => por.get(k)).filter((m): m is (typeof METRICAS_RESULTADO)[number] => !!m);
+}

@@ -100,7 +100,7 @@ export default async function EventoDetalhe({ params }: { params: Promise<{ uuid
         <div style={{ ...card, marginTop: 14 }}>
           <div style={secTitulo}>Stats da guerra (por membro)</div>
           <ResultadoExtrair id={ev.id} canEdit={canEdit} players={nomes} warIdInicial={ev.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
-            foraIniciais={foraDaRegua.map((f) => f.nomeFamilia)} />
+            foraIniciais={foraDaRegua.map((f) => f.nomeFamilia)} tipo={ev.tipo} />
         </div>
       </div>
     </div>

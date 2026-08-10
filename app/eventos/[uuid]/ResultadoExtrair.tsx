@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { chaveNome, acharSimilar } from "@/lib/nomes";
 import { normalizarValor } from "@/lib/normalizarValor";
-import { METRICAS_RESULTADO } from "@/lib/metricasResultado";
+import { metricasDoTipo } from "@/lib/metricasResultado";
 import { parseColado } from "@/lib/parseColado";
 
 type Cell = { val: string; raw?: string;
@@ -29,7 +29,7 @@ function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> 
 }
 
 // Faceta RESULTADO (parte 2): extrai os stats do print via Claude Opus, revisa e grava em wars/desempenho.
-export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, statsIniciais, aliancasIniciais, ativo = true, foraIniciais = [], podeRegua }: { id: number; canEdit: boolean; players: string[]; warIdInicial: number | null; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[];
+export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, statsIniciais, aliancasIniciais, ativo = true, foraIniciais = [], podeRegua, tipo = null }: { id: number; canEdit: boolean; players: string[]; warIdInicial: number | null; statsIniciais?: StatIniciais[]; aliancasIniciais?: string[];
   /** aba visível. As abas do hub ficam montadas pra não perder estado, então sem isto o Ctrl+V da
    *  conferência in-game cairia aqui também, e o print seria lido pelo extrator errado. */
   ativo?: boolean;
@@ -40,8 +40,15 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
    * acabou — o servidor já deixa (a ação fica fora do gate de evento encerrado), era a tela que
    * escondia o botão. Sem valor explícito, segue o `canEdit`.
    */
-  podeRegua?: boolean }) {
+  podeRegua?: boolean;
+  /**
+   * TIPO da guerra — decide QUAIS colunas a tabela desenha. Na Rosas o jogo só dá abates e mortes,
+   * e desenhar as 15 seria pedir à staff que preenchesse 13 campos que o jogo nunca mostra.
+   * O caminho de gravação é o mesmo pros dois: mesmas chaves de métrica, mesmo endpoint.
+   */
+  tipo?: string | null }) {
   const podeMexerRegua = podeRegua ?? canEdit;
+  const METRICAS = metricasDoTipo(tipo);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   // pré-carrega os stats já gravados da war ligada (senão regravar seria replace-all destrutivo)
@@ -378,7 +385,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
       {msg && <div style={{ color: C.verde, fontSize: 12.5, marginBottom: 8 }}>{msg}</div>}
 
       {linhas.length === 0 ? (
-        <div style={{ color: C.dim, fontSize: 12.5 }}>{canEdit ? "Cole o print com Ctrl+V em qualquer lugar da página (Shift+Win+S pra recortar), ou escolha o arquivo. A IA (Opus) transcreve os números; você revisa e grava. Vários prints acumulam — mescla por jogador." : "Sem stats extraídos."}</div>
+        <div style={{ color: C.dim, fontSize: 12.5 }}>{canEdit ? (tipo === "rosas" ? "Cole o print da LISTA DE PARTICIPAÇÃO da Rosas com Ctrl+V (Nome · Cargo · Abates · Mortes), ou escolha o arquivo. A IA transcreve; você revisa e grava — quem estiver na lista é marcado como presente. Vários prints acumulam." : "Cole o print com Ctrl+V em qualquer lugar da página (Shift+Win+S pra recortar), ou escolha o arquivo. A IA (Opus) transcreve os números; você revisa e grava. Vários prints acumulam — mescla por jogador.") : "Sem stats extraídos."}</div>
       ) : (
         <>
           {novosCount > 0 && <div style={{ color: C.verde, fontSize: 12, marginBottom: 6 }}>➕ {novosCount} jogador(es) fora da base entram em <a href="/membros" style={{ color: C.verde }}><b>Membros</b></a> como <b>não registrados</b> (grupo Indefinido) ao gravar, e ficam ali até fazerem a jornada de registro — é só ajustar grupo/classe/guilda. Se algum for leitura errada, troque pra “— ignorar —”.</div>}
@@ -403,7 +410,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
               <thead>
                 <tr>
                   <th style={{ ...th, textAlign: "left", position: "sticky", left: 0, background: C.surface, zIndex: 1 }}>Jogador</th>
-                  {METRICAS_RESULTADO.map((m) => <th key={m.metrica} style={th} title={m.dica}>{m.rotulo}</th>)}
+                  {METRICAS.map((m) => <th key={m.metrica} style={th} title={m.dica}>{m.rotulo}</th>)}
                   <th style={th}></th>
                 </tr>
               </thead>
@@ -436,7 +443,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
                         {players.map((p) => <option key={p} value={p}>{p}</option>)}
                       </select>
                     </td>
-                    {METRICAS_RESULTADO.map((m) => (
+                    {METRICAS.map((m) => (
                       <td key={m.metrica} style={{ padding: "2px 3px" }}>
                         <input value={r.valores[m.metrica]?.val ?? ""} onChange={(e) => setCell(r.key, m.metrica, e.target.value)}
                           title={r.valores[m.metrica]?.divergente

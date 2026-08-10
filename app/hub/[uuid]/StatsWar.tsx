@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/theme";
 import { chaveNome } from "@/lib/nomes";
-import { METRICAS_RESULTADO } from "@/lib/metricasResultado";
+import { metricasDoTipo } from "@/lib/metricasResultado";
 import { formatarMetrica, abreviar, segParaTempo } from "@/lib/formatarMetrica";
 
 /**
@@ -22,12 +22,14 @@ export type ContextoJogador = { chave: string; escalado: boolean; confirmouIngam
 
 type Ordem = { col: string; desc: boolean };
 
-export default function StatsWar({ stats, contexto, aliancas = [], warId = null, canEdit = false, foraIniciais = [] }: {
+export default function StatsWar({ stats, contexto, aliancas = [], warId = null, canEdit = false, foraIniciais = [], tipo = null }: {
   stats: LinhaStat[]; contexto: ContextoJogador[]; aliancas?: string[];
-  warId?: number | null; canEdit?: boolean;
+  warId?: number | null; canEdit?: boolean; tipo?: string | null;
   foraIniciais?: string[];   // nomes de família já marcados como fora da régua nesta war
 }) {
-  const [ordem, setOrdem] = useState<Ordem>({ col: "dano_em_player", desc: true });
+  // as colunas seguem o TIPO: na Rosas o jogo só dá abates e mortes (ver metricasDoTipo)
+  const METRICAS_RESULTADO = metricasDoTipo(tipo);
+  const [ordem, setOrdem] = useState<Ordem>({ col: tipo === "rosas" ? "kills" : "dano_em_player", desc: true });
   const [soEscalados, setSoEscalados] = useState(false);
   // estado local em cima do que veio do servidor: o toggle precisa responder no clique, e a página
   // só recarrega depois. Semeado por CONTEÚDO, então um refresh com dado novo reconcilia.

@@ -29,6 +29,24 @@ export const SLOTS_SERVIDOR: Record<TipoGuerra, number> = { nodewar: 2, siege: 1
 export const slotsDoTipo = (t: string | null | undefined): number =>
   (t && SLOTS_SERVIDOR[t as TipoGuerra]) || 1;
 
+/**
+ * Tipos que NÃO entram na régua (score, evolução e médias vs core).
+ *
+ * Rosas é o caso: o jogo não dá tela de estatística de combate ali — só a lista de participação com
+ * abates e mortes. Misturar isso na régua compararia duas coisas diferentes e sujaria a série
+ * temporal de quem joga node war.
+ *
+ * A exclusão é EXPLÍCITA e não acidental: hoje rosas já não apareceria nas médias porque kills e
+ * mortes não estão em `grupos_metricas` nem em STAT_METRICAS — mas isso é coincidência de
+ * configuração, e no dia em que alguém acrescentar "kills" à régua o rosas entraria junto, calado.
+ *
+ * Em SQL use `COALESCE(w.tipo,'') <> ALL(...)`: com `= ANY`, war de tipo NULL (órfã, sem evento)
+ * daria NULL, o NOT daria NULL, e ela sumiria das estatísticas sem ninguém pedir.
+ */
+export const TIPOS_SEM_REGUA: readonly string[] = ["rosas"];
+export const contaNaRegua = (t: string | null | undefined): boolean =>
+  !TIPOS_SEM_REGUA.includes(t ?? "");
+
 const ROTULO: Record<TipoGuerra, string> = { nodewar: "Node War", siege: "Siege", rosas: "Rosas" };
 /** Rótulo pra tela. Tipo desconhecido volta cru em vez de sumir — é como o resto do app já faz. */
 export const rotuloGuerra = (t: string | null | undefined): string =>

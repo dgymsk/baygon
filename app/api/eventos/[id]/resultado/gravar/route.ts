@@ -198,6 +198,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ON CONFLICT (war_id, nome_familia) DO NOTHING`;
   }
 
+  /**
+   * ROSAS: o print de participação É a presença.
+   *
+   * Na node war são duas coisas distintas — a conferência in-game diz quem entrou, o print do
+   * resultado diz o que cada um fez — e por isso a presença não é derivada da estatística lá. Na
+   * Rosas não existe a primeira tela: quem aparece na lista entrou, e obrigar a staff a remarcar
+   * 40 pessoas à mão numa segunda tela seria trabalho inventado.
+   *
+   * DO NOTHING, e não upsert: se alguém já foi marcado à mão (inclusive como NÃO veio), a decisão
+   * humana é mais nova e mais informada que a leitura da imagem, e regravar o print não pode
+   * atropelá-la em silêncio.
+   */
+  let presencas = 0;
+  if (tipoWar === "rosas") {
+    const r = (await sql`
+      INSERT INTO evento_presenca (evento_id, chave, familia, participar, atualizado)
+      SELECT ${eid}, u.chave, u.nome, TRUE, now()
+      FROM UNNEST(${[...new Set(nomes)].map(chaveNome)}::text[], ${[...new Set(nomes)]}::text[]) AS u(chave, nome)
+      ON CONFLICT (evento_id, chave) DO NOTHING
+      RETURNING chave`) as unknown[];
+    presencas = r.length;
+  }
+
   const nPlayers = new Set(nomes).size;
-  return NextResponse.json({ ok: true, warId, gravadas: arr.length, players: nPlayers, cadastrados, ignorados: [...ignorados] });
+  return NextResponse.json({ ok: true, warId, gravadas: arr.length, players: nPlayers, presencas, cadastrados, ignorados: [...ignorados] });
 }

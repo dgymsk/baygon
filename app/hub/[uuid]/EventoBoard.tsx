@@ -1197,13 +1197,15 @@ export default function EventoBoard({
         <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface, padding: 14 }}>
           {!evento.temWar && (
             <div style={{ color: C.amarelo, fontSize: 12.5, marginBottom: 12 }}>
-              ⚠ Sem estatística da war ainda — é ela que fecha o funil e diz quem realmente jogou. Grave abaixo.
+              {evento.tipo === "rosas"
+                ? <>⚠ Sem a lista de participação ainda — na Rosas o jogo não dá tela de estatística de combate, então é ela que diz quem jogou. Cole o print abaixo (Nome · Cargo · Abates · Mortes); a presença é marcada junto.</>
+                : <>⚠ Sem estatística da war ainda — é ela que fecha o funil e diz quem realmente jogou. Grave abaixo.</>}
             </div>
           )}
           <StatsWar stats={statsIniciais} contexto={[...todos.values()].map((j) => ({
             chave: j.chave, escalado: partyDe(j) != null, confirmouIngame: j.confirmouIngame,
             party: parties.find((x) => x.id === partyDe(j))?.nome ?? null, lendario: j.lendario,
-          }))} aliancas={aliancasIniciais} warId={evento.warId} canEdit={podeRenomear} foraIniciais={foraDaRegua} />
+          }))} aliancas={aliancasIniciais} warId={evento.warId} canEdit={podeRenomear} foraIniciais={foraDaRegua} tipo={evento.tipo} />
 
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
             <thead>
@@ -1234,7 +1236,7 @@ export default function EventoBoard({
                 guerra passada é o caso normal, e o servidor já permite — ver war-fora-da-regua */}
             <ResultadoExtrair id={evento.eventoId} canEdit={canEdit} players={playersNomes}
               warIdInicial={evento.warId} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}
-              foraIniciais={foraDaRegua} podeRegua={podeRenomear}
+              foraIniciais={foraDaRegua} podeRegua={podeRenomear} tipo={evento.tipo}
               ativo={aba === "stats"} />
           </div>
         </div>
