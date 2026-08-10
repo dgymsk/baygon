@@ -136,7 +136,8 @@ export default function EventoBoard({
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
-  const [local, setLocal] = useState<Record<string, number | null>>({});
+  // chave -> { alvo: pra onde a tela mandou, base: o que o servidor dizia quando o arraste começou }
+  const [local, setLocal] = useState<Record<string, { alvo: number | null; base: number | null }>>({});
   const [sobre, setSobre] = useState<number | "pool" | null>(null);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -159,7 +160,7 @@ export default function EventoBoard({
   const [fechados, setFechados] = useState<Record<string, boolean>>({});
   const [busca, setBusca] = useState("");
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
-  const [ordemLocal, setOrdemLocal] = useState<Record<string, number>>({});
+  const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; base: number | null }>>({});
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
@@ -174,16 +175,24 @@ export default function EventoBoard({
   }, [grupos, envolvidos]);
 
   /**
-   * O estado otimista do arrastar vale só enquanto DISCORDA do servidor. Ele é descartado na
-   * leitura, não num efeito que limpa depois: senão o override seria eterno e passaria por cima do
-   * que chega do auto-refresh — a recusa de alguém na DM, ou o remanejo de outra pessoa da staff,
-   * nunca apareceriam nesta aba.
+   * ESTADO OTIMISTA DO ARRASTAR — vale enquanto o SERVIDOR AINDA NÃO SE MEXEU.
+   *
+   * A regra antiga era "vale enquanto DISCORDA do servidor", e ela tinha o defeito exatamente ao
+   * contrário do que o comentário prometia: quando o servidor mandava o jogador pra um lugar
+   * DIFERENTE do que a tela supôs, os dois discordavam pra sempre e o override sobrevivia a todo
+   * auto-refresh. Foi o que aconteceu com uma recusa: a staff arrastou alguém pra uma PT, ele
+   * recusou a convocação na DM, o servidor tirou ele da PT (party_id = NULL) — e a tela continuou
+   * mostrando ele escalado, agora com a seta de "recusou mas está na escalação". Só um F5 corrigia.
+   *
+   * Agora cada override guarda a BASE: o valor que o servidor tinha quando o arraste começou. O
+   * palpite local morre assim que o servidor sai daquele valor — não importa se foi pra onde a tela
+   * pediu (gravou) ou pra outro lugar (recusa, outra pessoa da staff). Quem chegou depois vence.
    */
   const overrides = useMemo(() => {
     const n: Record<string, number | null> = {};
     for (const [chave, v] of Object.entries(local)) {
       const j = todos.get(chave);
-      if (!j || j.escaladoEm !== v) n[chave] = v; // servidor ainda não confirmou → mantém o local
+      if (!j || j.escaladoEm === v.base) n[chave] = v.alvo; // servidor parado na base → palpite vale
     }
     return n;
   }, [local, todos]);
@@ -191,7 +200,7 @@ export default function EventoBoard({
     const n: Record<string, number> = {};
     for (const [chave, v] of Object.entries(ordemLocal)) {
       const j = todos.get(chave);
-      if (!j || j.ordemPt !== v) n[chave] = v;   // servidor ainda não confirmou → mantém o local
+      if (!j || j.ordemPt === v.base) n[chave] = v.alvo;
     }
     return n;
   }, [ordemLocal, todos]);
@@ -304,7 +313,7 @@ export default function EventoBoard({
     if (!canEdit || !evento) return;
     const j = todos.get(chave);
     if (!j || partyDe(j) === partyId) return;
-    setLocal((s) => ({ ...s, [chave]: partyId }));
+    setLocal((s) => ({ ...s, [chave]: { alvo: partyId, base: j.escaladoEm } }));
     setSalvando(true);
     try {
       await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
@@ -682,13 +691,13 @@ export default function EventoBoard({
     const para = lista.indexOf(chaveAlvo);
     if (para < 0) return;
     lista.splice(para, 0, chaveArrastada);
-    setOrdemLocal((s) => ({ ...s, ...Object.fromEntries(lista.map((c, i) => [c, i])) }));
+    setOrdemLocal((s) => ({ ...s, ...Object.fromEntries(lista.map((c, i) => [c, { alvo: i, base: todos.get(c)?.ordemPt ?? null }])) }));
     // quem vinha de OUTRA PT precisa mudar de party antes de ter posição aqui
     const j = todos.get(chaveArrastada);
     setSalvando(true);
     try {
       if (j && partyDe(j) !== partyId) {
-        setLocal((s) => ({ ...s, [chaveArrastada]: partyId }));
+        setLocal((s) => ({ ...s, [chaveArrastada]: { alvo: partyId, base: j.escaladoEm } }));
         await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
       }
       await api({ acao: "escalacao-reordenar", eventoId: evento.eventoId, partyId, chaves: lista });
@@ -1592,7 +1601,14 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       {lider && <span title="líder da PT" style={{ fontSize: 11, flexShrink: 0 }}>👑</span>}
       {j.lendario && <Pokebola />}
       {recusou && <span style={{ color: RUBRO, fontSize: 11 }} title="respondeu que NÃO vai — saiu da PT">✖</span>}
-      {j.confirmouEscalacao === true && <span style={{ color: VERDE, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
+      {j.confirmouEscalacao === true && escalado && <span style={{ color: VERDE, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
+      {/* disse SIM e não está em PT nenhuma. O caso que cria isso: recusar e depois aceitar — o
+          recusar tira da PT (party_id = NULL) e o aceitar seguinte NÃO tem como devolver, porque a
+          vaga de origem já foi esquecida e pode ter sido preenchida. Sem este aviso a pessoa fica
+          no pool com um ✔ verde, parecendo resolvida, e ninguém reescala. */}
+      {j.confirmouEscalacao === true && !escalado && (
+        <span style={{ color: C.laranja, fontSize: 11 }} title="disse que VAI e não está em nenhuma PT — precisa ser reescalado">✔!</span>
+      )}
       {/* estar IN-GAME responde na prática a pergunta que o ⏳ fazia: quem já apareceu no jogo não
           está "aguardando resposta", está lá. Mostrar os dois virava alarme em quem está tranquilo */}
       {escalado && j.confirmouEscalacao == null && !j.confirmouIngame && (j.convidado
