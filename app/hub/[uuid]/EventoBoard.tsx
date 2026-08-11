@@ -136,8 +136,8 @@ export default function EventoBoard({
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
-  // chave -> { alvo: pra onde a tela mandou, base: o que o servidor dizia quando o arraste começou }
-  const [local, setLocal] = useState<Record<string, { alvo: number | null; base: number | null }>>({});
+  // chave -> { alvo: pra onde a tela mandou, pend: a gravação ainda está no ar }
+  const [local, setLocal] = useState<Record<string, { alvo: number | null; pend: boolean }>>({});
   const [sobre, setSobre] = useState<number | "pool" | null>(null);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -160,7 +160,7 @@ export default function EventoBoard({
   const [fechados, setFechados] = useState<Record<string, boolean>>({});
   const [busca, setBusca] = useState("");
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
-  const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; base: number | null }>>({});
+  const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; pend: boolean }>>({});
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
@@ -175,35 +175,47 @@ export default function EventoBoard({
   }, [grupos, envolvidos]);
 
   /**
-   * ESTADO OTIMISTA DO ARRASTAR — vale enquanto o SERVIDOR AINDA NÃO SE MEXEU.
+   * ESTADO OTIMISTA DO ARRASTAR — vive enquanto a GRAVAÇÃO está no ar, e nem um instante a mais.
    *
-   * A regra antiga era "vale enquanto DISCORDA do servidor", e ela tinha o defeito exatamente ao
-   * contrário do que o comentário prometia: quando o servidor mandava o jogador pra um lugar
-   * DIFERENTE do que a tela supôs, os dois discordavam pra sempre e o override sobrevivia a todo
-   * auto-refresh. Foi o que aconteceu com uma recusa: a staff arrastou alguém pra uma PT, ele
-   * recusou a convocação na DM, o servidor tirou ele da PT (party_id = NULL) — e a tela continuou
-   * mostrando ele escalado, agora com a seta de "recusou mas está na escalação". Só um F5 corrigia.
+   * Duas tentativas anteriores compararam VALORES pra decidir quando descartar o palpite, e as duas
+   * furaram pelo mesmo motivo: valor volta. Não existe comparação de valor que distinga "o servidor
+   * ainda não respondeu" de "o servidor respondeu e o valor por acaso é esse".
    *
-   * Agora cada override guarda a BASE: o valor que o servidor tinha quando o arraste começou. O
-   * palpite local morre assim que o servidor sai daquele valor — não importa se foi pra onde a tela
-   * pediu (gravou) ou pra outro lugar (recusa, outra pessoa da staff). Quem chegou depois vence.
+   *   1ª regra — "vale enquanto DISCORDA do servidor": quando o servidor mandava o jogador pra um
+   *      lugar DIFERENTE do que a tela supôs, os dois discordavam pra sempre e o palpite era eterno.
+   *   2ª regra — "vale enquanto o servidor está na BASE": arrastar alguém do pool pra uma PT tem
+   *      base NULL; quando ele recusa a convocação, o servidor devolve o party_id pra NULL — que é
+   *      a base — e o palpite RESSUSCITA. A pessoa reaparece escalada, agora com a seta de "recusou
+   *      mas está na escalação", e só F5 tira.
+   *
+   * Agora o critério é o CICLO DE VIDA da requisição, que é o que a gente de fato sabe:
+   *   `pend: true`  — a requisição está voando; o palpite manda, pra tela não piscar.
+   *   `pend: false` — a requisição voltou OK; o palpite vale só até a próxima leva de dados chegar.
+   * O efeito abaixo limpa todo palpite não-pendente sempre que os dados do servidor mudam. Depois
+   * disso, o servidor é a única verdade — inclusive quando ele discorda de nós, que é justamente o
+   * caso da recusa.
    */
   const overrides = useMemo(() => {
     const n: Record<string, number | null> = {};
-    for (const [chave, v] of Object.entries(local)) {
-      const j = todos.get(chave);
-      if (!j || j.escaladoEm === v.base) n[chave] = v.alvo; // servidor parado na base → palpite vale
-    }
+    for (const [chave, v] of Object.entries(local)) n[chave] = v.alvo;
     return n;
-  }, [local, todos]);
+  }, [local]);
   const ordemOverrides = useMemo(() => {
     const n: Record<string, number> = {};
-    for (const [chave, v] of Object.entries(ordemLocal)) {
-      const j = todos.get(chave);
-      if (!j || j.ordemPt === v.base) n[chave] = v.alvo;
-    }
+    for (const [chave, v] of Object.entries(ordemLocal)) n[chave] = v.alvo;
     return n;
-  }, [ordemLocal, todos]);
+  }, [ordemLocal]);
+  /**
+   * Chegou dado novo do servidor (auto-sync de 20s, router.refresh, outra aba) → todo palpite que
+   * já foi gravado morre aqui. Só sobrevive o que ainda está no ar.
+   *
+   * Depende de `todos`, que é memo de `grupos`+`envolvidos`: ele só muda quando a página recebe
+   * props novas de verdade, e é exatamente esse o momento em que o palpite deixou de ser útil.
+   */
+  useEffect(() => {
+    setLocal((s) => (Object.values(s).some((v) => !v.pend) ? Object.fromEntries(Object.entries(s).filter(([, v]) => v.pend)) : s));
+    setOrdemLocal((s) => (Object.values(s).some((v) => !v.pend) ? Object.fromEntries(Object.entries(s).filter(([, v]) => v.pend)) : s));
+  }, [todos]);
   const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
   /** As colunas de hoje, na ordem. A ordem otimista só vale enquanto DISCORDA do servidor —
    *  descartar na leitura (e não num efeito) evita que ela sobreviva ao auto-refresh de 20s. */
@@ -313,10 +325,12 @@ export default function EventoBoard({
     if (!canEdit || !evento) return;
     const j = todos.get(chave);
     if (!j || partyDe(j) === partyId) return;
-    setLocal((s) => ({ ...s, [chave]: { alvo: partyId, base: j.escaladoEm } }));
+    setLocal((s) => ({ ...s, [chave]: { alvo: partyId, pend: true } }));
     setSalvando(true);
     try {
       await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
+      // gravou: o palpite deixa de ser pendente e morre na próxima leva de dados (ver o efeito acima)
+      setLocal((s) => (s[chave] ? { ...s, [chave]: { ...s[chave], pend: false } } : s));
       setErro(""); router.refresh();
     } catch (e) {
       setErro((e as Error).message);
@@ -691,16 +705,18 @@ export default function EventoBoard({
     const para = lista.indexOf(chaveAlvo);
     if (para < 0) return;
     lista.splice(para, 0, chaveArrastada);
-    setOrdemLocal((s) => ({ ...s, ...Object.fromEntries(lista.map((c, i) => [c, { alvo: i, base: todos.get(c)?.ordemPt ?? null }])) }));
+    setOrdemLocal((s) => ({ ...s, ...Object.fromEntries(lista.map((c, i) => [c, { alvo: i, pend: true }])) }));
     // quem vinha de OUTRA PT precisa mudar de party antes de ter posição aqui
     const j = todos.get(chaveArrastada);
     setSalvando(true);
     try {
       if (j && partyDe(j) !== partyId) {
-        setLocal((s) => ({ ...s, [chaveArrastada]: { alvo: partyId, base: j.escaladoEm } }));
+        setLocal((s) => ({ ...s, [chaveArrastada]: { alvo: partyId, pend: true } }));
         await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
       }
       await api({ acao: "escalacao-reordenar", eventoId: evento.eventoId, partyId, chaves: lista });
+      setOrdemLocal((s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, { ...v, pend: false }])));
+      setLocal((s) => (s[chaveArrastada] ? { ...s, [chaveArrastada]: { ...s[chaveArrastada], pend: false } } : s));
       setErro(""); router.refresh();
     } catch (e) {
       setErro((e as Error).message);
