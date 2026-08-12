@@ -7,16 +7,30 @@ import { sql } from "@/lib/db";
  */
 
 export type Metrica = { metrica: string; rotulo: string; direcao: string; universal: boolean };
-export type PlayerCfg = { nome_familia: string; is_core: boolean; classe_bdo: string | null; ativo: boolean };
+export type PlayerCfg = { nome_familia: string; is_core: boolean; classe_bdo: string | null; ativo: boolean; guilda: string };
 export type GrupoCfg = { grupo: string; metricas: string[]; players: PlayerCfg[] };
-export type Config = { metricas: Metrica[]; grupos: GrupoCfg[] };
+/** Quem está esperando classificação — o bloco "Indefinido" vira lista de tarefa, não parede. */
+export type SemGrupo = { guilda: string; n: number; comDano: number };
+export type Config = { metricas: Metrica[]; grupos: GrupoCfg[]; semGrupo: SemGrupo[] };
 
 export async function getConfig(): Promise<Config> {
   const metricas = (await sql`
     SELECT metrica, rotulo, direcao, universal FROM metricas ORDER BY metrica
   `) as Metrica[];
+  /**
+   * SÓ QUEM AINDA ESTÁ NA ALIANÇA.
+   *
+   * Ex-membro não pode ser régua de nada: ele não joga mais, e o número dele é de um gear e de um
+   * meta que ficaram pra trás. A tela antiga listava todo mundo (o ex só ficava com opacidade 0.5),
+   * e o resultado foi que 10 dos 16 cores eram gente que já tinha saído — quatro grupos tinham como
+   * régua APENAS ex-membros.
+   *
+   * Não filtra por guilda de propósito: a régua é da ALIANÇA, não do Manicômio. Quem é da OSSD
+   * entra na mesma lista, e a tela mostra a guilda ao lado do nome pra staff saber quem é quem.
+   */
   const players = (await sql`
-    SELECT nome_familia, grupo, is_core, classe_bdo, ativo FROM players ORDER BY grupo, nome_familia
+    SELECT nome_familia, grupo, is_core, classe_bdo, ativo, guilda FROM players
+    WHERE ativo ORDER BY grupo, nome_familia
   `) as (PlayerCfg & { grupo: string })[];
   const gm = (await sql`SELECT grupo, metrica FROM grupos_metricas`) as { grupo: string; metrica: string }[];
 
@@ -24,7 +38,7 @@ export async function getConfig(): Promise<Config> {
   for (const p of players) {
     if (!byGrupo.has(p.grupo)) byGrupo.set(p.grupo, { grupo: p.grupo, metricas: [], players: [] });
     byGrupo.get(p.grupo)!.players.push({
-      nome_familia: p.nome_familia, is_core: p.is_core, classe_bdo: p.classe_bdo, ativo: p.ativo,
+      nome_familia: p.nome_familia, is_core: p.is_core, classe_bdo: p.classe_bdo, ativo: p.ativo, guilda: p.guilda,
     });
   }
   for (const r of gm) {
@@ -36,7 +50,21 @@ export async function getConfig(): Promise<Config> {
   const grupos = [...byGrupo.values()].sort((a, b) =>
     a.grupo === "Indefinido" ? 1 : b.grupo === "Indefinido" ? -1 : a.grupo.localeCompare(b.grupo)
   );
-  return { metricas, grupos };
+  /**
+   * Quem está ATIVO e sem grupo, por guilda — e quantos desses já têm dano gravado.
+   *
+   * Sem grupo a pessoa não pode ser régua nem aparece no painel: `scoped` em lib/score.ts é INNER
+   * JOIN com grupos_metricas, e "Indefinido" não tem métrica nenhuma. O número com dano é o que
+   * mede o custo real de deixar assim — é gente que jogou e cujo desempenho está invisível.
+   */
+  const semGrupo = (await sql`
+    SELECT guilda,
+           count(*)::int AS n,
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.nome_familia = p.nome_familia))::int AS "comDano"
+    FROM players p WHERE ativo AND grupo = 'Indefinido'
+    GROUP BY guilda ORDER BY guilda`) as SemGrupo[];
+
+  return { metricas, grupos, semGrupo };
 }
 
 /**

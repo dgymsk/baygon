@@ -130,7 +130,19 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
                   <span style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>{g.players.length} players · {sel.size} métricas</span>
                 </div>
                 {indef ? (
-                  <p style={{ color: C.mute, fontSize: 12, margin: 0 }}>Players sem grupo definido — não entram no cálculo. Reclassifique em Membros (ou crie/renomeie grupos acima).</p>
+                  <div style={{ color: C.mute, fontSize: 12 }}>
+                    <p style={{ margin: "0 0 6px" }}>Sem grupo definido — não entram no cálculo nem podem ser régua. Reclassifique em <Link className="navlink" href="/membros" style={{ color: C.verde }}>Membros</Link>.</p>
+                    {/* o custo de deixar assim, em número: quem já JOGOU e está invisível no painel */}
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                      {cfg.semGrupo.map((s) => (
+                        <span key={s.guilda}>
+                          <b style={{ color: C.texto }}>{s.guilda}</b>: {s.n} ativo(s)
+                          {s.comDano > 0 && <span style={{ color: C.laranja }}> · {s.comDano} já com estatística gravada e fora do painel</span>}
+                        </span>
+                      ))}
+                      {!cfg.semGrupo.length && <span>ninguém — todo mundo classificado.</span>}
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <div style={{ marginBottom: 14 }}>
@@ -149,14 +161,26 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
                     </div>
                     <div>
                       <div style={{ marginBottom: 8, fontSize: 11, color: C.mute, textTransform: "uppercase", letterSpacing: 1 }}>Cores (régua) — clique para marcar</div>
+                      {/* grupo sem core não produz a lente "core do grupo" no painel: o bench_core
+                          de lib/score.ts simplesmente não gera linha, e o JOIN descarta o grupo
+                          inteiro. Sem este aviso, some sem dizer por quê. */}
+                      {g.players.length > 0 && !g.players.some((p) => cores.has(p.nome_familia)) && (
+                        <div style={{ color: C.laranja, fontSize: 11.5, marginBottom: 8 }}>
+                          ⚠ Nenhum core ativo aqui — a lente “core do grupo” não sai no painel pra {g.grupo}. Marque ao menos um.
+                        </div>
+                      )}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {g.players.length === 0 && <span style={{ color: C.mute, fontSize: 12 }}>Sem players nesse grupo.</span>}
+                        {g.players.length === 0 && <span style={{ color: C.mute, fontSize: 12 }}>Sem players ativos nesse grupo.</span>}
                         {g.players.map((p) => {
                           const on = cores.has(p.nome_familia);
                           return (
                             <button key={p.nome_familia} onClick={() => toggleCore(p.nome_familia)}
-                              style={{ borderRadius: 8, border: `1px solid ${on ? C.amarelo : C.border}`, background: on ? C.amareloTint : C.inputBg, color: on ? C.amarelo : C.texto, padding: "6px 12px", fontSize: 13, cursor: "pointer", opacity: p.ativo ? 1 : 0.5 }}>
-                              {on ? "★ " : ""}{p.nome_familia}
+                              title={`${p.nome_familia} · ${p.guilda}`}
+                              style={{ borderRadius: 8, border: `1px solid ${on ? C.amarelo : C.border}`, background: on ? C.amareloTint : C.inputBg, color: on ? C.amarelo : C.texto, padding: "6px 12px", fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+                              <span>{on ? "★ " : ""}{p.nome_familia}</span>
+                              {/* a régua é da ALIANÇA: a guilda vai ao lado pra staff saber de quem
+                                  é o nome sem ter que abrir /membros */}
+                              <span style={{ color: C.dim, fontSize: 10.5, letterSpacing: 0.5 }}>{p.guilda}</span>
                             </button>
                           );
                         })}
@@ -171,6 +195,7 @@ export default function ConfigForm({ initial, canEdit = true }: { initial: Confi
 
         <p style={{ color: C.mute, fontSize: 11.5, marginTop: 16 }}>
           ★ = core · ↓ = métrica onde menos é melhor · operações de grupo recarregam e descartam edições de cores/métricas não salvas (você é avisado).
+          <br />Só aparece quem ainda está na aliança: ex-membro não pode ser régua — não joga mais, e o número dele é de outro gear e outro meta. Ao salvar, quem saiu perde o core.
         </p>
         {/* Esta tela grava com um UPDATE sem WHERE (replace-all na coluna inteira), que é
             incompatível com o tri-estado de is_core_siege — um save aqui viraria todo "herda" em
