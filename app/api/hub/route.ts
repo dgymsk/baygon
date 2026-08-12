@@ -14,6 +14,7 @@ import { aplicarEscalacao, limparEscalacao, getEscalacao, reordenarParty } from 
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
 import { marcarForaDaRegua } from "@/lib/foraDaRegua";
+import { limparResposta } from "@/lib/convocacao";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
@@ -178,6 +179,24 @@ export async function POST(req: Request) {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
       const r = await setServidoresDoEvento(eid(), b.servidores);
       if (!r.ok) return NextResponse.json({ error: "evento não encontrado" }, { status: 404 });
+      return NextResponse.json(r);
+    }
+
+    /**
+     * DESFAZ a resposta de alguém na convocação (o clique errado no "❌ Não vou").
+     *
+     * Fora do gate de OPERACAO junto com renomear e a régua, e pelo mesmo motivo: o clique errado
+     * costuma ser descoberto DEPOIS que a guerra acabou, e aí a marca de "recusou" já está no
+     * histórico da semana daquela pessoa. Exigir reabrir o evento inteiro pra desfazer um toque
+     * seria transformar um conserto de dez segundos em cerimônia.
+     */
+    case "resposta-limpar": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const chave = typeof b.chave === "string" ? b.chave : "";
+      if (!chave) return NextResponse.json({ error: "jogador inválido" }, { status: 400 });
+      const r = await limparResposta(eid(), chave);
+      if (!r.ok) return NextResponse.json({ error: "jogador não está na escalação deste evento" }, { status: 404 });
+      await espelharLista();   // a lista publicada mostra quem recusou; ele sai de lá também
       return NextResponse.json(r);
     }
 

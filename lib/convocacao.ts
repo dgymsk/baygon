@@ -26,3 +26,27 @@ export async function responderConvocacao(eventoId: number, userId: string, acei
     RETURNING familia`) as { familia: string }[];
   return rows[0] ? { ok: true, familia: rows[0].familia } : { ok: false };
 }
+
+/**
+ * APAGA a resposta de alguém na convocação, devolvendo-o ao estado "ainda não respondeu".
+ *
+ * O caso que cria isto é banal e frequente: a pessoa clica em "❌ Não vou" sem querer, ou muda de
+ * ideia cinco minutos depois. Sem uma saída, aquele clique vira permanente — ela sai da PT, ganha o
+ * nome rubro na tela e, quando o evento fecha, um traço de "recusou" no histórico da semana. Punir
+ * alguém por um toque errado é o pior tipo de dado errado, porque parece verdade.
+ *
+ * O que apaga: `confirmou` e `respondeu_em`. O que NÃO apaga: `convidado_em` — ela FOI convocada, e
+ * isso é fato; preservar é o que faz o card voltar pro ⏳ ("aguardando resposta") em vez do ✉
+ * ("nem foi chamada"), e o que impede o próximo disparo de "quem ainda não recebeu" mandar DM
+ * repetida pra quem já recebeu.
+ *
+ * Também NÃO devolve a PT. A vaga foi liberada na hora da recusa e pode ter sido preenchida por
+ * outro; quem decide se ela volta, e pra onde, é a staff — arrastando.
+ */
+export async function limparResposta(eventoId: number, chave: string): Promise<{ ok: boolean; familia?: string }> {
+  const rows = (await sql`
+    UPDATE evento_escalacao SET confirmou = NULL, respondeu_em = NULL
+    WHERE evento_id = ${eventoId} AND chave = ${chave}
+    RETURNING familia`) as { familia: string }[];
+  return rows[0] ? { ok: true, familia: rows[0].familia } : { ok: false };
+}

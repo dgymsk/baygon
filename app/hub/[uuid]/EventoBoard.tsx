@@ -591,6 +591,27 @@ export default function EventoBoard({
     finally { setSalvando(false); }
   }
 
+  /**
+   * DESFAZ a recusa de alguém — o clique errado no "❌ Não vou" da DM.
+   *
+   * Volta pro estado "ainda não respondeu": o ⏳ reaparece, ela continua marcada como convocada
+   * (foi mesmo) e volta a ser alvo de "quem não respondeu". A PT NÃO é devolvida — a vaga pode ter
+   * sido preenchida, e quem decide isso é você, arrastando.
+   *
+   * O gate é `podeRenomear` (staff puro) e não `canEdit`: o toque errado quase sempre aparece
+   * depois que a guerra acabou, quando a marca de "recusou" já está no histórico da pessoa.
+   */
+  async function limparRecusa(j: JogadorVM) {
+    if (!podeRenomear || !evento) return;
+    if (!confirm(`Desfazer a recusa de ${j.familia}?
+
+Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é devolvida — arraste se quiser.`)) return;
+    setSalvando(true);
+    try { await api({ acao: "resposta-limpar", eventoId: evento.eventoId, chave: j.chave }); setErro(""); router.refresh(); }
+    catch (e) { setErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
   async function encerrarEvento(encerrar: boolean) {
     if (!podeRenomear || !evento) return;
     // sem resultado gravado o cartão do Discord sai sem desfecho ("🏁 Evento concluído", cinza).
@@ -735,6 +756,8 @@ export default function EventoBoard({
     onTogglePresenca: togglePresenca,
     onSoltarEmCima: canEdit && partyId != null ? (c) => reordenar(c, partyId, j.chave) : undefined,
     selecionado: sel === j.chave,
+    // só quem recusou tem o que desfazer
+    onLimparRecusa: podeRenomear && j.confirmouEscalacao === false ? () => limparRecusa(j) : undefined,
     /**
      * TOQUE: seleciona, depois toca no destino. É a alternativa ao arrastar, que NÃO EXISTE no
      * celular — `dragstart` não dispara a partir de toque nem no Safari iOS nem no Chrome Android,
@@ -1163,7 +1186,7 @@ export default function EventoBoard({
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       {recusados.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
                     </div>
-                    <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Devolva pra uma PT se mudarem de ideia.</div>
+                    <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Devolva pra uma PT se mudarem de ideia, ou toque no <b>↺</b> pra desfazer a recusa de quem clicou sem querer.</div>
                   </div>
                 )}
                 </div>
@@ -1309,6 +1332,7 @@ type CardCtx = {
   onFimArraste: () => void;
   onTogglePresenca: (j: JogadorVM) => void;
   onSoltarEmCima?: (chaveArrastada: string) => void;  // reordenar dentro da PT
+  onLimparRecusa?: () => void;             // desfaz o "❌ Não vou" clicado por engano
   selecionado?: boolean;                   // escolhido pelo toque, esperando um destino
   onTocar?: () => void;                    // toque: seleciona, ou solta o selecionado aqui
 };
@@ -1519,7 +1543,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
  * reabria sem tirar e devolver o mouse.
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
-  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado } = ctx;
+  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa } = ctx;
   // respondeu NÃO na DM. Só vale fora da PT: se você o arrastou de volta pra uma coluna depois de
   // conversar, quem manda é a decisão da staff — o card volta ao normal em vez de acusar a recusa.
   const recusou = j.confirmouEscalacao === false && !escalado;
@@ -1617,6 +1641,12 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       {lider && <span title="líder da PT" style={{ fontSize: 11, flexShrink: 0 }}>👑</span>}
       {j.lendario && <Pokebola />}
       {recusou && <span style={{ color: RUBRO, fontSize: 11 }} title="respondeu que NÃO vai — saiu da PT">✖</span>}
+      {/* stopPropagation: sem ele, desfazer a recusa também selecionaria o card pro toque */}
+      {onLimparRecusa && (
+        <button className="tap" onClick={(e) => { e.stopPropagation(); onLimparRecusa(); }}
+          title="clicou sem querer? desfaz a recusa e volta pra “ainda não respondeu”"
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.mute, fontSize: 11, padding: "0 2px", flexShrink: 0 }}>↺</button>
+      )}
       {j.confirmouEscalacao === true && escalado && <span style={{ color: VERDE, fontSize: 11 }} title="confirmou a escalação na DM">✔</span>}
       {/* disse SIM e não está em PT nenhuma. O caso que cria isso: recusar e depois aceitar — o
           recusar tira da PT (party_id = NULL) e o aceitar seguinte NÃO tem como devolver, porque a
