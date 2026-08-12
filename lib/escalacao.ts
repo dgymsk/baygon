@@ -29,7 +29,29 @@ export async function aplicarEscalacao(eventoId: number, ops: unknown): Promise<
     if (!chave) continue;
     const pid = r.partyId === null || r.partyId === undefined || r.partyId === "" ? null : Math.trunc(Number(r.partyId));
     if (pid == null || !Number.isFinite(pid)) {
-      await sql`DELETE FROM evento_escalacao WHERE evento_id = ${eventoId} AND chave = ${chave}`;
+      /**
+       * TIRAR DA PT NÃO APAGA HISTÓRIA.
+       *
+       * Antes isto era um DELETE seco, e o efeito colateral era grave: arrastar pro pool alguém que
+       * tinha RECUSADO apagava a recusa junto — o status sumia sem ninguém apertar o botão de
+       * desfazer, e com ele iam também o convidado_em e o respondeu_em. Some a auditoria ("por que
+       * fulano não saiu?") e o próximo disparo de "quem ainda não recebeu" manda DM repetida pra
+       * quem já tinha recebido.
+       *
+       * A regra agora separa os dois casos pelo que existe pra perder:
+       *   sem história (nunca convocado, nunca respondeu) -> DELETE, que é o que sempre foi: a linha
+       *      era só "está nesta PT", e fora da PT ela não diz nada;
+       *   com história -> fica, com party_id e ordem_pt nulos. Quem recusou continua no grupo rubro
+       *      até alguém desfazer no ↺, que é o caminho explícito.
+       *
+       * Nenhuma contagem quebra: todo lugar que quer dizer "escalado" já filtra por
+       * `party_id IS NOT NULL` (historicoSemana, hub, resumo, loteDM, publicarLista).
+       */
+      await sql`DELETE FROM evento_escalacao
+                WHERE evento_id = ${eventoId} AND chave = ${chave}
+                  AND confirmou IS NULL AND convidado_em IS NULL`;
+      await sql`UPDATE evento_escalacao SET party_id = NULL, ordem_pt = NULL, atualizado = now()
+                WHERE evento_id = ${eventoId} AND chave = ${chave}`;
       continue;
     }
     // entra no FIM da PT. Se já estava nela, mantém a posição — arrastar de volta pro mesmo lugar
