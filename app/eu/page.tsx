@@ -11,10 +11,31 @@ export const metadata = { title: "Minhas stats · BAYGON" };
 export default async function EuPage() {
   const session = await auth();
   const familia = (session as { familia?: string | null })?.familia ?? null;
+  const discordId = (session as { discordId?: string | null })?.discordId ?? null;
   const user = session?.user;
 
+  /**
+   * QUEM É VOCÊ: o REGISTRO manda, o apelido do servidor é plano B.
+   *
+   * Antes a única forma era casar o apelido do Discord ("[M] Família") com o nome de família do
+   * roster. Isso quebrava por qualquer motivo bobo — apelido sem a tag, acento diferente, alguém
+   * que mudou o nick — e, pior, apontava pra pessoa ERRADA se dois apelidos colidissem: quem
+   * pusesse o nome de família de outro veria as estatísticas de outro.
+   *
+   * Agora a jornada de registro grava `players.discord_id`, que é o snowflake do provedor e ninguém
+   * troca. 137 dos 144 ativos já têm. O apelido continua como queda pros que faltam — tirar de vez
+   * deixaria essa gente sem a própria tela até se registrar.
+   *
+   * A consulta é separada de propósito: `listPlayers()` vai inteira pro navegador na /membros, e o
+   * Discord de cada membro não tem por que trafegar pra lá.
+   */
   const players = await listPlayers();
-  const eu = familia ? players.find((p) => chaveNome(p.nome_familia) === chaveNome(familia)) : undefined;
+  const porRegistro = discordId
+    ? ((await sql`SELECT nome_familia FROM players WHERE discord_id = ${discordId} LIMIT 1`) as { nome_familia: string }[])[0]?.nome_familia ?? null
+    : null;
+  const eu = porRegistro
+    ? players.find((p) => p.nome_familia === porRegistro)
+    : familia ? players.find((p) => chaveNome(p.nome_familia) === chaveNome(familia)) : undefined;
 
   if (!eu) {
     return (
@@ -23,9 +44,17 @@ export default async function EuPage() {
           <style>{`@import url('https://fonts.googleapis.com/css2?family=Saira:wght@300;400;500;600&display=swap');`}</style>
           <h1 style={{ color: "#cc0000", fontSize: 20, marginBottom: 10 }}>Não encontrei seu personagem</h1>
           <p style={{ color: "rgba(242,242,242,0.55)", fontSize: 14, lineHeight: 1.6 }}>
-            {familia
-              ? <>Procurei pela família <b style={{ color: "#f2f2f2" }}>“{familia}”</b> (do seu apelido no Discord) e não bateu com ninguém no roster. Confira se seu apelido no servidor está como <b style={{ color: "#f2f2f2" }}>[M] SuaFamília</b> (ou [R]) e relogue, ou fale com a staff.</>
-              : <>Seu apelido no servidor do Discord não tem o nome de família. Ajuste pra <b style={{ color: "#f2f2f2" }}>[M] SuaFamília</b> e relogue.</>}
+            {/* a mensagem diz o caminho CURTO primeiro: registrar resolve de uma vez e pra sempre;
+                arrumar o apelido é remendo que quebra de novo na próxima vez que alguém mexer nele */}
+            <>
+              Sua conta do Discord ainda não está ligada a nenhum jogador do roster. Faça o{" "}
+              <b style={{ color: "#f2f2f2" }}>registro</b> no servidor (o comando <b style={{ color: "#f2f2f2" }}>/register</b>) — ele
+              amarra seu Discord ao seu nome de família e esta tela passa a te achar sozinha.
+              {familia
+                ? <> Enquanto isso tentei pelo seu apelido, <b style={{ color: "#f2f2f2" }}>“{familia}”</b>, e não bateu com ninguém.</>
+                : <> Seu apelido no servidor também não tem um nome de família pra eu tentar.</>}
+              {" "}Se já se registrou e mesmo assim caiu aqui, fale com a staff.
+            </>
           </p>
           <div style={{ marginTop: 16 }}><a href="/painel" style={{ color: "#cc0000", textDecoration: "none", fontSize: 13 }}>← Voltar ao painel</a></div>
         </div>

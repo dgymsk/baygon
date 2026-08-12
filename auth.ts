@@ -57,22 +57,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const token = account?.access_token;
       return token ? await isInGuild(token, guildId) : false;
     },
-    /** No login, resolve cargo (pode editar) + família (do apelido) e guarda no token. */
+    /**
+     * No login, resolve cargo (pode editar), o ID do DISCORD e a família do apelido.
+     *
+     * O `discordId` é o que identifica a pessoa de verdade: ele vem do provedor e ninguém troca. O
+     * apelido do servidor continua sendo lido, mas virou PLANO B — ver app/eu/page.tsx.
+     *
+     * Vem de `account.providerAccountId` e não de `token.sub` porque sub é detalhe do NextAuth
+     * (muda se um dia entrar um adapter de banco); providerAccountId é o snowflake do Discord, que é
+     * exatamente o que `players.discord_id` guarda.
+     */
     async jwt({ token, account }) {
       if (account?.access_token) {
         const { guildId, staffRoleIds } = await getDiscordConfig();
         const d = await dadosMembro(account.access_token, guildId, staffRoleIds);
-        const t = token as { canEdit?: boolean; familia?: string | null };
+        const t = token as { canEdit?: boolean; familia?: string | null; discordId?: string | null };
         t.canEdit = d.canEdit;
         t.familia = d.familia;
+        t.discordId = account.providerAccountId ?? (typeof token.sub === "string" ? token.sub : null);
       }
       return token;
     },
     async session({ session, token }) {
-      const t = token as { canEdit?: boolean; familia?: string | null };
-      const s = session as { canEdit?: boolean; familia?: string | null };
+      const t = token as { canEdit?: boolean; familia?: string | null; discordId?: string | null };
+      const s = session as { canEdit?: boolean; familia?: string | null; discordId?: string | null };
       s.canEdit = t.canEdit === true; // canEdit é resolvido no jwt (login) com a config
       s.familia = t.familia ?? null;
+      s.discordId = t.discordId ?? (typeof token.sub === "string" ? token.sub : null);
       return session;
     },
   },
