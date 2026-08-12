@@ -32,9 +32,11 @@ const tier = (p: number | null) => (p == null ? "bad" : p >= 100 ? "good" : p >=
 const posBar = (p: number | null) => (p == null ? 0 : Math.max(0, Math.min(p, 200)) / 2);
 
 export default function EuHud({
-  nome, avatar, classe, tipo, grupo, nWars, isCore, windows, avaliadas,
+  nome, avatar, classe, tipo, grupo, nWars, isCore, windows, avaliadas, vendoOutro = false, elenco = [],
 }: {
   nome: string; avatar: string | null; classe: string | null; tipo: string | null; grupo: string; nWars: number; isCore: boolean; windows: Win[]; avaliadas: string[];
+  vendoOutro?: boolean;   // staff olhando o perfil de outra pessoa
+  elenco?: string[];      // nomes pro seletor da staff (vazio pra quem não é staff)
 }) {
   const [winKey, setWinKey] = useState("n3");
   const [hl, setHl] = useState<"" | "you" | "exp" | "grp">("");
@@ -111,6 +113,10 @@ export default function EuHud({
       .ttl::after{content:'';flex:1;height:1px;background:var(--bd-soft)}
       .refs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
       @media(max-width:620px){.refs{grid-template-columns:1fr}}
+      .verperfil{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+      .verperfil select{background:#131313;border:1px solid var(--bd);border-radius:8px;color:var(--txt);padding:5px 9px;font-family:inherit;font-size:13px;cursor:pointer;max-width:260px}
+      .verperfil a{color:var(--acc);text-decoration:none;font-size:12px}
+      .aviso-outro{border:1px solid var(--acc);border-radius:10px;background:rgba(204,0,0,0.08);padding:8px 12px;margin:0 0 12px;font-size:13px}
       .ref{border:1px solid var(--bd-soft);border-radius:12px;padding:12px 13px;background:var(--panel);transition:transform .18s,border-color .18s,box-shadow .18s;cursor:default}
       .ref:hover{transform:translateY(-2px);border-color:var(--bd);box-shadow:0 8px 22px rgba(0,0,0,.32)}
       .ref.you{border-left:3px solid var(--good)} .ref.exp{border-left:3px solid var(--exp)} .ref.grp{border-left:3px solid var(--grp)}
@@ -186,6 +192,24 @@ export default function EuHud({
           <div className="v">{win.label}</div>
         </div>
       </header>
+
+      {/* SELETOR DA STAFF: trocar de perfil sem sair da tela. Navegação por href e não por estado —
+          a URL passa a identificar o perfil, então dá pra mandar o link pra própria pessoa. */}
+      {elenco.length > 0 && (
+        <div className="verperfil">
+          <span className="k">Ver perfil de</span>
+          <select defaultValue={vendoOutro ? nome : ""} onChange={(e) => { window.location.href = e.target.value ? `/eu?de=${encodeURIComponent(e.target.value)}` : "/eu"; }}>
+            <option value="">— eu mesmo —</option>
+            {elenco.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          {vendoOutro && <a href="/eu">← voltar ao meu</a>}
+        </div>
+      )}
+      {vendoOutro && (
+        <div className="aviso-outro">
+          👁 Você está vendo o perfil de <b>{nome}</b> — não são os seus números.
+        </div>
+      )}
 
       <nav className="tabs">
         {TABS.map((t) => (

@@ -407,6 +407,10 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                     <td style={{ textAlign: "right" }}>
                       {!canEdit ? <span style={{ color: C.dim, fontSize: 12 }}>—</span> : (
                       <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+                        {/* atalho pro perfil: é daqui que a staff sai pra falar de desempenho com
+                            alguém, e ter que copiar o nome pra outra tela quebrava o fluxo */}
+                        <Link href={`/eu?de=${encodeURIComponent(r.nome_familia)}`} title={`ver as estatísticas de ${r.nome_familia}`}
+                          className="tap" style={{ color: C.mute, textDecoration: "none", fontSize: 13 }}>📊</Link>
                         {tab === "ativos" ? (
                           arq === r.nome_familia ? (
                             <>

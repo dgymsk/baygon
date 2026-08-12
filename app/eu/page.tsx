@@ -3,12 +3,13 @@ import { listPlayers } from "@/lib/players";
 import { statsEu, STAT_METRICAS } from "@/lib/stats";
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
+import { canEditNow } from "@/lib/requireAuth";
 import EuHud from "./EuHud";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Minhas stats · BAYGON" };
 
-export default async function EuPage() {
+export default async function EuPage({ searchParams }: { searchParams: Promise<{ de?: string }> }) {
   const session = await auth();
   const familia = (session as { familia?: string | null })?.familia ?? null;
   const discordId = (session as { discordId?: string | null })?.discordId ?? null;
@@ -30,12 +31,30 @@ export default async function EuPage() {
    * Discord de cada membro não tem por que trafegar pra lá.
    */
   const players = await listPlayers();
+
+  /**
+   * STAFF VENDO O PERFIL DE OUTRA PESSOA (?de=Família).
+   *
+   * A tela toda já sabe montar o perfil de um jogador qualquer — o que estava chumbado era só QUEM.
+   * Conversar sobre desempenho sem os dois lados olhando o mesmo painel é conversa de memória.
+   *
+   * O gate é `canEditNow()` no SERVIDOR e não a flag da sessão: quem não é staff pode digitar ?de=
+   * na barra de endereço, e um gate de cliente não é gate. Sem permissão, o parâmetro é ignorado em
+   * silêncio e a pessoa vê o próprio perfil — negar com erro só ensinaria que o parâmetro existe.
+   */
+  const canEdit = await canEditNow();
+  const pedido = (await searchParams)?.de ?? null;
+  const alvo = canEdit && pedido
+    ? players.find((p) => chaveNome(p.nome_familia) === chaveNome(pedido)) ?? null
+    : null;
+
   const porRegistro = discordId
     ? ((await sql`SELECT nome_familia FROM players WHERE discord_id = ${discordId} LIMIT 1`) as { nome_familia: string }[])[0]?.nome_familia ?? null
     : null;
-  const eu = porRegistro
+  const eu = alvo ?? (porRegistro
     ? players.find((p) => p.nome_familia === porRegistro)
-    : familia ? players.find((p) => chaveNome(p.nome_familia) === chaveNome(familia)) : undefined;
+    : familia ? players.find((p) => chaveNome(p.nome_familia) === chaveNome(familia)) : undefined);
+  const vendoOutro = alvo != null;
 
   if (!eu) {
     return (
@@ -85,7 +104,12 @@ export default async function EuPage() {
   return (
     <EuHud
       nome={eu.nome_familia}
-      avatar={user?.image ?? null}
+      // o avatar é o de QUEM ESTÁ LOGADO; olhando o perfil de outro, ele mentiria sobre quem é
+      avatar={vendoOutro ? null : user?.image ?? null}
+      vendoOutro={vendoOutro}
+      // lista pra staff pular de perfil sem voltar ao /membros. Só ativos: perfil de ex-membro
+      // continua acessível pela URL, mas não polui um seletor de 220 nomes.
+      elenco={canEdit ? players.filter((p) => p.ativo).map((p) => p.nome_familia).sort((a, b) => a.localeCompare(b, "pt-BR")) : []}
       classe={eu.classe_bdo}
       tipo={eu.classe_tipo}
       grupo={eu.grupo}

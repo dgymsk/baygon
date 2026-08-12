@@ -66,6 +66,10 @@ export type EuMetrica = {
   minhaRaw: number | null;  // média BRUTA do player
   minhaPct: number | null;  // % POR-WAR (igual /membros): pct/war c/ polaridade, LEAST 200, média
   grupoPct: number | null;  // idem para o grupo (vs régua)
+  /** Wars da janela em que a régua foi CORE de verdade (0 = foi só a média dos outros do grupo). */
+  warsComCore: number;
+  /** Wars da janela em que havia alguém além dele no grupo. 0 = jogou sozinho, sem comparação. */
+  warsComCompanhia: number;
 };
 
 /**
@@ -99,15 +103,33 @@ export async function statsEu(familia: string, n = 5): Promise<EuMetrica[]> {
       JOIN metricas m       ON m.metrica = d.metrica
       WHERE d.metrica = ANY(${STAT_METRICAS}::text[]) AND pw.grupo = meu.grupo
     ),
-    bench AS (  -- por war: régua (core, fallback grupo), média do grupo, valor do player
+    /**
+     * RÉGUA = OS OUTROS. A pessoa medida nunca entra na própria referência.
+     *
+     * Antes era COALESCE(AVG FILTER (is_core), AVG(valor)) — e o segundo termo inclui quem está
+     * sendo medido. Num grupo de duas pessoas sem core, o jogador é METADE da própria régua: o
+     * percentual é puxado pra perto de 100 por construção, e a linha "grupo vs régua" dá exatamente
+     * 100%, porque compara a média do grupo com ela mesma. Caso real conferido: McFly, Backline,
+     * war 53 — 86% com ele dentro, 76% com a régua sendo o outro jogador.
+     *
+     * Três degraus, todos sem o próprio: outros cores -> outros do grupo -> NULL. O NULL é honesto:
+     * quem está sozinho no grupo naquela war não tem contra quem ser comparado, e a métrica sai da
+     * janela em vez de exibir um 100% que não significa nada.
+     */
+    bench AS (
       SELECT war_id, metrica, MAX(direcao) AS direcao,
-        COALESCE(AVG(valor) FILTER (WHERE is_core), AVG(valor))    AS regua,
+        COALESCE(
+          AVG(valor) FILTER (WHERE is_core AND nome_familia <> ${familia}),
+          AVG(valor) FILTER (WHERE nome_familia <> ${familia})
+        )                                                          AS regua,
+        count(*) FILTER (WHERE is_core AND nome_familia <> ${familia})::int AS n_core,
+        count(*) FILTER (WHERE nome_familia <> ${familia})::int     AS n_outros,
         AVG(valor)                                                 AS grupo_war,
         AVG(valor) FILTER (WHERE nome_familia = ${familia})        AS minha_war
       FROM base GROUP BY war_id, metrica
     ),
     pct AS (  -- % por war (polaridade, SEM cap aqui; div/0 → NULL p/ ser EXCLUÍDO depois)
-      SELECT metrica, direcao, regua, grupo_war, minha_war,
+      SELECT metrica, direcao, regua, grupo_war, minha_war, n_core, n_outros,
         CASE direcao WHEN 'maior_melhor' THEN minha_war / NULLIF(regua,0) * 100
                      ELSE NULLIF(regua,0) / NULLIF(minha_war,0) * 100 END AS minha_pct,
         CASE direcao WHEN 'maior_melhor' THEN grupo_war / NULLIF(regua,0) * 100
@@ -116,17 +138,21 @@ export async function statsEu(familia: string, n = 5): Promise<EuMetrica[]> {
     )
     -- cap LEAST(pct,200) só nos NÃO-NULOS (FILTER), senão LEAST(NULL,200) viraria 200
     SELECT metrica, MAX(direcao) AS direcao,
+      -- quantas wars da janela tiveram core de verdade, e o tamanho típico da companhia: é o que
+      -- diz se o "esperado" é uma régua ou um retrato de duas pessoas
+      count(*) FILTER (WHERE n_core > 0)::int AS wars_com_core,
+      count(*) FILTER (WHERE n_outros > 0)::int AS wars_com_companhia,
       AVG(regua)::float8     AS core_raw,
       AVG(grupo_war)::float8 AS grupo_raw,
       AVG(minha_war)::float8 AS minha_raw,
       (AVG(LEAST(minha_pct, 200)) FILTER (WHERE minha_pct IS NOT NULL))::float8 AS minha_pct,
       (AVG(LEAST(grupo_pct, 200)) FILTER (WHERE grupo_pct IS NOT NULL))::float8 AS grupo_pct
     FROM pct GROUP BY metrica
-  `) as { metrica: string; direcao: string; core_raw: number | null; grupo_raw: number | null; minha_raw: number | null; minha_pct: number | null; grupo_pct: number | null }[];
+  `) as { metrica: string; direcao: string; core_raw: number | null; grupo_raw: number | null; minha_raw: number | null; minha_pct: number | null; grupo_pct: number | null; wars_com_core: number; wars_com_companhia: number }[];
 
   const map = new Map(rows.map((r) => [r.metrica, r]));
   return STAT_METRICAS.map((m) => {
     const r = map.get(m);
-    return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, grupoRaw: r?.grupo_raw ?? null, minhaRaw: r?.minha_raw ?? null, minhaPct: r?.minha_pct ?? null, grupoPct: r?.grupo_pct ?? null };
+    return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, grupoRaw: r?.grupo_raw ?? null, minhaRaw: r?.minha_raw ?? null, minhaPct: r?.minha_pct ?? null, grupoPct: r?.grupo_pct ?? null, warsComCore: r?.wars_com_core ?? 0, warsComCompanhia: r?.wars_com_companhia ?? 0 };
   });
 }
