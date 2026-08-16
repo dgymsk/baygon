@@ -8,6 +8,7 @@ import type { MediasMap } from "@/lib/stats";
 import { parseGarmothId } from "@/lib/garmothId";
 import { C } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
+import PerfilModal from "./PerfilModal";
 
 const STATS = [
   { m: "dano_em_player", l: "PvP" },
@@ -51,6 +52,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
   const [novo, setNovo] = useState(() => ({ nome: "", grupo: "", classe: "", tipo: "", guilda: guildas[0]?.id ?? "MANI" }));
   const [arq, setArq] = useState<string | null>(null); // nome em processo de arquivar
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [perfil, setPerfil] = useState<string | null>(null);  // nome do jogador com o cartão aberto
   const [gInput, setGInput] = useState<Record<string, string>>({}); // texto CRU do campo Garmoth em edição (só normaliza no blur — auto-save nunca grava parcial)
 
   // inclui os grupos usados SÓ na siege — senão eles existem no banco e o <select> não os oferece
@@ -296,7 +298,13 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
                     <tr><td colSpan={14} style={{ padding: "12px 10px 5px", color: C.mute, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", borderTop: `1px dashed ${C.border2}` }}>▽ Não registrados ({ordenados.length - ordenados.filter((x) => x.registro).length}) — aguardando a jornada de registro</td></tr>
                   )}
                   <tr style={{ background: isDirty ? "rgba(204,0,0,.08)" : undefined, opacity: r.registro || !temReg ? 1 : 0.5 }}>
-                    <td className="fixa" style={{ color: C.texto, fontWeight: 600 }}>{r.nome_familia}{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
+                    {/* o NOME abre o cartão do jogador. Botão e não <a>: não navega, e o teclado
+                        continua alcançando (a célula é sticky e a primeira da linha). */}
+                    <td className="fixa" style={{ color: C.texto, fontWeight: 600 }}>
+                      <button onClick={() => setPerfil(r.nome_familia)} title="ver resumo do jogador"
+                        style={{ background: "none", border: "none", padding: 0, color: "inherit", font: "inherit", cursor: "pointer", textAlign: "left" }}>
+                        {r.nome_familia}
+                      </button>{isDirty ? <span style={{ color: C.amarelo }}> •</span> : null}</td>
                     <td>
                       <select value={r.grupo} disabled={ro} onChange={(e) => patch(r.nome_familia, { grupo: e.target.value })} style={{ ...inp, width: 130, cursor: ro ? "default" : "pointer" }}>
                         {[...new Set([...grupos, "Indefinido", r.grupo])].map((gx) => <option key={gx} value={gx}>{gx}</option>)}
@@ -447,9 +455,16 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
 
         <p style={{ color: C.mute, fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
           • = alteração não salva · clique no ícone da guilda pra alternar entre as guildas · <b style={{ color: C.amarelo }}>Arquivar</b> manda pra Ex-membros com o motivo (preserva histórico) ·
-          🗑 (excluir definitivo) só aparece pra quem tem 0 wars.
+          🗑 (excluir definitivo) só aparece pra quem tem 0 wars. Clique no <b style={{ color: C.texto }}>nome</b> pra ver o resumo do jogador.
         </p>
       </div>
+
+      {/* o cartão lê do estado ATUAL da tabela (rows), não da lista inicial: se você acabou de
+          trocar o grupo de alguém e clicou no nome, o cartão mostra o que está na tela */}
+      {perfil && (() => {
+        const r = rows.find((x) => x.nome_familia === perfil);
+        return r ? <PerfilModal row={r} onClose={() => setPerfil(null)} /> : null;
+      })()}
     </div>
   );
 }
