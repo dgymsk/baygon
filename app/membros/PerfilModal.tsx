@@ -35,9 +35,39 @@ const Linha = ({ k, v }: { k: string; v: React.ReactNode }) => (
   </div>
 );
 
-export default function PerfilModal({ row, onClose }: { row: PlayerRow; onClose: () => void }) {
+export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado }: { row: PlayerRow; onClose: () => void; canEdit?: boolean; onRenomeado?: (novo: string) => void }) {
   const [perfil, setPerfil] = useState<PerfilPlayer | null>(null);
   const [erro, setErro] = useState("");
+  const [renomeando, setRenomeando] = useState(false);
+  const [novoNome, setNovoNome] = useState(row.nome_familia);
+  const [renErro, setRenErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  /**
+   * RENOMEAR. Fica atrás de um "abrir" e de uma confirmação com o nome digitado por extenso porque
+   * é irreversível na prática: o nome é a chave primária e viaja denormalizado por 12 tabelas.
+   *
+   * O servidor é quem recusa fusão e colisão — aqui só se mostra o motivo. Duplicar essa regra no
+   * cliente daria duas definições de "pode renomear", e a do cliente é a que envelhece.
+   */
+  async function renomear() {
+    const para = novoNome.trim();
+    if (!para || para === row.nome_familia) return;
+    if (!confirm(`Renomear "${row.nome_familia}" para "${para}"?
+
+O nome é a identidade do jogador em todo o app — escalação, presença, estatística e histórico vão junto.
+
+Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um print com o nome velho recria o cadastro antigo.`)) return;
+    setSalvando(true); setRenErro("");
+    try {
+      const res = await fetch("/api/players/renomear", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ de: row.nome_familia, para }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      onRenomeado?.(para);
+      onClose();
+    } catch (e) { setRenErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
 
   useEffect(() => {
     let vivo = true;
@@ -93,6 +123,38 @@ export default function PerfilModal({ row, onClose }: { row: PlayerRow; onClose:
           <Linha k="Wars com estatística" v={perfil ? `${perfil.wars.comEstatistica}${perfil.wars.primeira ? ` · de ${br(perfil.wars.primeira)} a ${br(perfil.wars.ultima)}` : ""}` : "…"} />
           {!row.ativo && <Linha k="Saída" v={`${row.saida_tipo ?? "—"}${row.saida_data ? ` · ${br(row.saida_data)}` : ""}`} />}
         </div>
+
+        {canEdit && (
+          <div style={{ border: `1px solid ${C.borderSoft}`, borderRadius: 10, padding: "9px 11px", marginBottom: 14 }}>
+            {!renomeando ? (
+              <button onClick={() => { setRenomeando(true); setNovoNome(row.nome_familia); }}
+                style={{ background: "none", border: "none", color: C.mute, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
+                ✎ renomear o nome de família…
+              </button>
+            ) : (
+              <div>
+                <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Renomear</div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} maxLength={60} autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") renomear(); if (e.key === "Escape") setRenomeando(false); }}
+                    style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "6px 10px", fontSize: 13, fontFamily: "inherit", flex: "1 1 200px", minWidth: 0 }} />
+                  <button onClick={renomear} disabled={salvando || !novoNome.trim() || novoNome.trim() === row.nome_familia}
+                    style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    {salvando ? "renomeando…" : "Renomear"}
+                  </button>
+                  <button onClick={() => { setRenomeando(false); setRenErro(""); }}
+                    style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute, padding: "6px 11px", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>cancelar</button>
+                </div>
+                {renErro && <div style={{ color: C.vermelho, fontSize: 12, marginTop: 7 }}>⚠ {renErro}</div>}
+                <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
+                  Leva junto escalação, presença, estatística, funções e histórico. <b>Renomeie no jogo antes</b> — os prints
+                  são lidos pelo nome, e um print com o nome velho recria o cadastro antigo. Se o nome novo já existir, o
+                  pedido é recusado: renomear não funde dois cadastros.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
           Últimos eventos {perfil ? `(${perfil.ultimos.length})` : ""}
