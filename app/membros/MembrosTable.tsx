@@ -463,7 +463,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
           trocar o grupo de alguém e clicou no nome, o cartão mostra o que está na tela */}
       {perfil && (() => {
         const r = rows.find((x) => x.nome_familia === perfil);
-        return r ? <PerfilModal row={r} canEdit={canEdit} onClose={() => setPerfil(null)} onRenomeado={() => refresh()} /> : null;
+        return r ? <PerfilModal row={r} canEdit={canEdit} elenco={rows.map((x) => x.nome_familia).sort((a, b) => a.localeCompare(b, "pt-BR"))} onClose={() => setPerfil(null)} onRenomeado={() => refresh()} /> : null;
       })()}
     </div>
   );

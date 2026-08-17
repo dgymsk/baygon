@@ -35,13 +35,50 @@ const Linha = ({ k, v }: { k: string; v: React.ReactNode }) => (
   </div>
 );
 
-export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado }: { row: PlayerRow; onClose: () => void; canEdit?: boolean; onRenomeado?: (novo: string) => void }) {
+export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado, elenco = [] }: { row: PlayerRow; onClose: () => void; canEdit?: boolean; onRenomeado?: (novo: string) => void; elenco?: string[] }) {
   const [perfil, setPerfil] = useState<PerfilPlayer | null>(null);
   const [erro, setErro] = useState("");
   const [renomeando, setRenomeando] = useState(false);
   const [novoNome, setNovoNome] = useState(row.nome_familia);
   const [renErro, setRenErro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [fundindo, setFundindo] = useState(false);
+  const [alvoFusao, setAlvoFusao] = useState("");
+  const [fusErro, setFusErro] = useState("");
+
+  /**
+   * FUNDIR — quando este cadastro e outro são a MESMA pessoa (trocou o nome no jogo e o print da
+   * war seguinte criou um cadastro novo, sem Discord nem histórico).
+   *
+   * Este cadastro é o que DESAPARECE: o histórico dele vai pro escolhido. A direção é essa porque o
+   * que se quer preservar é o vínculo de Discord e o histórico antigo, que moram no cadastro
+   * original — e é ele que deve continuar existindo.
+   */
+  async function fundir(forcar = false) {
+    if (!alvoFusao || alvoFusao === row.nome_familia) return;
+    if (!forcar && !confirm(`Fundir "${row.nome_familia}" em "${alvoFusao}"?
+
+Todo o histórico de "${row.nome_familia}" (estatística, escalação, presença) passa para "${alvoFusao}", e este cadastro DEIXA DE EXISTIR.
+
+Onde os dois tiverem o mesmo fato, fica o de "${alvoFusao}".`)) return;
+    setSalvando(true); setFusErro("");
+    try {
+      const res = await fetch("/api/players/fundir", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ perdedor: row.nome_familia, vencedor: alvoFusao, forcar }) });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 409 && (d as { codigo?: string }).codigo === "jogaram_juntos") {
+        const w = ((d as { warsEmComum?: number[] }).warsEmComum ?? []).join(", ");
+        if (confirm(`Os dois têm estatística nas wars ${w} — ou seja, apareceram em campo ao mesmo tempo.
+
+Isso normalmente quer dizer que NÃO são a mesma pessoa. Insistir mesmo assim?`)) return fundir(true);
+        setSalvando(false); return;
+      }
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `erro ${res.status}`);
+      onRenomeado?.(alvoFusao);   // recarrega a lista; este cadastro não existe mais
+      onClose();
+    } catch (e) { setFusErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
 
   /**
    * RENOMEAR. Fica atrás de um "abrir" e de uma confirmação com o nome digitado por extenso porque
@@ -150,6 +187,39 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
                   Leva junto escalação, presença, estatística, funções e histórico. <b>Renomeie no jogo antes</b> — os prints
                   são lidos pelo nome, e um print com o nome velho recria o cadastro antigo. Se o nome novo já existir, o
                   pedido é recusado: renomear não funde dois cadastros.
+                </div>
+              </div>
+            )}
+
+            {/* FUNDIR fica junto do renomear porque a staff chega aqui pela mesma dúvida — "esse
+                nome novo é a mesma pessoa?" — e a resposta muda qual das duas ações resolve. */}
+            {!fundindo ? (
+              <button onClick={() => setFundindo(true)}
+                style={{ background: "none", border: "none", color: C.mute, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: 7, display: "block" }}>
+                ⇄ este cadastro é a mesma pessoa que outro…
+              </button>
+            ) : (
+              <div style={{ marginTop: 9, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 9 }}>
+                <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Fundir cadastros</div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ color: C.mute, fontSize: 12 }}>o histórico de <b style={{ color: C.texto }}>{row.nome_familia}</b> vai para</span>
+                  <select value={alvoFusao} onChange={(e) => setAlvoFusao(e.target.value)}
+                    style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "6px 9px", fontSize: 13, fontFamily: "inherit", maxWidth: 220 }}>
+                    <option value="">— escolha —</option>
+                    {elenco.filter((n) => n !== row.nome_familia).map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <button onClick={() => fundir()} disabled={salvando || !alvoFusao}
+                    style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.vermelho, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    {salvando ? "fundindo…" : "Fundir"}
+                  </button>
+                  <button onClick={() => { setFundindo(false); setFusErro(""); }}
+                    style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute, padding: "6px 11px", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>cancelar</button>
+                </div>
+                {fusErro && <div style={{ color: C.vermelho, fontSize: 12, marginTop: 7 }}>⚠ {fusErro}</div>}
+                <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
+                  <b>{row.nome_familia}</b> deixa de existir. Use quando alguém trocou de nome no jogo e o print criou um
+                  cadastro novo — funda o novo no antigo (que tem o Discord) e depois renomeie o antigo pro nome atual.
+                  Se os dois tiverem estatística na mesma war, o pedido é barrado: seriam duas pessoas.
                 </div>
               </div>
             )}
