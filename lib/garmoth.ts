@@ -50,13 +50,13 @@ export async function fetchBuilds(ids: string[]): Promise<GarmothChar[]> {
 }
 
 /** Lê os garmoth_id dos players, busca na API e faz upsert em garmoth_build. Limpa cache de quem não tem mais id. */
-export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: number; erros: string[] }> {
+export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: number; gravados: number; semRetorno: string[]; falhasGravacao: string[]; erros: string[] }> {
   // remove cache GARMOTH de players que não têm mais garmoth_id (staff limpou). Gear MANUAL (fonte='manual', do registro) fica.
   await sql`DELETE FROM garmoth_build gb WHERE gb.fonte = 'garmoth' AND NOT EXISTS (
     SELECT 1 FROM players p WHERE p.nome_familia = gb.nome_familia AND p.garmoth_id IS NOT NULL AND p.garmoth_id <> '')`;
 
   const rows = (await sql`SELECT nome_familia, garmoth_id FROM players WHERE garmoth_id IS NOT NULL AND garmoth_id <> ''`) as { nome_familia: string; garmoth_id: string }[];
-  if (!rows.length) return { pedidos: 0, atualizados: 0, erros: [] };
+  if (!rows.length) return { pedidos: 0, atualizados: 0, gravados: 0, semRetorno: [], falhasGravacao: [], erros: [] };
 
   const porId = new Map<string, string[]>(); // garmoth_id -> [nome_familia...]
   for (const r of rows) { const a = porId.get(r.garmoth_id) ?? []; a.push(r.nome_familia); porId.set(r.garmoth_id, a); }
@@ -70,12 +70,21 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
   for (const c of chars) if (typeof c.url === "string") porUrl.set(c.url, c);
 
   const upserts = [];
-  const erros: string[] = [];
+  /**
+   * DUAS listas, e não uma. Antes as duas falhas caíam no mesmo `erros` e a tela chamava as duas de
+   * "sem retorno" — o que escondia justamente a pior:
+   *   semRetorno     — o Garmoth não devolveu aquele personagem (id errado, build privada). Nada a
+   *                    fazer do nosso lado, e o resto da rodada é válido.
+   *   falhasGravacao — o banco recusou o lote. É ERRO NOSSO e significa que aqueles jogadores NÃO
+   *                    foram atualizados, mesmo que a API tenha respondido tudo.
+   */
+  const semRetorno: string[] = [];
+  const falhasGravacao: string[] = [];
   let atualizados = 0;
   for (const [id, nomes] of porId) {
     const c = porUrl.get(id);
     const r = c ? resumoBuild(c) : null;
-    if (!r) { erros.push(`sem retorno p/ ${id}`); continue; }
+    if (!r) { semRetorno.push(`${id} (${nomes.join(", ")})`); continue; }
     const classe = classeGarmoth(r.char_class);          // Garmoth é a fonte da classe/spec
     const tipo = classe ? tipoGarmoth(classe, r.spec) : null;
     const idUnico = nomes.length === 1;                  // id compartilhado por >1 player não define a classe de ninguém
@@ -114,11 +123,22 @@ export async function atualizarTodos(): Promise<{ pedidos: number; atualizados: 
       atualizados++;
     }
   }
-  // grava em lotes (cada `dados` é um JSONB grande; um transaction único de ~100 poderia estourar o body do neon-http).
-  // try/catch por lote: um FK-violation (player deletado no meio do refresh) não aborta os outros lotes.
+  /**
+   * Grava em lotes (cada `dados` é um JSONB grande — o roster inteiro passa de 900 KB, e um
+   * transaction único estouraria o corpo do neon-http). try/catch por lote pra um FK-violation
+   * (player apagado no meio do refresh) não abortar os outros.
+   *
+   * GRAVADOS conta o que o banco ACEITOU, statement a statement. Antes o retorno só tinha
+   * `atualizados`, que é incrementado lá em cima, ANTES de qualquer escrita — então uma rodada em
+   * que todos os lotes falhassem ainda reportava "165 atualizadas", e a tela pintava de verde.
+   * Contar depois é o que faz o número dizer a verdade.
+   */
+  let gravados = 0;
   for (let i = 0; i < upserts.length; i += 30) {
-    try { await sql.transaction(upserts.slice(i, i + 30)); }
-    catch (e) { erros.push(`lote ${Math.floor(i / 30)}: ${(e as Error).message.slice(0, 80)}`); }
+    const lote = upserts.slice(i, i + 30);
+    try { await sql.transaction(lote); gravados += lote.length; }
+    catch (e) { falhasGravacao.push(`lote ${Math.floor(i / 30)}: ${(e as Error).message.slice(0, 120)}`); }
   }
-  return { pedidos: porId.size, atualizados, erros };
+  // `erros` continua saindo, unindo as duas, pra não quebrar quem já lia esse campo (o worker loga ele)
+  return { pedidos: porId.size, atualizados, gravados, semRetorno, falhasGravacao, erros: [...semRetorno.map((s) => `sem retorno p/ ${s}`), ...falhasGravacao] };
 }

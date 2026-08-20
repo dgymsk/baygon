@@ -99,7 +99,21 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? "falha");
       await refresh();
-      setStatus({ kind: "ok", msg: `Garmoth: ${d.atualizados ?? 0} build(s) atualizada(s)${d.erros?.length ? ` · ${d.erros.length} sem retorno` : ""}.` });
+      /**
+       * O que se relata é o que o BANCO ACEITOU (`gravados`), não o que a gente tentou.
+       *
+       * Antes a mensagem usava `atualizados`, que é contado antes de qualquer escrita, e jogava as
+       * falhas de GRAVAÇÃO no mesmo balde de "sem retorno". Uma rodada em que nada foi salvo saía
+       * como "165 build(s) atualizada(s) · 6 sem retorno", em verde — que é exatamente a cara de
+       * um botão que "não funciona muito bem": ele diz que deu certo e a tela não muda.
+       */
+      const gravados = d.gravados ?? d.atualizados ?? 0;
+      const naoSalvou = (d.falhasGravacao ?? []).length;
+      const semRetorno = (d.semRetorno ?? []).length;
+      const partes = [`${gravados} build(s) atualizada(s)`];
+      if (semRetorno) partes.push(`${semRetorno} sem retorno do Garmoth`);
+      if (naoSalvou) partes.push(`${naoSalvou} lote(s) NÃO salvos`);
+      setStatus({ kind: naoSalvou ? "err" : "ok", msg: `Garmoth: ${partes.join(" · ")}.` });
     } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); }
   }
 
