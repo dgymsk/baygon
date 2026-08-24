@@ -40,6 +40,10 @@ import ResultadoExtrair, { type StatIniciais } from "@/app/eventos/[uuid]/Result
  */
 const VERDE = CorResultado.vitoria.cor;
 const RUBRO = CorResultado.derrota.cor;
+/** OURO de verdade (#e0bd3a): nesta paleta `C.amarelo` é aço cinza — ver o cabeçalho de lib/theme.
+ *  É a cor de "saiu da escalação", que não é alarme (rubro) nem sinal de ok (verde). */
+const OURO = CorResultado.participacao.cor;
+const OURO_FUNDO = "rgba(214,178,42,.16)";
 
 const RES_ROTULO: Record<string, string> = { vitoria: "Vitória", participacao: "Participação", derrota: "Derrota" };
 
@@ -51,6 +55,9 @@ export type JogadorVM = {
   escaladoEm: number | null;
   confirmouEscalacao: boolean | null; // resposta da DM: null = não respondeu, false = recusou
   convidado: boolean;                 // a DM já saiu? separa "não chamado" de "chamado e calado"
+  saiu: boolean;                      // convocado e DEPOIS tirado da PT (lib/desescalado.ts)
+  saiuAvisado: boolean;               // ...e o aviso de saída já foi entregue depois do último convite
+  precisaConvite: boolean;            // escalado sem convocação válida em pé (lib/desescalado.ts)
   faltas: number | null;          // guerras seguidas marcando e não jogando
   diasSemJogar: number | null;    // "faz N dias" é mais concreto que "N guerras"
   diasDesdeFalta: number | null;
@@ -92,10 +99,13 @@ const ROTULOS_PUBLICO: Record<string, string> = {
   faltam_ingame: "quem falta aparecer in-game",
   calados_nao_receberam: "calados que não receberam",
   calados: "todos os calados",
+  saiu_nao_avisado: "quem saiu e não foi avisado",
+  saiu_todos: "todos que saíram",
 };
 const PUBLICOS_CONV = ["nao_receberam", "sem_resposta", "todos"] as const;
 const PUBLICOS_INGAME = ["confirmou_nao_recebeu", "confirmou", "faltam_ingame"] as const;
 const PUBLICOS_INTENCAO = ["calados_nao_receberam", "calados"] as const;
+const PUBLICOS_SAIDA = ["saiu_nao_avisado", "saiu_todos"] as const;
 const seletorPublico = { background: C.inputBg, color: C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 6px", fontSize: 11.5, fontFamily: "inherit", cursor: "pointer", maxWidth: "min(175px, 100%)" } as const;
 
 const TIPO_PT = "application/x-pt";
@@ -162,6 +172,7 @@ export default function EventoBoard({
   const [publicoConv, setPublicoConv] = useState("nao_receberam");
   const [publicoIntencao, setPublicoIntencao] = useState("calados_nao_receberam");
   const [publicoIngame, setPublicoIngame] = useState("confirmou_nao_recebeu");
+  const [publicoSaida, setPublicoSaida] = useState("saiu_nao_avisado");
   // grupos dobrados à mão no pool. Sobrevive ao auto-refresh e a escalar gente, ao contrário de
   // depender do <details> não controlado, que remontava junto com o grupo
   const [fechados, setFechados] = useState<Record<string, boolean>>({});
@@ -248,6 +259,30 @@ export default function EventoBoard({
     .sort((a, b) => a.familia.localeCompare(b.familia, "pt-BR"));
 
   /**
+   * SAIU DA ESCALAÇÃO — foi convocado e a staff o tirou da PT depois. A regra é do servidor
+   * (lib/desescalado.ts), não daqui: o card amarelo e o número no botão têm que ser a mesma conta.
+   *
+   * O `overrides[...] === null` é o palpite do arraste que ACABOU de acontecer: o servidor ainda
+   * não respondeu, mas a condição dele já está determinada (arrastar pra fora carimba `atualizado`,
+   * que é o desempate contra `respondeu_em`). Sem isso o card ficaria alguns instantes no grupo da
+   * função antes de saltar pro grupo de saída — e piscar assim, no meio de um arraste, faz a staff
+   * achar que soltou no lugar errado.
+   *
+   * Grupo PRÓPRIO pelo mesmo motivo dos recusados, mais um: quem foi escalado à mão e nunca marcou
+   * na chamada não aparece em grupo de função nenhum (só existe em `envolvidos`) — pintar o card no
+   * lugar onde ele já estava deixaria justamente o caso do "erro na chamada" invisível.
+   */
+  const ehSaida = (j: JogadorVM) =>
+    partyDe(j) == null && j.confirmouEscalacao !== false
+    && (j.saiu || (overrides[j.chave] === null && j.convidado));
+  const saidos = [...todos.values()].filter((j) => ehSaida(j) && casaBusca(j))
+    .sort((a, b) => a.familia.localeCompare(b.familia, "pt-BR"));
+  /** O que o disparo vai pegar, na MESMA régua do servidor (ver `alvosDoTipo` em lib/loteDM). */
+  const alvosSaida = [...todos.values()].filter((j) => ehSaida(j) && (publicoSaida === "saiu_todos" || !j.saiuAvisado));
+  // sem `casaBusca`: digitar um nome na busca não pode fazer o botão de avisar sumir
+  const nSaidos = [...todos.values()].filter(ehSaida).length;
+
+  /**
    * PÚBLICO do disparo. A régua que faltava era NÃO RECEBEU (≠ não respondeu): quem recebeu a DM e
    * ficou calado já foi cobrado, e reenviar pra ele é spam — o caso vira comum quando o Discord
    * limita o bot e o lote sai pela metade.
@@ -257,13 +292,19 @@ export default function EventoBoard({
    */
   const recebeu = (tipo: "convocacao" | "ingame") =>
     new Set(chamadas.filter((l) => l.tipo === tipo).flatMap((l) => l.alvos.filter((a) => a.status === "ok").map((a) => a.familia)));
-  const jaRecebeuConv = recebeu("convocacao");
   const jaRecebeuIngame = recebeu("ingame");
   const escaladosVivos = [...todos.values()].filter((j) => partyDe(j) != null);
+  /**
+   * "Quem ainda não recebeu" vem PRONTO do servidor (`precisaConvite`, lib/desescalado.ts) em vez de
+   * ser remontado aqui a partir do histórico de chamadas. A conta tem uma sutileza que a tela não
+   * tinha como saber: quem foi avisado da saída e reescalado teve o convite zerado, mas continua com
+   * o alvo 'ok' do lote antigo no histórico — e era ele que deixava o botão em (0) e desabilitado,
+   * com o card mostrando ✉, pra alguém que nunca mais receberia convocação neste evento.
+   */
   const alvosConv = escaladosVivos.filter((j) =>
     publicoConv === "todos" ? true
       : publicoConv === "sem_resposta" ? j.confirmouEscalacao == null
-      : !j.convidado && !jaRecebeuConv.has(j.familia));
+      : j.precisaConvite);
   const alvosIngame = escaladosVivos.filter((j) =>
     publicoIngame === "faltam_ingame" ? j.confirmouEscalacao !== false && !j.confirmouIngame
       : publicoIngame === "confirmou" ? j.confirmouEscalacao === true
@@ -429,7 +470,7 @@ export default function EventoBoard({
    * O estado de cada pessoa fica no banco, então fechar a aba no meio não reenvia pra quem já
    * recebeu: é só disparar de novo que ele continua de onde parou.
    */
-  async function enviarLote(tipo: "convocacao" | "ingame" | "intencao", acao: string, publico: string) {
+  async function enviarLote(tipo: "convocacao" | "ingame" | "intencao" | "desescalado", acao: string, publico: string) {
     if (!canEdit || !evento) return;
     setSalvando(true);
     setEnvio({ acao, enviados: 0, falhas: [], total: 0, pendentes: 0, concluido: false });
@@ -667,6 +708,19 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
     await enviarLote("ingame", "Pedido de participar in-game", publicoIngame);
   }
 
+  /**
+   * Avisa quem SAIU da escalação depois de ter sido convocado — a DM que desmente a anterior.
+   *
+   * É o único disparo cuja falta tem efeito DENTRO do jogo: quem não é avisado continua com o
+   * *participar* marcado, entra na guerra e ocupa a vaga de quem foi escalado no lugar dele.
+   */
+  async function avisarSaida() {
+    const n = alvosSaida.length;
+    if (!n) return;
+    if (!confirm(`Avisar ${n} pessoa(s) de que NÃO estão mais escalados — ${ROTULOS_PUBLICO[publicoSaida]}?`)) return;
+    await enviarLote("desescalado", "Aviso de saída da escalação", publicoSaida);
+  }
+
   /** Publica a escalação no canal da lista. É uma mensagem só por evento, editada a cada vez. */
   async function publicar() {
     if (!canEdit || !evento) return;
@@ -765,6 +819,7 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
     onSoltarEmCima: canEdit && partyId != null ? (c) => reordenar(c, partyId, j.chave) : undefined,
     selecionado: sel === j.chave,
     provisorio: provSet.has(j.chave),
+    saiu: ehSaida(j),
     // só quem recusou tem o que desfazer
     onLimparRecusa: podeRenomear && j.confirmouEscalacao === false ? () => limparRecusa(j) : undefined,
     /**
@@ -944,6 +999,20 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
               </button>
             </span>
           )}
+          {/* só existe quando há alguém nessa situação: um botão de avisar ninguém é ruído no meio
+              dos que a staff usa toda guerra */}
+          {canEdit && nSaidos > 0 && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <select value={publicoSaida} onChange={(e) => setPublicoSaida(e.target.value)} disabled={salvando} title="para quem o aviso de saída vai"
+                style={seletorPublico}>
+                {PUBLICOS_SAIDA.map((p) => <option key={p} value={p}>{ROTULOS_PUBLICO[p]}</option>)}
+              </select>
+              <button onClick={avisarSaida} disabled={salvando || !alvosSaida.length} title="DM avisando que a pessoa não está mais escalada e que precisa tirar o participar dentro do jogo"
+                style={{ borderRadius: 8, border: `1px solid ${alvosSaida.length ? OURO : C.border2}`, background: C.inputBg, color: alvosSaida.length ? OURO : C.borderSoft, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: alvosSaida.length ? "pointer" : "not-allowed" }}>
+                ⇄ Avisar quem saiu ({alvosSaida.length})
+              </button>
+            </span>
+          )}
           {canEdit && nEscalados > 0 && evento.messageId && (
             <button onClick={publicar} disabled={salvando} title="posta/atualiza a escalação no canal da lista (uma mensagem só, editada)"
               style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.verde, padding: "5px 11px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
@@ -1100,7 +1169,7 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
           <div className="leg" style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: VERDE }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar
             {nIngameSemDm > 0 && <> · <b style={{ color: VERDE }}>{nIngameSemDm}</b> in-game sem responder</>} ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou · <span style={{ color: "#9dc0f0" }}>azul ◈ = provisório</span> ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou · <span style={{ color: "#9dc0f0" }}>azul ◈ = provisório</span> · <span style={{ color: OURO }}>ouro ⇄ = saiu da escalação</span> ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · toque em alguém e depois na PT (ou arraste, no PC)" : " · (só staff edita)"}
           </div>
@@ -1148,7 +1217,8 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
                 <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable", paddingLeft: 10, marginLeft: -10, paddingRight: 2, marginRight: -10 }}>
                 {grupos.map((g) => {
                   // quem recusou tem grupo próprio no fim do pool — aqui ele sairia duplicado
-                  const livres = g.jogadores.filter((j) => partyDe(j) == null && j.confirmouEscalacao !== false && casaBusca(j));
+                  // quem recusou e quem SAIU da escalação têm grupo próprio no fim do pool
+                  const livres = g.jogadores.filter((j) => partyDe(j) == null && j.confirmouEscalacao !== false && !ehSaida(j) && casaBusca(j));
                   // um grupo grande (tipicamente "Sem função", que junta quem não foi classificado)
                   // vira sanfona pra não empurrar os grupos úteis pra fora da tela
                   // chave por NOME quando não há função: dois grupos têm funcaoId null ("Sem função"
@@ -1196,6 +1266,21 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
                       {recusados.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
                     </div>
                     <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Disseram que não vão. Devolva pra uma PT se mudarem de ideia, ou toque no <b>↺</b> pra desfazer a recusa de quem clicou sem querer.</div>
+                  </div>
+                )}
+
+                {/* SAÍRAM DA ESCALAÇÃO: foram convocados e a staff os tirou depois. Grupo próprio
+                    porque a pendência aqui é de MÃO DUPLA — ou a pessoa é avisada, ou volta pra uma
+                    PT — e ela não pode ficar diluída no meio de quem nunca foi chamado. */}
+                {saidos.length > 0 && (
+                  <div style={{ marginBottom: 11, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 9 }}>
+                    <div style={{ color: OURO, fontSize: 12, fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 5 }}>
+                      ⇄ Saíram da escalação <span style={{ color: C.mute, fontWeight: 400 }}>{saidos.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {saidos.map((j) => <Card key={j.chave} j={j} ctx={ctx(j)} />)}
+                    </div>
+                    <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 4 }}>Já tinham recebido a convocação. Use <b>⇄ Avisar quem saiu</b> pra mandar a DM pedindo que tirem o <b>participar</b> no jogo — ou arraste de volta pra uma PT, que a convocação dele é refeita do zero.</div>
                   </div>
                 )}
                 </div>
@@ -1343,6 +1428,7 @@ type CardCtx = {
   onSoltarEmCima?: (chaveArrastada: string) => void;  // reordenar dentro da PT
   onLimparRecusa?: () => void;             // desfaz o "❌ Não vou" clicado por engano
   provisorio?: boolean;                    // pré-selecionado na grade de /presenca
+  saiu?: boolean;                          // convocado e depois tirado da PT (lib/desescalado.ts)
   selecionado?: boolean;                   // escolhido pelo toque, esperando um destino
   onTocar?: () => void;                    // toque: seleciona, ou solta o selecionado aqui
 };
@@ -1544,7 +1630,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
  * reabria sem tirar e devolver o mouse.
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
-  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa, provisorio } = ctx;
+  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa, provisorio, saiu } = ctx;
   // respondeu NÃO na DM. Só vale fora da PT: se você o arrastou de volta pra uma coluna depois de
   // conversar, quem manda é a decisão da staff — o card volta ao normal em vez de acusar a recusa.
   const recusou = j.confirmouEscalacao === false && !escalado;
@@ -1625,12 +1711,15 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
          *
          * Recusou na DM: nome rubro e contorno rubro — este SIM é o alerta.
          */
-        border: `1px solid ${j.lendario ? C.amarelo : recusou ? RUBRO : j.confirmouIngame ? VERDE : provisorio && !escalado ? "#2f5fa8" : C.border2}`,
+        border: `1px solid ${j.lendario ? C.amarelo : recusou ? RUBRO : saiu ? OURO : j.confirmouIngame ? VERDE : provisorio && !escalado ? "#2f5fa8" : C.border2}`,
         boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
         /* AZUL do provisório: rascunho de "pretendo levar", vindo da grade de /presenca. Só vale no
            POOL — depois de escalado, a PT já diz o que precisava ser dito, e manter o azul
            competiria com os sinais de confirmação, que aí são a informação nova. */
+        /* OURO vem ANTES do verde de "aceitou": quem confirmou e foi cortado depois continuaria
+           verde, dizendo "está tudo certo" pra alguém que precisa tirar o participar do jogo. */
         background: recusou ? "rgba(204,0,0,.14)"
+          : saiu ? OURO_FUNDO
           : j.confirmouEscalacao === true ? "rgba(63,191,95,.20)"
           : j.confirmouIngame ? "rgba(63,191,95,.10)"
           : provisorio && !escalado ? "rgba(47,95,168,.30)" : C.inputBg,
@@ -1647,6 +1736,14 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
       {j.lendario && <Pokebola />}
       {provisorio && !escalado && <span style={{ color: "#9dc0f0", fontSize: 11 }} title="provisório: escolhido na grade de presença, ainda não escalado">◈</span>}
       {recusou && <span style={{ color: RUBRO, fontSize: 11 }} title="respondeu que NÃO vai — saiu da PT">✖</span>}
+      {/* ⇄ = a troca: estava dentro, saiu. O título muda com o aviso porque a pergunta da staff
+          olhando o card é sempre "esse aí já sabe?" */}
+      {saiu && (
+        <span style={{ color: OURO, fontSize: 11 }}
+          title={j.saiuAvisado ? "saiu da escalação — o aviso já foi enviado por DM" : "foi convocado e depois tirado da escalação — ainda NÃO foi avisado"}>
+          ⇄{j.saiuAvisado ? "" : "!"}
+        </span>
+      )}
       {/* stopPropagation: sem ele, desfazer a recusa também selecionaria o card pro toque */}
       {onLimparRecusa && (
         <button className="tap" onClick={(e) => { e.stopPropagation(); onLimparRecusa(); }}
@@ -1658,7 +1755,9 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
           recusar tira da PT (party_id = NULL) e o aceitar seguinte NÃO tem como devolver, porque a
           vaga de origem já foi esquecida e pode ter sido preenchida. Sem este aviso a pessoa fica
           no pool com um ✔ verde, parecendo resolvida, e ninguém reescala. */}
-      {j.confirmouEscalacao === true && !escalado && (
+      {/* `!saiu`: quem foi CORTADO pela staff também tem confirmou=true e nenhuma PT, e os dois
+          sinais juntos se contradizem — o ⇄ já conta a história certa. */}
+      {j.confirmouEscalacao === true && !escalado && !saiu && (
         <span style={{ color: C.laranja, fontSize: 11 }} title="disse que VAI e não está em nenhuma PT — precisa ser reescalado">✔!</span>
       )}
       {/* estar IN-GAME responde na prática a pergunta que o ⏳ fazia: quem já apareceu no jogo não

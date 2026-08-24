@@ -4,6 +4,7 @@ import { motivoDaFalha, registrarEnvio, rotuloMotivo, SEM_DISCORD, type FalhaDM 
 import { getDiscordConfig } from "@/lib/discordConfig";
 import { servidoresDoEvento, textoServidores } from "@/lib/servidorGuerra";
 import { chaveNome } from "@/lib/nomes";
+import { SAIU, JA_AVISADO, SEM_CONVITE_VALIDO } from "@/lib/desescalado";
 
 /**
  * Envio de DM em LOTE — o mesmo desenho do Buzinador, aplicado à convocação da escalação.
@@ -20,7 +21,7 @@ import { chaveNome } from "@/lib/nomes";
  * A composição da mensagem é por TIPO (ver `montarDM`), porque convocar e cobrar o participar
  * in-game são cobranças diferentes — e mandar as duas juntas confundiria quem já respondeu.
  */
-export type TipoLote = "convocacao" | "ingame" | "intencao";
+export type TipoLote = "convocacao" | "ingame" | "intencao" | "desescalado";
 
 export type ProgressoLote = {
   ok: boolean; erro?: string;
@@ -37,6 +38,7 @@ const ROTULO: Record<TipoLote, string> = {
   convocacao: "Convocação",
   ingame: "Pedido de participar in-game",
   intencao: "Lembrete de intenção",
+  desescalado: "Aviso de saída da escalação",
 };
 
 /**
@@ -75,7 +77,9 @@ export type PublicoLote =
   | "confirmou"          // in-game: todo mundo que disse SIM
   | "faltam_ingame"      // in-game: não recusou e não apareceu na conferência
   | "calados_nao_receberam" // intenção: não respondeu a chamada e ainda não recebeu o lembrete
-  | "calados";           // intenção: todo mundo que não respondeu a chamada
+  | "calados"            // intenção: todo mundo que não respondeu a chamada
+  | "saiu_nao_avisado"   // saída: foi tirado da escalação e ainda não foi avisado disso
+  | "saiu_todos";        // saída: todo mundo que está fora depois de ter sido convocado
 
 export const ROTULO_PUBLICO: Record<PublicoLote, string> = {
   nao_receberam: "quem ainda não recebeu",
@@ -86,9 +90,11 @@ export const ROTULO_PUBLICO: Record<PublicoLote, string> = {
   faltam_ingame: "quem falta aparecer in-game",
   calados_nao_receberam: "calados que não receberam",
   calados: "todos os calados",
+  saiu_nao_avisado: "quem saiu e não foi avisado",
+  saiu_todos: "todos que saíram",
 };
 
-const PADRAO: Record<TipoLote, PublicoLote> = { convocacao: "nao_receberam", ingame: "confirmou_nao_recebeu", intencao: "calados_nao_receberam" };
+const PADRAO: Record<TipoLote, PublicoLote> = { convocacao: "nao_receberam", ingame: "confirmou_nao_recebeu", intencao: "calados_nao_receberam", desescalado: "saiu_nao_avisado" };
 export const publicoOk = (v: unknown, tipo: TipoLote): PublicoLote =>
   (typeof v === "string" && v in ROTULO_PUBLICO ? (v as PublicoLote) : PADRAO[tipo]);
 
@@ -137,13 +143,30 @@ async function alvosDoTipo(tipo: TipoLote, eventoId: number, publico: PublicoLot
   if (tipo === "convocacao") {
     const filtro = publico === "todos" ? sql``
       : publico === "sem_resposta" ? sql`AND e.confirmou IS NULL`
-      : sql`AND e.convidado_em IS NULL ${naoRecebeu}`;
+      // "não recebeu" mora em lib/desescalado.ts porque a TELA conta o mesmo número (ver alvosConv)
+      : sql`AND ${SEM_CONVITE_VALIDO}`;
     return (await sql`
       SELECT e.chave, e.familia, e.user_id, p.nome AS party
       FROM evento_escalacao e
       LEFT JOIN party p ON p.id = e.party_id
       WHERE e.evento_id = ${eventoId} AND e.party_id IS NOT NULL
         ${filtro}
+      ORDER BY e.familia`) as Alvo[];
+  }
+
+  /**
+   * SAÍDA DA ESCALAÇÃO — o inverso de todos os outros: o único público que NÃO tem `party_id IS NOT
+   * NULL`. São exatamente os que estão FORA agora depois de terem sido chamados pra dentro (a regra
+   * inteira, com os porquês, mora em lib/desescalado.ts — a mesma que pinta o card de amarelo).
+   *
+   * `party` vai NULL de propósito: a DM não diz PT nenhuma. Ele não tem mais uma.
+   */
+  if (tipo === "desescalado") {
+    const filtro = publico === "saiu_todos" ? sql`AND ${SAIU}` : sql`AND ${SAIU} AND NOT ${JA_AVISADO}`;
+    return (await sql`
+      SELECT e.chave, e.familia, e.user_id, NULL::text AS party
+      FROM evento_escalacao e
+      WHERE e.evento_id = ${eventoId} ${filtro}
       ORDER BY e.familia`) as Alvo[];
   }
 
@@ -239,6 +262,29 @@ function montarDM(tipo: TipoLote, eventoId: number, titulo: string, party: strin
       // botão-link em vez de custom_id: quem responde é a MENSAGEM do canal, e um botão aqui teria
       // que duplicar toda a lógica de função/cargo/registro que já vive lá
       ...(link ? { components: [{ type: 1, components: [{ type: 2, style: 5, label: "Ir para a chamada", url: link }] }] } : {}),
+    };
+  }
+  /**
+   * O AVISO DE SAÍDA. Sem botões: não há o que responder — é um comunicado, e um botão aqui fingiria
+   * que a decisão ainda está em aberto. O pedido concreto (tirar o participar dentro do jogo) vem
+   * antes do motivo, porque é o que precisa ser FEITO; o motivo é contexto.
+   *
+   * A lista de motivos é genérica de propósito, palavra por palavra como a staff pediu: a DM sai em
+   * lote pra várias pessoas de uma vez, e escrever um motivo específico exigiria uma mensagem por
+   * pessoa — o que ninguém faria, e o campo acabaria mentindo pra todos.
+   */
+  if (tipo === "desescalado") {
+    return {
+      allowed_mentions: { parse: [] },
+      embeds: [{
+        title: `⇄ Você não está mais escalado — ${titulo}`.slice(0, 256),
+        description: [
+          "Você **NÃO** está mais escalado! Retirar o *participar* dentro do jogo.",
+          "",
+          "Motivo: Demora pra responder a escalação, desistência própria, adequação de comp, erro na chamada, etc...",
+        ].join("\n"),
+        color: 0xd6b22a,
+      }],
     };
   }
   if (tipo === "convocacao") {
@@ -383,6 +429,19 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
   // pra onde ir. Lido uma vez por lote, e não por destinatário. Só o pedido de in-game precisa.
   const servidor = lote.tipo === "ingame" ? textoServidores(await servidoresDoEvento(lote.evento_id)) : null;
 
+  /**
+   * QUEM JÁ VOLTOU PRA UMA PT não pode receber "você não está mais escalado".
+   *
+   * O lote resolve os alvos na hora em que é aberto, e o envio é fatiado — entre abrir e a última
+   * fatia sair cabe a staff mudar de ideia e arrastar a pessoa de volta. Nos outros tipos isso rende
+   * uma DM redundante; aqui renderia uma MENTIRA, e da pior espécie: a pessoa vai lá e tira o
+   * participar de uma guerra em que está escalada. Relido a cada fatia, e não uma vez por lote.
+   */
+  const voltaram = lote.tipo === "desescalado"
+    ? new Set(((await sql`SELECT chave FROM evento_escalacao
+                          WHERE evento_id = ${lote.evento_id} AND party_id IS NOT NULL`) as { chave: string }[]).map((r) => r.chave))
+    : null;
+
   const pend = (await sql`
     UPDATE dm_lote_alvo SET status = 'enviando', tentado = now()
     WHERE id IN (SELECT id FROM dm_lote_alvo WHERE lote_id = ${loteId} AND status = 'pendente' ORDER BY id LIMIT ${tamanho} FOR UPDATE SKIP LOCKED)
@@ -396,7 +455,8 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
   for (const a of pend) {
     if (Date.now() - t0 > msLimite) { devolver.push(a.id); continue; }
     let erro: string | null = null;
-    if (!a.user_id) erro = SEM_DISCORD;
+    if (voltaram?.has(a.chave)) erro = "voltou pra escalação antes do envio";
+    else if (!a.user_id) erro = SEM_DISCORD;
     else {
       try {
         const dm = await botFetch(`/users/@me/channels`, { method: "POST", body: JSON.stringify({ recipient_id: a.user_id }) }, 2);

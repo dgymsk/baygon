@@ -85,6 +85,12 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   const confEscPorChave = new Map(escalacao.map((e) => [e.chave, e.confirmou]));
   // convidado_em separa "ainda não foi chamado" de "chamado e sem responder"
   const convidadoPorChave = new Map(escalacao.map((e) => [e.chave, e.convidado_em]));
+  // convocado e DEPOIS tirado da PT (+ se o aviso disso já saiu). A conta é feita em SQL, uma vez
+  // só, em lib/desescalado.ts — é a MESMA que decide o público do disparo
+  const saiuPorChave = new Map(escalacao.map((e) => [e.chave, e.saiu === true]));
+  const saiuAvisadoPorChave = new Map(escalacao.map((e) => [e.chave, e.saiu_avisado === true]));
+  // "escalado e sem convite válido em pé" — a mesma conta que o disparo de convocação usa
+  const precisaConvitePorChave = new Map(escalacao.map((e) => [e.chave, e.precisa_convite === true]));
   const respondeuPorChave = new Map(escalacao.map((e) => [e.chave, e.respondeu_em]));
   const ingamePorChave = new Map(presenca.filter((p) => p.participar).map((p) => [p.chave, p.atualizado]));
   const lendarioPorChave = new Map(players.map((p) => [chaveNome(p.nome_familia), !!p.lendario]));
@@ -125,6 +131,9 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       escaladoEm: escalaPorChave.get(chave) ?? null,
       confirmouEscalacao: confEscPorChave.get(chave) ?? null,
       convidado: !!convidadoPorChave.get(chave),
+      saiu: saiuPorChave.get(chave) === true,
+      saiuAvisado: saiuAvisadoPorChave.get(chave) === true,
+      precisaConvite: precisaConvitePorChave.get(chave) !== false,
       faltas: f && f.avaliados > 0 ? f.sequencia : null,
       diasSemJogar: f && f.avaliados > 0 ? f.diasSemJogar : null,
       diasDesdeFalta: f && f.avaliados > 0 ? f.diasDesdeFalta : null,

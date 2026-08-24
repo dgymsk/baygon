@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
+import { SAIU, JA_AVISADO, SEM_CONVITE_VALIDO } from "@/lib/desescalado";
 
 /**
  * Escalação final do evento: quem joga e em QUAL PT. É aqui que a intenção múltipla do bot
@@ -9,11 +10,20 @@ import { chaveNome } from "@/lib/nomes";
  * Gravação por DELTA (uma op por linha), como em lib/remocaoStatus.ts: duas pessoas montando a
  * escalação ao mesmo tempo não sobrescrevem o trabalho uma da outra.
  */
-export type EscalacaoRow = { chave: string; familia: string; party_id: number | null; ordem_pt: number | null; confirmou: boolean | null; convidado_em: string | null; respondeu_em: string | null };
+export type EscalacaoRow = { chave: string; familia: string; party_id: number | null; ordem_pt: number | null; confirmou: boolean | null; convidado_em: string | null; respondeu_em: string | null;
+  /** convocado e DEPOIS tirado da PT — ver lib/desescalado.ts */
+  saiu: boolean; saiu_avisado: boolean;
+  /** escalado e sem convocação válida em pé (é o público "quem ainda não recebeu") */
+  precisa_convite: boolean };
 export type EscalacaoOp = { familia: string; partyId?: number | null };
 
 export async function getEscalacao(eventoId: number): Promise<EscalacaoRow[]> {
-  return (await sql`SELECT chave, familia, party_id::int AS party_id, ordem_pt::int AS ordem_pt, confirmou, convidado_em::text AS convidado_em, respondeu_em::text AS respondeu_em FROM evento_escalacao WHERE evento_id = ${eventoId} ORDER BY party_id NULLS LAST, ordem_pt NULLS LAST, familia`) as EscalacaoRow[];
+  return (await sql`SELECT e.chave, e.familia, e.party_id::int AS party_id, e.ordem_pt::int AS ordem_pt, e.confirmou,
+                           e.convidado_em::text AS convidado_em, e.respondeu_em::text AS respondeu_em,
+                           ${SAIU} AS saiu, ${JA_AVISADO} AS saiu_avisado,
+                           ${SEM_CONVITE_VALIDO} AS precisa_convite
+                    FROM evento_escalacao e WHERE e.evento_id = ${eventoId}
+                    ORDER BY e.party_id NULLS LAST, e.ordem_pt NULLS LAST, e.familia`) as EscalacaoRow[];
 }
 
 /**
@@ -50,7 +60,14 @@ export async function aplicarEscalacao(eventoId: number, ops: unknown): Promise<
       await sql`DELETE FROM evento_escalacao
                 WHERE evento_id = ${eventoId} AND chave = ${chave}
                   AND confirmou IS NULL AND convidado_em IS NULL`;
-      await sql`UPDATE evento_escalacao SET party_id = NULL, ordem_pt = NULL, atualizado = now()
+      /**
+       * `saiu_em` = a assinatura da staff no corte. É o único lugar do app que escreve esse carimbo,
+       * e é o que distingue "a staff tirou" de "saiu porque recusou" (a recusa nula o `party_id` em
+       * lib/convocacao.ts sem passar por aqui) e de "foi movido de PT" (esse continua com PT).
+       * Sem um fato registrado, a leitura teria que adivinhar por comparação de carimbos — e adivinha
+       * errado, que foi como o ↺ de desfazer recusa acabava mandando gente pra fila do aviso.
+       */
+      await sql`UPDATE evento_escalacao SET party_id = NULL, ordem_pt = NULL, saiu_em = now(), atualizado = now()
                 WHERE evento_id = ${eventoId} AND chave = ${chave}`;
       continue;
     }
@@ -61,7 +78,28 @@ export async function aplicarEscalacao(eventoId: number, ops: unknown): Promise<
               COALESCE((SELECT max(ordem_pt) + 1 FROM evento_escalacao WHERE evento_id = ${eventoId} AND party_id = ${pid}), 0), now())
       ON CONFLICT (evento_id, chave) DO UPDATE SET familia = EXCLUDED.familia, party_id = EXCLUDED.party_id,
         ordem_pt = CASE WHEN evento_escalacao.party_id IS DISTINCT FROM EXCLUDED.party_id THEN EXCLUDED.ordem_pt ELSE evento_escalacao.ordem_pt END,
+        -- voltou pra uma PT: o corte anterior deixou de valer, e o estado de saída morre aqui
+        saiu_em = NULL,
         atualizado = now()`;
+    /**
+     * REESCALADO DEPOIS DE TER SIDO AVISADO QUE SAIU: o funil dele volta à estaca zero.
+     *
+     * Sem isto o aviso vira uma armadilha silenciosa. A pessoa recebeu "você NÃO está mais
+     * escalado, tire o participar"; a staff muda de ideia e a arrasta de volta — e ela não fica
+     * sabendo, porque `convidado_em` continua carimbado do convite ANTIGO e o disparo de "quem
+     * ainda não recebeu" a pula. Ela ficaria de fora do jogo obedecendo a última coisa que leu.
+     *
+     * Zerar convite e resposta a devolve pra fila de convocação, com o card mostrando ✉ ("ainda não
+     * foi convocado") — que é a verdade depois do aviso. A auditoria não se perde: as duas DMs
+     * continuam no histórico de chamadas do evento, com hora.
+     *
+     * A âncora é `a.tentado >= e.convidado_em` (e não o `atualizado`, que a linha de cima acabou de
+     * carimbar com now()): o que interessa é se a ÚLTIMA coisa que ele recebeu foi o aviso de saída.
+     */
+    await sql`UPDATE evento_escalacao e
+              SET convidado_em = NULL, confirmou = NULL, respondeu_em = NULL
+              WHERE e.evento_id = ${eventoId} AND e.chave = ${chave} AND e.party_id IS NOT NULL
+                AND ${JA_AVISADO}`;
   }
   return getEscalacao(eventoId);
 }
