@@ -7,6 +7,7 @@ import { C, CorResultado, corDoResultado } from "@/lib/theme";
 import { iconeUrl, type GuildEntry } from "@/lib/guild";
 import { TIERS, corTier, type Tier } from "@/lib/tier";
 import { TIPOS_GUERRA, ehTipoGuerra, rotuloGuerra, slotsDoTipo } from "@/lib/tiposGuerra";
+import { ESTADO } from "@/lib/estadoWarCores";
 import ConfirmacaoBoard from "./ConfirmacaoBoard";
 import StatsWar from "./StatsWar";
 import ApagarEvento from "./ApagarEvento";
@@ -118,7 +119,7 @@ export type PresetLite = { id: number; nome: string; tipo: string };
 export default function EventoBoard({
   evento, grupos, parties, envolvidos, canEdit, podeApagar = false, podeRenomear = false, guildas, emojisClasse = {}, temChamada = true,
   vizinhos = [], presets = [], playersNomes = [], statsIniciais = [], aliancasIniciais = [],
-  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [], servidorPadrao = [], catalogoServidores = [],
+  catalogoParties = [], partiesProprias = false, chamadas = [], warsSemana = { nodewars: [], siege: null, porChave: new Map() }, foraDaRegua = [], servidorPadrao = [], catalogoServidores = [], provisorios = [],
 }: {
   evento: Ev | null; grupos: GrupoVM[]; parties: PartyVM[]; envolvidos: JogadorVM[]; canEdit: boolean; guildas: GuildEntry[];
   podeApagar?: boolean; // staff, SEM o gate de status: evento fechado também tem que poder sumir
@@ -133,6 +134,12 @@ export default function EventoBoard({
   foraDaRegua?: string[];        // quem já está fora das médias desta war
   servidorPadrao?: string[];      // servidores do (tipo, tier) — vale quando o evento não opina
   catalogoServidores?: string[];  // a lista do jogo, editável em Definições
+  /**
+   * Rascunho vindo da grade de /presenca: quem a staff PRETENDE levar nesta guerra.
+   * Não é escalação — não ocupa PT nem dispara DM. Só pinta o card de azul no pool, pra quem monta
+   * saber de relance quem já foi escolhido lá olhando o histórico de presença.
+   */
+  provisorios?: string[];
 }) {
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
@@ -162,6 +169,7 @@ export default function EventoBoard({
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
   const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; pend: boolean }>>({});
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
+  const provSet = useMemo(() => new Set(provisorios), [provisorios]);
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
   const proximo = iAtual > 0 ? vizinhos[iAtual - 1] : null;
@@ -756,6 +764,7 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
     onTogglePresenca: togglePresenca,
     onSoltarEmCima: canEdit && partyId != null ? (c) => reordenar(c, partyId, j.chave) : undefined,
     selecionado: sel === j.chave,
+    provisorio: provSet.has(j.chave),
     // só quem recusou tem o que desfazer
     onLimparRecusa: podeRenomear && j.confirmouEscalacao === false ? () => limparRecusa(j) : undefined,
     /**
@@ -1091,7 +1100,7 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
           <div className="leg" style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: VERDE }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar
             {nIngameSemDm > 0 && <> · <b style={{ color: VERDE }}>{nIngameSemDm}</b> in-game sem responder</>} ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou · <span style={{ color: "#9dc0f0" }}>azul ◈ = provisório</span> ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · toque em alguém e depois na PT (ou arraste, no PC)" : " · (só staff edita)"}
           </div>
@@ -1333,6 +1342,7 @@ type CardCtx = {
   onTogglePresenca: (j: JogadorVM) => void;
   onSoltarEmCima?: (chaveArrastada: string) => void;  // reordenar dentro da PT
   onLimparRecusa?: () => void;             // desfaz o "❌ Não vou" clicado por engano
+  provisorio?: boolean;                    // pré-selecionado na grade de /presenca
   selecionado?: boolean;                   // escolhido pelo toque, esperando um destino
   onTocar?: () => void;                    // toque: seleciona, ou solta o selecionado aqui
 };
@@ -1374,16 +1384,7 @@ type PosMini = { left: number; top?: number; bottom?: number };
  * carmesim, então cor sozinha não distingue nada — e mesmo com cores próprias, quem enxerga mal
  * merece o X e o anel.
  */
-const ESTADO: Record<EstadoWar, { fill: string; stroke?: string; marca?: "x" | "o" | "traco"; rot: string }> = {
-  jogou:           { fill: "#3fbf5f", rot: "escalado e jogou" },
-  jogou_sem_escala:{ fill: "#3f8fe0", rot: "não escalado, mas jogou" },
-  marcou:          { fill: "#e08a3a", rot: "marcou e não foi escalado" },
-  faltou:          { fill: "#2a1414", stroke: "#e04b4b", marca: "x", rot: "escalado e NÃO compareceu" },
-  nao_respondeu:   { fill: "transparent", stroke: "#8f8f8f", marca: "o", rot: "não respondeu a chamada" },
-  recusou:         { fill: "#3a3a3a", stroke: "#8f8f8f", marca: "traco", rot: "recusou — avisou que não ia" },
-  sem_stat:        { fill: "#2e2e2e", stroke: "#5a5a5a", rot: "escalado, mas a war não teve estatística gravada" },
-  sem:             { fill: "#242424", rot: "sem dado" },
-};
+
 
 const rotuloWar = (w: { data: string; titulo: string } | null | undefined) =>
   (w ? `${w.data.slice(8, 10)}/${w.data.slice(5, 7)} · ${w.titulo}` : "sem guerra nesta posição");
@@ -1543,7 +1544,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
  * reabria sem tirar e devolver o mouse.
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
-  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa } = ctx;
+  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa, provisorio } = ctx;
   // respondeu NÃO na DM. Só vale fora da PT: se você o arrastou de volta pra uma coluna depois de
   // conversar, quem manda é a decisão da staff — o card volta ao normal em vez de acusar a recusa.
   const recusou = j.confirmouEscalacao === false && !escalado;
@@ -1624,11 +1625,15 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
          *
          * Recusou na DM: nome rubro e contorno rubro — este SIM é o alerta.
          */
-        border: `1px solid ${j.lendario ? C.amarelo : recusou ? RUBRO : j.confirmouIngame ? VERDE : C.border2}`,
+        border: `1px solid ${j.lendario ? C.amarelo : recusou ? RUBRO : j.confirmouIngame ? VERDE : provisorio && !escalado ? "#2f5fa8" : C.border2}`,
         boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
+        /* AZUL do provisório: rascunho de "pretendo levar", vindo da grade de /presenca. Só vale no
+           POOL — depois de escalado, a PT já diz o que precisava ser dito, e manter o azul
+           competiria com os sinais de confirmação, que aí são a informação nova. */
         background: recusou ? "rgba(204,0,0,.14)"
           : j.confirmouEscalacao === true ? "rgba(63,191,95,.20)"
-          : j.confirmouIngame ? "rgba(63,191,95,.10)" : C.inputBg,
+          : j.confirmouIngame ? "rgba(63,191,95,.10)"
+          : provisorio && !escalado ? "rgba(47,95,168,.30)" : C.inputBg,
         borderRadius: 9, padding: "6px 9px", cursor: canEdit ? "grab" : "default",
         // linha no topo marca onde o card vai entrar
         boxSizing: "border-box", borderTop: alvo ? `3px solid ${VERDE}` : undefined,
@@ -1640,6 +1645,7 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
     >
       {lider && <span title="líder da PT" style={{ fontSize: 11, flexShrink: 0 }}>👑</span>}
       {j.lendario && <Pokebola />}
+      {provisorio && !escalado && <span style={{ color: "#9dc0f0", fontSize: 11 }} title="provisório: escolhido na grade de presença, ainda não escalado">◈</span>}
       {recusou && <span style={{ color: RUBRO, fontSize: 11 }} title="respondeu que NÃO vai — saiu da PT">✖</span>}
       {/* stopPropagation: sem ele, desfazer a recusa também selecionaria o card pro toque */}
       {onLimparRecusa && (

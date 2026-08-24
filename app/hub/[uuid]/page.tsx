@@ -7,6 +7,7 @@ import { desempenhoDaWar, aliancasDaWar } from "@/lib/eventos";
 import { historicoSemana } from "@/lib/historicoSemana";
 import { listarForaDaRegua } from "@/lib/foraDaRegua";
 import { padraoDoEvento, listServidoresBdo } from "@/lib/servidorGuerra";
+import { provisoriosDoEvento } from "@/lib/presencaGlobal";
 import { getMarcas, getRespostasInt } from "@/lib/intencao";
 import { getEscalacao } from "@/lib/escalacao";
 import { getPresenca } from "@/lib/presencaEvento";
@@ -49,7 +50,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
   }
   const temChamada = ev.message_id != null;
 
-  const [preset, funcoes, parties, partiesProprias, chamadas, semana, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, foraDaRegua, vizinhos, servidorPadrao, catalogoServidores, playerFuncoes, fila] = await Promise.all([
+  const [preset, funcoes, parties, partiesProprias, chamadas, semana, marcas, respostas, escalacao, presenca, faltas, perfil, players, meta, canEdit, presets, emojiMap, statsIniciais, aliancasIniciais, foraDaRegua, vizinhos, servidorPadrao, provisorios, catalogoServidores, playerFuncoes, fila] = await Promise.all([
     ev.preset_id ? getPreset(ev.preset_id) : Promise.resolve(null),
     listFuncoes(), listParties(), partiesDoEvento(ev.evento_id), historicoLotes(ev.evento_id),
     historicoSemana(ev.evento_id),
@@ -67,6 +68,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
     sql`SELECT e.uuid, COALESCE(e.titulo, e.tipo) AS titulo, e.data::text AS data, e.status
         FROM evento e ORDER BY e.data DESC, e.criado DESC, e.id DESC LIMIT 40`,
     padraoDoEvento(ev.evento_id),   // servidores do (tipo, tier) — o que vale quando o evento não opina
+    provisoriosDoEvento(ev.evento_id),  // rascunho vindo da grade de /presenca
     listServidoresBdo(),            // catálogo do seletor
     listPlayerFuncoes(), // pool de quem não teve chamada
     // fila de chegada: o "quem marcou primeiro", que agora aparece no card
@@ -205,7 +207,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       evento={{ uuid: ev.uuid, titulo: ev.titulo, tituloRaw: ev.titulo_raw, tamanhoMax: ev.tamanho_max, tamanhoMaxPreset: preset?.tamanho_max ?? null, intencaoFechada: ev.intencao_fechada, tipo: ev.tipo, tier: ev.tier, exigeRegistro: ev.exige_registro, data: ev.data, status: ev.status, resultado: ev.resultado, temWar: ev.war_id != null, eventoId: ev.evento_id, messageId: ev.message_id, warId: ev.war_id, presetId: ev.preset_id, servidores: ev.servidores ?? [] }}
       grupos={grupos} parties={partiesVM} envolvidos={envolvidos} temChamada={temChamada}
       catalogoParties={parties.map((x) => ({ id: x.id, nome: x.nome, icone: x.icone || null }))} partiesProprias={partiesProprias != null}
-      chamadas={chamadas} warsSemana={semana} foraDaRegua={foraDaRegua.map((f) => f.nomeFamilia)} servidorPadrao={servidorPadrao} catalogoServidores={catalogoServidores}
+      chamadas={chamadas} warsSemana={semana} foraDaRegua={foraDaRegua.map((f) => f.nomeFamilia)} servidorPadrao={servidorPadrao} catalogoServidores={catalogoServidores} provisorios={provisorios}
       canEdit={canEdit && ev.status === "aberto"} podeApagar={canEdit} podeRenomear={canEdit} guildas={meta.guildas} emojisClasse={emojiMap.classes}
       vizinhos={vizinhosVM} presets={presets.map((p) => ({ id: p.id, nome: p.nome, tipo: p.tipo }))}
       playersNomes={players.map((p) => p.nome_familia)} statsIniciais={statsIniciais} aliancasIniciais={aliancasIniciais}

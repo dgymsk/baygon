@@ -34,6 +34,7 @@ export type EstadoWar =
   | "sem"            // não estava no sistema nessa data, ou não houve guerra nesse espaço
   ;
 
+export type Sinais = Awaited<ReturnType<typeof sinais>>;
 export type WarHistorico = { eventoId: number; data: string; titulo: string; tipo: string; temWar: boolean };
 export type HistoricoJogador = { nodewars: EstadoWar[]; siege: EstadoWar | null };
 export type HistoricoSemana = {
@@ -45,8 +46,14 @@ export type HistoricoSemana = {
 
 const QUADRADOS = 6;
 
-/** Junta as 4 fontes de sinal de um conjunto de eventos, como chaves "eventoId|chaveNome". */
-async function sinais(ids: number[]) {
+/**
+ * Junta as 4 fontes de sinal de um conjunto de eventos, como chaves "eventoId|chaveNome".
+ *
+ * EXPORTADA porque a grade global de presença (lib/presencaGlobal.ts) precisa exatamente do mesmo
+ * apuramento. Reimplementar lá daria duas definições de "marcou" e "faltou" que só divergiriam no
+ * dia em que uma das duas mudasse.
+ */
+export async function sinais(ids: number[]) {
   if (!ids.length) return { marcou: new Set<string>(), recusou: new Set<string>(), escalado: new Set<string>(), jogou: new Set<string>() };
   const arr = ids as unknown as number[];
   const [marcas, recusas, escalados, jogaram] = await Promise.all([

@@ -13,6 +13,7 @@ const LINKS: { href: string; label: string; staff?: boolean }[] = [
   { href: "/confirmados", label: "✅ Confirmados (Apollo)" },
   { href: "/confirmados-bot", label: "🤖 Confirmados (bot)" },
   { href: "/eventos", label: "📅 Eventos" },
+  { href: "/presenca", label: "🗓️ Presença (grade)", staff: true },
   { href: "/hub", label: "🧩 Hub de eventos", staff: true },
   { href: "/gear", label: "⚔️ Gear" },
   { href: "/evolucao", label: "📈 Evolução" },
