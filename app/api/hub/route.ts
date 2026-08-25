@@ -15,6 +15,7 @@ import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
 import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
 import { marcarForaDaRegua } from "@/lib/foraDaRegua";
 import { limparResposta } from "@/lib/convocacao";
+import { retratarAvisosDeQuemVoltou } from "@/lib/retratarSaida";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
@@ -49,6 +50,11 @@ export async function POST(req: Request) {
    *  a gravação no banco é o que importa; a mensagem é espelho. */
   const espelharLista = async () => {
     try { await publicarLista(eid(), { soSePublicada: true }); } catch (e) { console.error("espelho da lista falhou", e); }
+  };
+  /** Quem voltou pra uma PT tem o aviso de "você não está mais escalado" DESDITO na DM dele. Nunca
+   *  derruba a ação: a escalação já foi gravada, e a mensagem no privado é espelho, como a lista. */
+  const desdizerAvisoDeSaida = async () => {
+    try { await retratarAvisosDeQuemVoltou(eid()); } catch (e) { console.error("retratação do aviso de saída falhou", e); }
   };
 
   /**
@@ -344,7 +350,7 @@ export async function POST(req: Request) {
     // --- evento: escalação e presença ---
     case "escalar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
-      { const escalacao = await aplicarEscalacao(eid(), b.ops); await espelharLista(); return NextResponse.json({ escalacao }); }
+      { const escalacao = await aplicarEscalacao(eid(), b.ops); await desdizerAvisoDeSaida(); await espelharLista(); return NextResponse.json({ escalacao }); }
     }
     case "escalacao-reordenar": {
       if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });

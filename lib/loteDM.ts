@@ -455,6 +455,10 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
   for (const a of pend) {
     if (Date.now() - t0 > msLimite) { devolver.push(a.id); continue; }
     let erro: string | null = null;
+    // ONDE a mensagem foi parar. Guardado porque uma DM disparada precisa poder ser DESDITA: quem é
+    // reescalado depois do aviso de saída tem essa mensagem editada em vez de ficar com um recado
+    // que manda sair de uma guerra em que ele está (ver lib/retratarSaida.ts).
+    let canal: string | null = null, mensagem: string | null = null;
     if (voltaram?.has(a.chave)) erro = "voltou pra escalação antes do envio";
     else if (!a.user_id) erro = SEM_DISCORD;
     else {
@@ -465,10 +469,17 @@ export async function processarLoteDM(loteId: number, tamanho = 5, msLimite = 15
           const ch = (await dm.json()) as { id: string };
           const res = await botFetch(`/channels/${ch.id}/messages`, { method: "POST", body: JSON.stringify(montarDM(lote.tipo, lote.evento_id, lote.titulo, a.party, link, servidor)) }, 2);
           if (!res.ok) erro = await motivoDaFalha(res, "enviar");
+          else {
+            canal = ch.id;
+            // corpo ilegível não invalida o envio: a DM SAIU. Perde-se só a chance de editá-la
+            try { mensagem = ((await res.json()) as { id?: string })?.id ?? null; } catch { mensagem = null; }
+          }
         }
       } catch (e) { erro = (e as Error).message; }
     }
-    await sql`UPDATE dm_lote_alvo SET status = ${erro ? "falha" : "ok"}, erro = ${erro}, tentado = now() WHERE id = ${a.id}`;
+    await sql`UPDATE dm_lote_alvo SET status = ${erro ? "falha" : "ok"}, erro = ${erro}, tentado = now(),
+                                      dm_channel_id = ${canal}, dm_message_id = ${mensagem}
+              WHERE id = ${a.id}`;
     // o carimbo de convocado é o que a tela usa pra separar "não chamado" de "chamado e calado"
     if (!erro && lote.tipo === "convocacao") {
       await sql`UPDATE evento_escalacao SET convidado_em = now() WHERE evento_id = ${lote.evento_id} AND chave = ${a.chave}`;
