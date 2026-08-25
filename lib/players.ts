@@ -38,6 +38,8 @@ export type PlayerRow = {
   saida_data: string | null;
   registro: boolean;                 // concluiu a jornada de registro (manual/estatística = false)
   lendario: boolean;                 // destaque na escalação; NUNCA aparece no bot
+  /** Dias em que costuma poder jogar (0=domingo … 6=sábado, como lib/agenda.ts). null = não informado. */
+  dias_semana: number[] | null;
   n_wars: number;
   garmoth_id: string | null;         // config (id da build do Garmoth)
   garmoth: GarmothCache | null;      // cache da API (worker); null se nunca buscado
@@ -48,7 +50,7 @@ type PlayerRaw = Omit<PlayerRow, "garmoth"> & { g_ap: number | null; g_aap: numb
 export async function listPlayers(): Promise<PlayerRow[]> {
   const rows = (await sql`
     SELECT p.nome_familia, p.grupo, p.grupo_siege, p.is_core_siege, p.classe_bdo, p.classe_tipo, p.is_core, p.ativo, p.guilda, p.pt_preferida,
-           p.saida_tipo, p.saida_data::text AS saida_data, p.registro, p.lendario, p.garmoth_id,
+           p.saida_tipo, p.saida_data::text AS saida_data, p.registro, p.lendario, p.garmoth_id, p.dias_semana,
            count(DISTINCT d.war_id)::int AS n_wars,
            gb.ap AS g_ap, gb.aap AS g_aap, gb.dp AS g_dp, gb.acc AS g_acc, gb.char_name AS g_char_name,
            gb.spec AS g_spec, gb.atualizado::text AS g_atualizado, gb.garmoth_id AS g_src_id
@@ -110,7 +112,20 @@ export type PlayerUpdate = {
   /** ausente (`undefined`) = não mexe; `null` = herda do node war. Ver o CASE no UPDATE abaixo. */
   grupo_siege?: string | null;
   is_core_siege?: boolean | null;
+  /** ausente = não mexe; array = grava; null = volta a "não informado". Dias 0..6 (domingo..sábado). */
+  dias_semana?: number[] | null;
 };
+
+/** Normaliza dias da semana: só 0..6, sem repetido, em ordem. Mesma função de intenção em lib/agenda.ts. */
+export function diasOk(v: unknown): number[] | null {
+  if (v == null) return null;
+  if (!Array.isArray(v)) return null;
+  // `Number(null)` e `Number("")` são 0 — ou seja, lixo viraria DOMINGO. Só número de verdade, ou
+  // string que é só dígito, viram dia.
+  const num = (x: unknown) => (typeof x === "number" ? x : typeof x === "string" && /^\d+$/.test(x.trim()) ? Number(x) : NaN);
+  const d = [...new Set(v.map((x) => Math.trunc(num(x))).filter((x) => Number.isFinite(x) && x >= 0 && x <= 6))].sort((a, b) => a - b);
+  return d.length ? d : null;   // vazio e "não informado" são a mesma coisa: ninguém ganha destaque
+}
 
 export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
   if (!updates.length) return;
@@ -131,7 +146,11 @@ export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
         -- linha que tocasse — em silêncio, com HTTP 200. NULL continua sendo gravável de
         -- propósito: é como se volta a herdar o papel de node war.
         grupo_siege   = CASE WHEN ${u.grupo_siege   === undefined}::boolean THEN grupo_siege   ELSE ${u.grupo_siege ?? null} END,
-        is_core_siege = CASE WHEN ${u.is_core_siege === undefined}::boolean THEN is_core_siege ELSE ${u.is_core_siege ?? null} END
+        is_core_siege = CASE WHEN ${u.is_core_siege === undefined}::boolean THEN is_core_siege ELSE ${u.is_core_siege ?? null} END,
+        -- mesmo cuidado do papel de siege. A /membros salva a linha inteira e ELA MANDA este campo
+        -- (ele está em PlayerRow), mas a rota o descarta — ver o comentário em api/players/route.
+        -- O CASE é a segunda trava: qualquer chamador que não conheça o campo não apaga os dias.
+        dias_semana = CASE WHEN ${u.dias_semana === undefined}::boolean THEN dias_semana ELSE ${(u.dias_semana ?? null) as unknown as number[] | null} END
     WHERE nome_familia = ${u.nome_familia}
   `);
   await sql.transaction(queries);

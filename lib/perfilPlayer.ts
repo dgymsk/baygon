@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db";
 import { chaveNome } from "@/lib/nomes";
+import { historicoDoJogador, type PontoDano } from "@/lib/stats";
 
 /**
  * MINI RESUMO de um jogador — o cartão que abre ao clicar no nome em /membros.
@@ -35,6 +36,14 @@ export type PerfilPlayer = {
   funil: { eventos: number; marcou: number; escalado: number; aceitou: number; recusou: number; semResposta: number; ingame: number; jogou: number };
   wars: { comEstatistica: number; primeira: string | null; ultima: string | null };
   ultimos: EventoDoPlayer[];
+  /**
+   * Dano por guerra, com a % contra a régua (lib/stats.historicoDoJogador). Fica no perfil porque a
+   * pergunta "posso contar com essa pessoa?" tem duas metades: ela APARECE (o funil) e ela ENTREGA
+   * quando aparece. O funil sozinho promove quem nunca falta e nunca faz nada.
+   */
+  dano: PontoDano[];
+  /** Dias em que costuma poder jogar (0=domingo…6). Vazio = não informado. */
+  diasSemana: number[];
 };
 
 const LIMITE_EVENTOS = 12;
@@ -85,6 +94,12 @@ export async function perfilPlayer(nomeFamilia: string, limite = LIMITE_EVENTOS)
     FROM desempenho d JOIN wars w ON w.war_id = d.war_id
     WHERE d.nome_familia = ${nome}`) as { comEstatistica: number; primeira: string | null; ultima: string | null }[];
 
+  // dano por war e os dias dele: uma ida a mais cada, só no clique que abre o cartão
+  const [dano, diasRow] = await Promise.all([
+    historicoDoJogador(existe[0].nome_familia),
+    sql`SELECT dias_semana FROM players WHERE nome_familia = ${existe[0].nome_familia}` as Promise<unknown>,
+  ]);
+
   const funil = {
     eventos: ultimos.length,
     marcou: ultimos.filter((e) => e.marcou).length,
@@ -102,5 +117,7 @@ export async function perfilPlayer(nomeFamilia: string, limite = LIMITE_EVENTOS)
     funil,
     wars: wars[0] ?? { comEstatistica: 0, primeira: null, ultima: null },
     ultimos,
+    dano,
+    diasSemana: (diasRow as { dias_semana: number[] | null }[])[0]?.dias_semana ?? [],
   };
 }

@@ -47,7 +47,11 @@ for (const f of arquivos(RAIZ)) {
   if (!txt.includes("sql`")) continue;
   for (const b of blocosSql(txt)) {
     /**
-     * A ASSINATURA: o template fecha NO MEIO de uma linha de comentário SQL.
+     * A ASSINATURA: o template fecha NO MEIO de uma linha de COMENTÁRIO.
+     *
+     * Dois formatos, porque o erro já apareceu nos dois: o comentário de SQL (-- ver `x`) e o
+     * bloco JSDoc escrito DENTRO da query, cuja linha começa com asterisco. O segundo passou
+     * batido pela primeira versão deste script, que só olhava o "--".
      *
      * Quando a crase está dentro de um "-- ...", o corpo lido termina naquela linha, e a última
      * linha dele ainda tem o "--" aberto. Bloco legítimo nunca acaba assim: ou a crase de
@@ -57,7 +61,7 @@ for (const f of arquivos(RAIZ)) {
      * porque a crase costuma aparecer perto do fim da query.
      */
     const ultima = b.corpo.slice(b.corpo.lastIndexOf("\n") + 1);
-    if (ultima.includes("--")) {
+    if (ultima.includes("--") || /^\s*\*/.test(ultima)) {
       const nLinha = b.linha + b.corpo.split("\n").length - 1;
       console.error(`${path.relative(RAIZ, f)}:${nLinha}  o bloco sql fecha DENTRO de um comentário — crase solta`);
       console.error(`   linha: ${JSON.stringify(ultima.trim().slice(0, 100))}`);

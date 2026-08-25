@@ -74,6 +74,14 @@ export async function PATCH(req: Request) {
           : (typeof x.grupo_siege === "string" && x.grupo_siege ? x.grupo_siege : null),
         is_core_siege: x.is_core_siege === undefined ? undefined
           : (x.is_core_siege === null ? null : Boolean(x.is_core_siege)),
+        /**
+         * `dias_semana` NÃO entra aqui de propósito, mesmo vindo no corpo.
+         *
+         * A /membros salva a LINHA INTEIRA de cada jogador editado, e a linha agora carrega os dias
+         * — com o valor que a tabela leu quando a página abriu. Editar a classe de alguém dez
+         * minutos depois de configurar os dias dele mandaria o valor velho de volta e desfaria a
+         * configuração, com HTTP 200. Quem grava dias é POST /api/players/dias, e só ele.
+         */
       });
     }
   }

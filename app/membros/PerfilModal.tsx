@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
+import { formatarMetrica } from "@/lib/formatarMetrica";
 import type { PlayerRow } from "@/lib/players";
 import type { PerfilPlayer } from "@/lib/perfilPlayer";
+
+/** 0 = domingo … 6 = sábado — a convenção de Date.getUTCDay(), a mesma de intencao_agenda. */
+const DIA_CURTO = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const DIA_NOME = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+/** Amarelo claro do "dia dele" — o mesmo da listra no card da escalação. */
+const DIA_CLARO = "#f0e08a";
+const VERDE_OK = "#3fbf5f";
 
 /**
  * O cartão que abre ao clicar no nome em /membros.
@@ -35,6 +43,28 @@ const Linha = ({ k, v }: { k: string; v: React.ReactNode }) => (
   </div>
 );
 
+/**
+ * Uma guerra na régua. A barra é 100% da largura quando a pessoa empatou com a referência, então o
+ * traço vertical no meio é a régua — dá pra ler a linha inteira sem ler número nenhum.
+ *
+ * O teto visual é 200%: acima disso a barra satura, e o número ao lado continua dizendo a verdade.
+ * Sem teto, uma noite de 400% comprimiria todas as outras a nada.
+ */
+const BarraPct = ({ pct }: { pct: number | null }) => {
+  if (pct == null) return <span style={{ color: C.dim, fontSize: 11 }} title="jogou sozinho no grupo nessa guerra — não há com quem comparar">sem régua</span>;
+  const larg = Math.max(2, Math.min(pct, 200) / 2);   // 200% -> 100% da caixa
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ position: "relative", flex: "1 1 auto", height: 7, background: C.inputBg, borderRadius: 4, overflow: "hidden", minWidth: 40 }}>
+        <div style={{ width: `${larg}%`, height: "100%", background: pct >= 100 ? VERDE_OK : C.mute, opacity: pct >= 100 ? 0.85 : 0.55 }} />
+        {/* a régua: 100% cai exatamente no meio da caixa */}
+        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: C.border2 }} />
+      </div>
+      <span style={{ color: pct >= 100 ? VERDE_OK : C.mute, fontSize: 11.5, fontWeight: 700, minWidth: 38, textAlign: "right" }}>{Math.round(pct)}%</span>
+    </div>
+  );
+};
+
 export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado, elenco = [] }: { row: PlayerRow; onClose: () => void; canEdit?: boolean; onRenomeado?: (novo: string) => void; elenco?: string[] }) {
   const [perfil, setPerfil] = useState<PerfilPlayer | null>(null);
   const [erro, setErro] = useState("");
@@ -45,6 +75,43 @@ export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado
   const [fundindo, setFundindo] = useState(false);
   const [alvoFusao, setAlvoFusao] = useState("");
   const [fusErro, setFusErro] = useState("");
+  /** Dias otimistas: o clique pinta na hora e o servidor confirma depois (ver `alternarDia`). */
+  const [dias, setDias] = useState<number[] | null>(null);
+  const [diasErro, setDiasErro] = useState("");
+  /**
+   * A ordem importa: palpite otimista > resposta do servidor > o que a TABELA já sabia.
+   *
+   * O último degrau é o que mata a corrida: sem ele, enquanto o GET do perfil está no ar os sete
+   * botões apareciam todos apagados — inclusive pra quem tem dias gravados —, e o primeiro clique
+   * mandava só o dia clicado, apagando o resto. `row` vem da /membros e já traz a coluna.
+   */
+  const diasAtuais = dias ?? perfil?.diasSemana ?? row.dias_semana ?? [];
+
+  /**
+   * Liga/desliga um dia. Grava direto, sem botão de salvar: é um toggle de 7 posições, e um
+   * "salvar" a mais só criaria a chance de fechar o cartão com a escolha perdida.
+   *
+   * O palpite otimista vale até o servidor responder; se falhar, volta ao que era e diz o motivo.
+   */
+  async function alternarDia(d: number) {
+    if (!canEdit) return;
+    const antes = diasAtuais;
+    const novo = antes.includes(d) ? antes.filter((x) => x !== d) : [...antes, d].sort((a, b) => a - b);
+    setDias(novo);
+    setDiasErro("");
+    try {
+      const res = await fetch("/api/players/dias", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: row.nome_familia, dias: novo }),
+      });
+      const d2 = (await res.json().catch(() => ({}))) as { dias?: number[]; error?: string };
+      if (!res.ok) throw new Error(d2.error ?? `erro ${res.status}`);
+      setDias(d2.dias ?? novo);
+    } catch (e) {
+      setDias(antes);
+      setDiasErro((e as Error).message);
+    }
+  }
 
   /**
    * FUNDIR — quando este cadastro e outro são a MESMA pessoa (trocou o nome no jogo e o print da
@@ -108,6 +175,15 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
 
   useEffect(() => {
     let vivo = true;
+    /**
+     * Sem zerar estado aqui: quem garante cartão limpo a cada jogador é o `key` no pai
+     * (MembrosTable), que REMONTA o componente quando o nome muda. Zerar dentro do efeito faria a
+     * mesma coisa por um caminho pior — uma cascata de renders a cada abertura, que o lint pega.
+     *
+     * O estrago que isso evita não é só cosmético: `dias` é palpite otimista e vence o que vem do
+     * servidor, então os botões do jogador anterior continuariam marcados no cartão do próximo, e
+     * o clique seguinte gravaria aquela escolha no nome errado.
+     */
     fetch(`/api/players/perfil?nome=${encodeURIComponent(row.nome_familia)}`)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
@@ -159,6 +235,37 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
           <Linha k="Registro" v={row.registro ? "concluído" : <span style={{ color: C.laranja }}>não registrado</span>} />
           <Linha k="Wars com estatística" v={perfil ? `${perfil.wars.comEstatistica}${perfil.wars.primeira ? ` · de ${br(perfil.wars.primeira)} a ${br(perfil.wars.ultima)}` : ""}` : "…"} />
           {!row.ativo && <Linha k="Saída" v={`${row.saida_tipo ?? "—"}${row.saida_data ? ` · ${br(row.saida_data)}` : ""}`} />}
+        </div>
+
+        {/* DIAS QUE COSTUMA JOGAR — informação que hoje mora na cabeça de quem monta escalação
+            ("o Dixit só joga começo de semana") e some a cada troca de staff. Quando a guerra cai
+            num desses dias, o card dele ganha uma listra clara no pool. */}
+        <div style={{ border: `1px solid ${C.borderSoft}`, borderRadius: 10, padding: "9px 11px", marginBottom: 14 }}>
+          <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 7 }}>
+            Costuma jogar {diasAtuais.length > 0 && <span style={{ color: DIA_CLARO }}>({diasAtuais.length} dia{diasAtuais.length > 1 ? "s" : ""})</span>}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {DIA_CURTO.map((rot, d) => {
+              const on = diasAtuais.includes(d);
+              return (
+                <button key={d} onClick={() => alternarDia(d)} disabled={!canEdit} className="tap"
+                  title={canEdit ? `${on ? "tirar" : "marcar"} ${DIA_NOME[d]}` : DIA_NOME[d]}
+                  style={{ borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, fontFamily: "inherit",
+                    cursor: canEdit ? "pointer" : "default", textTransform: "capitalize",
+                    border: `1px solid ${on ? DIA_CLARO : C.border2}`,
+                    background: on ? "rgba(240,224,138,.14)" : "transparent",
+                    color: on ? DIA_CLARO : C.dim }}>
+                  {rot}
+                </button>
+              );
+            })}
+          </div>
+          {diasErro && <div style={{ color: C.vermelho, fontSize: 12, marginTop: 7 }}>⚠ {diasErro}</div>}
+          <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 7, lineHeight: 1.5 }}>
+            {diasAtuais.length === 0
+              ? "Nenhum dia informado — é o normal, e não impede nada. Marque só de quem tem restrição de agenda."
+              : "Nas guerras desses dias o card dele aparece com uma listra clara na escalação. Não escala ninguém sozinho nem barra os outros dias — é lembrete, não regra."}
+          </div>
         </div>
 
         {canEdit && (
@@ -225,6 +332,53 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
             )}
           </div>
         )}
+
+        {/* DANO POR GUERRA — a outra metade da pergunta "posso contar com essa pessoa?". O funil
+            acima diz se ela aparece; isto diz o que ela entrega quando aparece. A régua é a média
+            dos OUTROS do grupo dela naquela guerra (core, se houver) — ela nunca entra na própria
+            referência, senão o percentual tende a 100 por construção. */}
+        <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+          Dano por guerra {perfil ? `(${perfil.dano.length})` : ""}
+          <span style={{ textTransform: "none", letterSpacing: 0, color: C.dim }}> · últimas 12 · % contra o core do grupo dele (sem core, contra os outros do grupo)</span>
+        </div>
+        <div className="rolx" style={{ border: `1px solid ${C.border2}`, borderRadius: 10, marginBottom: 14 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: C.inputBg, color: C.mute, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                <th className="fixa" style={{ padding: "5px 8px", textAlign: "left" }}>Guerra</th>
+                <th style={{ padding: "5px 6px", textAlign: "right" }}>Dano</th>
+                <th style={{ padding: "5px 6px", textAlign: "right" }} title="o esperado naquela guerra: a média dos CORES do grupo dele; sem core no grupo, a média dos outros. Ele nunca entra na própria régua.">Régua</th>
+                <th style={{ padding: "5px 8px", textAlign: "left", minWidth: 120 }}>vs régua</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!perfil && !erro && <tr><td colSpan={4} style={{ padding: 14, color: C.dim, textAlign: "center" }}>carregando…</td></tr>}
+              {perfil && perfil.dano.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: 12, color: C.dim, textAlign: "center" }}>nenhuma guerra com régua (rosas não entra)</td></tr>
+              )}
+              {perfil?.dano.map((p) => (
+                <tr key={p.warId} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
+                  <td className="fixa" style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>
+                    <span style={{ color: C.texto }}>{br(p.data)}</span>
+                    <span style={{ color: C.dim, fontSize: 10.5 }}> · {p.tipo ?? "nodewar"}</span>
+                  </td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: C.texto, whiteSpace: "nowrap" }}>{formatarMetrica("dano_em_player", p.valor)}</td>
+                  <td style={{ padding: "4px 6px", textAlign: "right", color: C.dim, whiteSpace: "nowrap" }}
+                      title={p.nCore > 0 ? `média de ${p.nCore} core(s) do grupo` : p.nOutros > 0 ? `sem core no grupo: média de ${p.nOutros} companheiro(s)` : "ninguém além dele no grupo"}>
+                    {formatarMetrica("dano_em_player", p.regua)}
+                    {p.regua != null && p.nCore === 0 && p.nOutros > 0 && <span style={{ color: C.dim, fontSize: 10 }} title="sem core no grupo nessa guerra"> ~</span>}
+                  </td>
+                  {/* grupo que o dano NÃO avalia (Indefinido, Shai…): o número existe, a comparação
+                      não significa nada — mesmo tratamento que o /eu dá às métricas fora do papel */}
+                  <td style={{ padding: "4px 8px" }}>
+                    {p.avaliada ? <BarraPct pct={p.pct} />
+                      : <span style={{ color: C.dim, fontSize: 11 }} title="o grupo dele nessa guerra não é avaliado por dano — comparar não diria nada">fora do papel</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
           Últimos eventos {perfil ? `(${perfil.ultimos.length})` : ""}

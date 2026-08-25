@@ -73,6 +73,61 @@ export type EuMetrica = {
 };
 
 /**
+ * AS ÚLTIMAS N WARS DO JOGADOR, COM A RÉGUA — o pedaço que /eu e o histórico do perfil dividem.
+ *
+ * Fragmento, e não duas cópias, porque é a definição de RÉGUA que está aqui dentro, e é a conta
+ * mais delicada do app: se um dia o critério mudar num lugar e não no outro, a mesma pessoa
+ * aparece com percentuais diferentes em duas telas e nenhuma das duas está obviamente errada.
+ *
+ * Devolve as CTEs `minhas`, `base` e `bench` — quem interpola continua a partir daí com o `WITH`.
+ */
+const reguaDoJogador = (familia: string, n: number, metricas: string[]) => sql`
+  minhas AS (  -- últimas N wars que o player jogou
+    SELECT w.war_id FROM wars w
+    WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
+      AND COALESCE(w.tipo,'') <> ALL(${TIPOS_SEM_REGUA}::text[])   -- rosas não entra na régua
+    ORDER BY w.data DESC LIMIT ${n}
+  ),
+  /**
+   * O grupo que EU tinha NAQUELA war, e quem mais estava nele.
+   *
+   * O grupo sai de papel_na_war, e não do cadastro: numa siege em que a pessoa troca de função
+   * ela não casava o próprio filtro, a war era descartada calada e a métrica encolhia no card.
+   */
+  base AS (
+    SELECT d.war_id, d.metrica, d.valor, pw.is_core, m.direcao, d.nome_familia
+    FROM desempenho d
+    JOIN minhas mw        ON mw.war_id = d.war_id
+    JOIN papel_na_war pw  ON pw.war_id = d.war_id AND pw.nome_familia = d.nome_familia
+    JOIN papel_na_war meu ON meu.war_id = d.war_id AND meu.nome_familia = ${familia}
+    JOIN metricas m       ON m.metrica = d.metrica
+    WHERE d.metrica = ANY(${metricas}::text[]) AND pw.grupo = meu.grupo
+  ),
+  /**
+   * RÉGUA = OS OUTROS. A pessoa medida nunca entra na própria referência.
+   *
+   * Antes era COALESCE(AVG FILTER (is_core), AVG(valor)) — e o segundo termo inclui quem está
+   * sendo medido. Num grupo de duas pessoas sem core, o jogador é METADE da própria régua: o
+   * percentual é puxado pra perto de 100 por construção. Caso real conferido: McFly, Backline,
+   * war 53 — 86% com ele dentro, 76% com a régua sendo o outro jogador.
+   *
+   * Três degraus, todos sem o próprio: outros cores -> outros do grupo -> NULL. O NULL é honesto:
+   * quem está sozinho no grupo naquela war não tem contra quem ser comparado.
+   */
+  bench AS (
+    SELECT war_id, metrica, MAX(direcao) AS direcao,
+      COALESCE(
+        AVG(valor) FILTER (WHERE is_core AND nome_familia <> ${familia}),
+        AVG(valor) FILTER (WHERE nome_familia <> ${familia})
+      )                                                          AS regua,
+      count(*) FILTER (WHERE is_core AND nome_familia <> ${familia})::int AS n_core,
+      count(*) FILTER (WHERE nome_familia <> ${familia})::int     AS n_outros,
+      AVG(valor)                                                 AS grupo_war,
+      AVG(valor) FILTER (WHERE nome_familia = ${familia})        AS minha_war
+    FROM base GROUP BY war_id, metrica
+  )`;
+
+/**
  * Para a home pessoal /eu, sobre as ÚLTIMAS N WARS QUE O PLAYER PARTICIPOU
  * (n=1 = "última war"). Os % (minhaPct/grupoPct) usam o MESMO método do /membros
  * e /painel: régua por (war, grupo, métrica) = core do grupo (fallback média do
@@ -81,53 +136,7 @@ export type EuMetrica = {
  */
 export async function statsEu(familia: string, n = 5): Promise<EuMetrica[]> {
   const rows = (await sql`
-    WITH minhas AS (  -- últimas N wars que o player jogou
-      SELECT w.war_id FROM wars w
-      WHERE EXISTS (SELECT 1 FROM desempenho d WHERE d.war_id = w.war_id AND d.nome_familia = ${familia})
-        AND COALESCE(w.tipo,'') <> ALL(${TIPOS_SEM_REGUA}::text[])   -- rosas não entra na régua
-      ORDER BY w.data DESC LIMIT ${n}
-    ),
-    /**
-     * O grupo que EU tinha NAQUELA war, e quem mais estava nele.
-     *
-     * Antes o grupo vinha por parâmetro, do cadastro (AND p.grupo = <grupo do cadastro>). Numa
-     * siege em que a pessoa troca de função ela não casava o próprio filtro: minha_war saía NULL, a
-     * war era descartada pelo FILTER lá embaixo, e a métrica encolhia ou sumia do card — calada.
-     */
-    base AS (
-      SELECT d.war_id, d.metrica, d.valor, pw.is_core, m.direcao, d.nome_familia
-      FROM desempenho d
-      JOIN minhas mw        ON mw.war_id = d.war_id
-      JOIN papel_na_war pw  ON pw.war_id = d.war_id AND pw.nome_familia = d.nome_familia
-      JOIN papel_na_war meu ON meu.war_id = d.war_id AND meu.nome_familia = ${familia}
-      JOIN metricas m       ON m.metrica = d.metrica
-      WHERE d.metrica = ANY(${STAT_METRICAS}::text[]) AND pw.grupo = meu.grupo
-    ),
-    /**
-     * RÉGUA = OS OUTROS. A pessoa medida nunca entra na própria referência.
-     *
-     * Antes era COALESCE(AVG FILTER (is_core), AVG(valor)) — e o segundo termo inclui quem está
-     * sendo medido. Num grupo de duas pessoas sem core, o jogador é METADE da própria régua: o
-     * percentual é puxado pra perto de 100 por construção, e a linha "grupo vs régua" dá exatamente
-     * 100%, porque compara a média do grupo com ela mesma. Caso real conferido: McFly, Backline,
-     * war 53 — 86% com ele dentro, 76% com a régua sendo o outro jogador.
-     *
-     * Três degraus, todos sem o próprio: outros cores -> outros do grupo -> NULL. O NULL é honesto:
-     * quem está sozinho no grupo naquela war não tem contra quem ser comparado, e a métrica sai da
-     * janela em vez de exibir um 100% que não significa nada.
-     */
-    bench AS (
-      SELECT war_id, metrica, MAX(direcao) AS direcao,
-        COALESCE(
-          AVG(valor) FILTER (WHERE is_core AND nome_familia <> ${familia}),
-          AVG(valor) FILTER (WHERE nome_familia <> ${familia})
-        )                                                          AS regua,
-        count(*) FILTER (WHERE is_core AND nome_familia <> ${familia})::int AS n_core,
-        count(*) FILTER (WHERE nome_familia <> ${familia})::int     AS n_outros,
-        AVG(valor)                                                 AS grupo_war,
-        AVG(valor) FILTER (WHERE nome_familia = ${familia})        AS minha_war
-      FROM base GROUP BY war_id, metrica
-    ),
+    WITH ${reguaDoJogador(familia, n, STAT_METRICAS)},
     pct AS (  -- % por war (polaridade, SEM cap aqui; div/0 → NULL p/ ser EXCLUÍDO depois)
       SELECT metrica, direcao, regua, grupo_war, minha_war, n_core, n_outros,
         CASE direcao WHEN 'maior_melhor' THEN minha_war / NULLIF(regua,0) * 100
@@ -155,4 +164,61 @@ export async function statsEu(familia: string, n = 5): Promise<EuMetrica[]> {
     const r = map.get(m);
     return { metrica: m, direcao: r?.direcao ?? "maior_melhor", coreRaw: r?.core_raw ?? null, grupoRaw: r?.grupo_raw ?? null, minhaRaw: r?.minha_raw ?? null, minhaPct: r?.minha_pct ?? null, grupoPct: r?.grupo_pct ?? null, warsComCore: r?.wars_com_core ?? 0, warsComCompanhia: r?.wars_com_companhia ?? 0 };
   });
+}
+
+export type PontoDano = {
+  warId: number;
+  data: string;
+  tipo: string | null;
+  resultado: string | null;
+  /** O valor DELE naquela war (dano cru). */
+  valor: number | null;
+  /** A régua daquela war — a média dos OUTROS (cores do grupo; sem eles, os outros do grupo). */
+  regua: number | null;
+  /** valor/régua em %. NULL quando ele jogou sozinho no grupo: não há com quem comparar. */
+  pct: number | null;
+  /** Quantos outros cores e quantos outros do grupo entraram na régua daquela war. */
+  nCore: number;
+  nOutros: number;
+  /**
+   * O grupo dele NAQUELA guerra é avaliado por esta métrica (`grupos_metricas`)?
+   *
+   * FALSE não é erro: um Shai ou alguém no grupo "Indefinido" tem dano gravado como todo mundo, mas
+   * o papel dele não é medido por dano — e comparar mesmo assim produz um número que parece
+   * julgamento e não é. O /painel e a /evolução resolvem isso com um INNER JOIN que faz a linha
+   * SUMIR; aqui a guerra continua na lista (a pessoa jogou, e isso importa) e quem some é a %.
+   */
+  avaliada: boolean;
+};
+
+/**
+ * HISTÓRICO POR WAR de uma métrica só — o bloco de dano do cartão de /membros.
+ *
+ * Mesma régua do /eu, pelo mesmo fragmento (`reguaDoJogador`): a pessoa medida nunca entra na
+ * própria referência. É a diferença que faz o número significar alguma coisa — num grupo de dois
+ * sem core, comparar-se consigo mesmo devolve ~100% por construção.
+ *
+ * SEM o teto de 200% que existe no /eu e na evolução. Lá ele protege uma MÉDIA de ser destruída por
+ * um ponto fora da curva; aqui cada linha É uma guerra específica, e cortar o 340% de uma noite
+ * excepcional seria apagar justamente o que a staff quer ver.
+ *
+ * `fora_da_regua` não é honrado aqui, como não é no /eu — o marcador só é lido por lib/score.ts e
+ * lib/evolucao.ts. Corrigir só neste lugar faria o perfil e o /eu discordarem; fica anotado como
+ * dívida dos dois.
+ */
+export async function historicoDoJogador(familia: string, metrica = "dano_em_player", n = 12): Promise<PontoDano[]> {
+  const nome = (familia ?? "").trim();
+  if (!nome) return [];
+  return (await sql`
+    WITH ${reguaDoJogador(nome, n, [metrica])}
+    SELECT w.war_id::int AS "warId", w.data::text AS data, w.tipo, w.resultado,
+           b.minha_war::float8 AS valor, b.regua::float8 AS regua,
+           b.n_core AS "nCore", b.n_outros AS "nOutros",
+           EXISTS (SELECT 1 FROM grupos_metricas gm
+                   JOIN papel_na_war pw ON pw.war_id = b.war_id AND pw.nome_familia = ${nome}
+                   WHERE gm.grupo = pw.grupo AND gm.metrica = ${metrica}) AS avaliada,
+           (CASE b.direcao WHEN 'maior_melhor' THEN b.minha_war / NULLIF(b.regua,0) * 100
+                           ELSE NULLIF(b.regua,0) / NULLIF(b.minha_war,0) * 100 END)::float8 AS pct
+    FROM bench b JOIN wars w ON w.war_id = b.war_id
+    ORDER BY w.data DESC, w.war_id DESC`) as PontoDano[];
 }

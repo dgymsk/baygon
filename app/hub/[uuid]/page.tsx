@@ -126,6 +126,7 @@ export default async function HubEventoPage({ params }: { params: Promise<{ uuid
       ap: row?.garmoth?.ap ?? null, aap: row?.garmoth?.aap ?? null, dp: row?.garmoth?.dp ?? null,
       nWars: row?.n_wars ?? null,
       lendario: lendarioPorChave.get(chave) === true,
+      diasSemana: row?.dias_semana ?? [],
       confirmouIngame: presencaPorChave.get(chave) === true,
       jogou: jogaram ? jogaram.has(chave) : null,
       escaladoEm: escalaPorChave.get(chave) ?? null,

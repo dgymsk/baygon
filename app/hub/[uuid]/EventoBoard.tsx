@@ -44,6 +44,15 @@ const RUBRO = CorResultado.derrota.cor;
  *  É a cor de "saiu da escalação", que não é alarme (rubro) nem sinal de ok (verde). */
 const OURO = CorResultado.participacao.cor;
 const OURO_FUNDO = "rgba(214,178,42,.16)";
+/**
+ * AMARELO CLARO do "hoje é dia dele" — mais claro e mais saturado que o OURO de quem saiu, e num
+ * canal visual PRÓPRIO (listra interna à esquerda). Fundo e borda já são cascatas de cinco níveis,
+ * e um amarelo de fundo aqui viraria a mesma mancha do card de quem saiu da escalação, que mora na
+ * mesma coluna do pool.
+ */
+const DIA_CLARO = "#f0e08a";
+/** 0 = domingo … 6 = sábado — a convenção de Date.getUTCDay(), a mesma de players.dias_semana. */
+const DIA_CURTO = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
 const RES_ROTULO: Record<string, string> = { vitoria: "Vitória", participacao: "Participação", derrota: "Derrota" };
 
@@ -52,6 +61,7 @@ export type JogadorVM = {
   guilda: string | null; classe: string | null; gs: number | null;
   ap: number | null; aap: number | null; dp: number | null; nWars: number | null;
   lendario: boolean; confirmouIngame: boolean; jogou: boolean | null;
+  diasSemana: number[];           // dias em que ele costuma poder jogar (players.dias_semana)
   escaladoEm: number | null;
   confirmouEscalacao: boolean | null; // resposta da DM: null = não respondeu, false = recusou
   convidado: boolean;                 // a DM já saiu? separa "não chamado" de "chamado e calado"
@@ -181,6 +191,12 @@ export default function EventoBoard({
   const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; pend: boolean }>>({});
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   const provSet = useMemo(() => new Set(provisorios), [provisorios]);
+  /**
+   * O dia da semana DESTA guerra. `T00:00:00Z` + getUTCDay de propósito: `evento.data` é um DATE
+   * puro, e `new Date("2026-08-24")` num fuso a oeste volta pro dia anterior — a guerra de segunda
+   * viraria domingo pra metade da staff. Mesmo cuidado de app/presenca/PresencaBoard.
+   */
+  const diaDaGuerra = evento ? new Date(`${evento.data.slice(0, 10)}T00:00:00Z`).getUTCDay() : null;
   // a lista vem do mais recente pro mais antigo → "próximo" é o de cima
   const iAtual = vizinhos.findIndex((v) => v.uuid === evento?.uuid);
   const proximo = iAtual > 0 ? vizinhos[iAtual - 1] : null;
@@ -820,6 +836,9 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
     selecionado: sel === j.chave,
     provisorio: provSet.has(j.chave),
     saiu: ehSaida(j),
+    // só no POOL, como o azul do provisório: depois de escalado a PT já diz o que precisava ser
+    // dito, e mais uma cor competiria com os sinais de confirmação, que aí são a informação nova
+    diaDele: partyDe(j) == null && diaDaGuerra != null && j.diasSemana.includes(diaDaGuerra),
     // só quem recusou tem o que desfazer
     onLimparRecusa: podeRenomear && j.confirmouEscalacao === false ? () => limparRecusa(j) : undefined,
     /**
@@ -1169,7 +1188,7 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
           <div className="leg" style={{ color: C.mute, fontSize: 12, marginBottom: 12 }}>
             <b>{nPool}</b> {temChamada ? "marcaram" : "no elenco"} · <b style={{ color: VERDE }}>{nAceitaram}</b> aceitaram, <b style={{ color: C.amarelo }}>{nAguardando}</b> aguardando, <b style={{ color: C.mute }}>{nSemConvocar}</b> sem convocar
             {nIngameSemDm > 0 && <> · <b style={{ color: VERDE }}>{nIngameSemDm}</b> in-game sem responder</>} ·
-            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou · <span style={{ color: "#9dc0f0" }}>azul ◈ = provisório</span> · <span style={{ color: OURO }}>ouro ⇄ = saiu da escalação</span> ·
+            <span style={{ color: C.amarelo }}> pokébola = lendário</span> · <span style={{ color: VERDE }}>fundo verde ✔ = aceitou</span> · <span style={{ color: C.amarelo }}>⏳ aguardando resposta</span> · <span style={{ color: C.dim }}>✉ ainda não convocado</span> · <span style={{ color: VERDE }}>borda verde 🎮</span> = está in-game · <span style={{ color: RUBRO }}>nome rubro ✖</span> = recusou · <span style={{ color: "#9dc0f0" }}>azul ◈ = provisório</span> · <span style={{ color: OURO }}>ouro ⇄ = saiu da escalação</span> · <span style={{ color: DIA_CLARO }}>listra clara = costuma jogar neste dia</span> ·
             <span style={{ color: C.laranja }}> ⚠ N</span> = guerras seguidas sem jogar
             {canEdit ? " · toque em alguém e depois na PT (ou arraste, no PC)" : " · (só staff edita)"}
           </div>
@@ -1429,6 +1448,7 @@ type CardCtx = {
   onLimparRecusa?: () => void;             // desfaz o "❌ Não vou" clicado por engano
   provisorio?: boolean;                    // pré-selecionado na grade de /presenca
   saiu?: boolean;                          // convocado e depois tirado da PT (lib/desescalado.ts)
+  diaDele?: boolean;                       // a guerra caiu num dia em que ele costuma jogar
   selecionado?: boolean;                   // escolhido pelo toque, esperando um destino
   onTocar?: () => void;                    // toque: seleciona, ou solta o selecionado aqui
 };
@@ -1599,6 +1619,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
       </div>
     )}
     <Linha k="Classe" v={j.classe ?? "—"} />
+    {j.diasSemana.length > 0 && <Linha k="Costuma jogar" v={j.diasSemana.map((d) => DIA_CURTO[d]).join(" · ")} />}
     <Linha k="GS" v={j.gs != null ? String(j.gs) : "—"} />
     {(j.ap != null || j.aap != null || j.dp != null) && <Linha k="AP / AAP / DP" v={`${j.ap ?? "—"} / ${j.aap ?? "—"} / ${j.dp ?? "—"}`} />}
     {j.funcaoNome && <Linha k="Marcou" v={j.funcaoNome} />}
@@ -1630,7 +1651,7 @@ function MiniCard({ j, pos, wars }: { j: JogadorVM; pos: PosMini; wars: Historic
  * reabria sem tirar e devolver o mouse.
  */
 function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
-  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa, provisorio, saiu } = ctx;
+  const { canEdit, byId, escalado, lider, emojiClasse, onFimArraste, onTogglePresenca, onSoltarEmCima, onTocar, selecionado, onLimparRecusa, provisorio, saiu, diaDele } = ctx;
   // respondeu NÃO na DM. Só vale fora da PT: se você o arrastou de volta pra uma coluna depois de
   // conversar, quem manda é a decisão da staff — o card volta ao normal em vez de acusar a recusa.
   const recusou = j.confirmouEscalacao === false && !escalado;
@@ -1712,7 +1733,13 @@ function Card({ j, ctx }: { j: JogadorVM; ctx: CardCtx }) {
          * Recusou na DM: nome rubro e contorno rubro — este SIM é o alerta.
          */
         border: `1px solid ${j.lendario ? C.amarelo : recusou ? RUBRO : saiu ? OURO : j.confirmouIngame ? VERDE : provisorio && !escalado ? "#2f5fa8" : C.border2}`,
-        boxShadow: j.lendario ? "0 0 10px rgba(214,178,42,.5)" : "none",
+        /* HOJE É DIA DELE: listra clara na lateral, canal só dela. `inset` e não borderLeft porque
+           borda grossa com box-sizing:border-box empurraria o texto deste card e o desalinharia dos
+           vizinhos. Convive com o brilho do lendário: box-shadow aceita lista. */
+        boxShadow: [
+          j.lendario && "0 0 10px rgba(214,178,42,.5)",
+          diaDele && `inset 3px 0 0 ${DIA_CLARO}`,
+        ].filter(Boolean).join(", ") || "none",
         /* AZUL do provisório: rascunho de "pretendo levar", vindo da grade de /presenca. Só vale no
            POOL — depois de escalado, a PT já diz o que precisava ser dito, e manter o azul
            competiria com os sinais de confirmação, que aí são a informação nova. */
