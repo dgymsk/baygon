@@ -61,6 +61,9 @@ function rotulo(e: EstadoWar, c: ColunaPresenca) {
   return ESTADO[e].rot;
 }
 
+/** O mesmo laranja do quadrado "marcou": na grade, laranja já quer dizer "ele disse que vai". */
+const COR_MARCOU = ESTADO.marcou.fill;
+
 const LEGENDA: EstadoWar[] = ["jogou", "jogou_sem_escala", "marcou", "faltou", "recusou", "nao_respondeu", "sem_stat", "sem"];
 
 export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio, canEdit }: {
@@ -69,6 +72,9 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
   const router = useRouter();
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState<"nome" | "jogou">("nome");
+  /** Só quem marcou no bot da chamada escolhida. Estado de tela, não de URL: é um recorte de
+   *  trabalho ("me mostra só os candidatos"), não um endereço que alguém queira mandar pra outro. */
+  const [soMarcados, setSoMarcados] = useState(false);
   const [prov, setProv] = useState<Record<string, boolean>>({});
   const [salvando, setSalvando] = useState<string | null>(null);
 
@@ -80,11 +86,16 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
 
   const linhas = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    const base = q ? grade.linhas.filter((l) => l.familia.toLowerCase().includes(q)) : grade.linhas;
+    let base = q ? grade.linhas.filter((l) => l.familia.toLowerCase().includes(q)) : grade.linhas;
+    // o filtro só existe com uma chamada escolhida — sem ela, "marcou no bot" não tem a que se referir
+    if (soMarcados && eventoProvisorio) base = base.filter((l) => l.marcouBot);
     return ordem === "jogou"
       ? [...base].sort((a, b) => b.jogou - a.jogou || a.familia.localeCompare(b.familia, "pt-BR"))
       : base;
-  }, [grade.linhas, busca, ordem]);
+  }, [grade.linhas, busca, ordem, soMarcados, eventoProvisorio]);
+  /** Quantos marcaram, do elenco INTEIRO da guilda filtrada — o número do botão não pode encolher
+   *  junto com a lista que ele mesmo filtra. */
+  const nMarcaram = useMemo(() => grade.linhas.filter((l) => l.marcouBot).length, [grade.linhas]);
 
   const ehProv = (chave: string, base: boolean) => prov[chave] ?? base;
 
@@ -147,6 +158,16 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
             style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.mute, padding: "5px 11px", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>
             ordem: {ordem === "nome" ? "nome" : "quem mais jogou"}
           </button>
+          {/* só aparece com uma chamada escolhida: sem ela, "marcou no bot" não tem a que se referir */}
+          {eventoProvisorio != null && (
+            <button onClick={() => setSoMarcados((v) => !v)} disabled={!nMarcaram && !soMarcados}
+              title={nMarcaram ? "mostra só quem marcou uma função na chamada do bot desta guerra" : "ninguém marcou nessa chamada ainda"}
+              style={{ borderRadius: 8, border: `1px solid ${soMarcados ? COR_MARCOU : C.border2}`, background: soMarcados ? "rgba(224,138,58,.14)" : C.inputBg,
+                color: nMarcaram || soMarcados ? (soMarcados ? COR_MARCOU : C.mute) : C.borderSoft,
+                padding: "5px 11px", fontSize: 12.5, cursor: nMarcaram || soMarcados ? "pointer" : "not-allowed", fontFamily: "inherit", fontWeight: soMarcados ? 700 : 400 }}>
+              {soMarcados ? "✓ " : ""}só quem marcou no bot ({nMarcaram})
+            </button>
+          )}
           <span style={{ color: C.mute, fontSize: 12, marginLeft: "auto" }}>
             <b style={{ color: C.texto }}>{linhas.length}</b> jogadores · <b style={{ color: C.texto }}>{grade.colunas.length}</b> eventos
           </span>
@@ -163,7 +184,8 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
           </select>
           {evAberto ? (
             <>
-              <span style={{ color: AZUL_CLARO, fontSize: 12.5, fontWeight: 700 }}>{nProv} marcado(s)</span>
+              <span style={{ color: AZUL_CLARO, fontSize: 12.5, fontWeight: 700 }}>{nProv} no rascunho</span>
+              <span style={{ color: COR_MARCOU, fontSize: 12.5, fontWeight: 700 }} title="marcaram uma função na chamada do bot desta guerra">{nMarcaram} marcaram no bot</span>
               <span className="leg" style={{ color: C.dim, fontSize: 11 }}>
                 clique na última coluna. Provisório NÃO escala nem manda DM — ele pinta o card de azul no pool da escalação.
               </span>
@@ -202,6 +224,13 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
                   <tr key={l.chave} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
                     <td className="fixa" style={{ padding: "4px 10px", whiteSpace: "nowrap" }}>
                       <span style={{ color: C.texto, fontWeight: 600 }}>{l.familia}</span>
+                      {/* M = marcou na chamada DESTA guerra. Some junto com a seleção da chamada:
+                          é dado do evento que se está montando, não do jogador. */}
+                      {eventoProvisorio != null && l.marcouBot && (
+                        <span title="marcou uma função na chamada do bot desta guerra"
+                          style={{ color: COR_MARCOU, fontSize: 10.5, fontWeight: 700, marginLeft: 4,
+                            border: `1px solid ${COR_MARCOU}`, borderRadius: 4, padding: "0 3px", lineHeight: 1.35 }}>M</span>
+                      )}
                       <span style={{ color: C.dim, fontSize: 10.5 }}> ({l.jogou})</span>
                       {!guilda && <span style={{ color: C.dim, fontSize: 10 }}> {l.guilda}</span>}
                     </td>
@@ -244,6 +273,10 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
           ))}
         </div>
         <p className="leg" style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>
+          {eventoProvisorio != null && (
+            <><b style={{ color: COR_MARCOU }}>M</b> ao lado do nome = marcou uma função na chamada do bot <b>desta</b> guerra — some
+            quando você troca a guerra escolhida, porque é dado dela e não da pessoa. </>
+          )}
           O número entre parênteses depois do nome é quantas vezes a pessoa JOGOU no período. Eventos ainda abertos entram
           na grade — diferente do histórico do card, que só mostra guerra fechada; aqui o que interessa é o que está em andamento.
         </p>

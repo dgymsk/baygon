@@ -37,6 +37,13 @@ export type LinhaPresenca = {
   jogou: number;
   /** Está no provisório do evento escolhido. */
   provisorio: boolean;
+  /**
+   * Marcou uma função na chamada do bot DO EVENTO ESCOLHIDO pro provisório.
+   *
+   * Só faz sentido com um evento aberto selecionado, e é por isso que não é uma coluna: é um dado
+   * do EVENTO que se está montando, não do período. Fora dessa seleção, sempre false.
+   */
+  marcouBot: boolean;
 };
 
 export type GradePresenca = {
@@ -61,7 +68,7 @@ export async function gradePresenca(o: {
     WHERE e.data BETWEEN ${de}::date AND ${ate}::date
     ORDER BY e.data, e.id`) as ColunaPresenca[];
 
-  const [players, abertos, prov] = (await Promise.all([
+  const [players, abertos, prov, marcasEvento] = (await Promise.all([
     // ATIVOS apenas: a grade é ferramenta de montar guerra, e ex-membro não entra em guerra nenhuma
     sql`SELECT nome_familia, guilda, registrado_em::text AS registrado_em FROM players
         WHERE ativo ORDER BY nome_familia`,
@@ -70,9 +77,17 @@ export async function gradePresenca(o: {
     o.eventoProvisorio
       ? sql`SELECT chave FROM evento_provisorio WHERE evento_id = ${o.eventoProvisorio}`
       : Promise.resolve([] as { chave: string }[]),
+    // quem marcou no bot NESTE evento. Vem separado de `sinais` de propósito: aquele apura o período
+    // inteiro pra pintar quadrado, e o evento escolhido pode nem estar dentro do período.
+    o.eventoProvisorio
+      ? sql`SELECT DISTINCT im.chave FROM intencao_marca im
+            JOIN intencao_post ip ON ip.message_id = im.message_id
+            WHERE ip.evento_id = ${o.eventoProvisorio}`
+      : Promise.resolve([] as { chave: string }[]),
   ])) as [
     { nome_familia: string; guilda: string; registrado_em: string | null }[],
     { eventoId: number; titulo: string; data: string; tipo: string }[],
+    { chave: string }[],
     { chave: string }[],
   ];
 
@@ -83,6 +98,7 @@ export async function gradePresenca(o: {
   const s = await sinais(evs.map((e) => e.eventoId));
   const desde = new Map(players.map((p) => [chaveNome(p.nome_familia), p.registrado_em]));
   const provSet = new Set(prov.map((r) => r.chave));
+  const marcouSet = new Set(marcasEvento.map((r) => r.chave));
 
   /**
    * A MESMA ordem de testes do card (lib/historicoSemana): quem jogou jogou, e quem não tinha
@@ -107,6 +123,7 @@ export async function gradePresenca(o: {
       chave, familia: p.nome_familia, guilda: p.guilda, celulas,
       jogou: celulas.filter((c) => c === "jogou" || c === "jogou_sem_escala").length,
       provisorio: provSet.has(chave),
+      marcouBot: marcouSet.has(chave),
     };
   });
 
