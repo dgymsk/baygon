@@ -33,14 +33,6 @@ export type LinhaPresenca = {
   guilda: string;
   /** Um estado por coluna, na mesma ordem de `colunas`. */
   celulas: EstadoWar[];
-  /**
-   * Marcou uma função na chamada do bot DAQUELA coluna. Mesma ordem de `celulas`.
-   *
-   * É informação que o estado ESCONDE: o quadrado laranja de "marcou" só aparece pra quem marcou e
-   * NÃO foi escalado — quem marcou e jogou vira verde, e a marcação some. Aqui ela volta, por cima
-   * de qualquer estado.
-   */
-  marcouCel: boolean[];
   /** Quantas vezes JOGOU no período — é por isso que a staff ordena. */
   jogou: number;
   /** Está no provisório do evento escolhido. */
@@ -48,8 +40,10 @@ export type LinhaPresenca = {
   /**
    * Marcou uma função na chamada do bot DO EVENTO ESCOLHIDO pro provisório.
    *
-   * Só faz sentido com um evento aberto selecionado, e é por isso que não é uma coluna: é um dado
-   * do EVENTO que se está montando, não do período. Fora dessa seleção, sempre false.
+   * Só faz sentido com um evento aberto selecionado: é um dado do EVENTO que se está montando, não
+   * do período. Fora dessa seleção, sempre false — e é ele que põe o M no quadrado DAQUELA guerra,
+   * e só nele. Nas outras colunas o M não apareceria de graça: apareceria dizendo respeito a uma
+   * chamada que ninguém está montando agora.
    */
   marcouBot: boolean;
 };
@@ -127,9 +121,8 @@ export async function gradePresenca(o: {
   const linhas: LinhaPresenca[] = doFiltro.map((p) => {
     const chave = chaveNome(p.nome_familia);
     const celulas = evs.map((e) => estado(chave, e));
-    const marcouCel = evs.map((e) => s.marcou.has(`${e.eventoId}|${chave}`));
     return {
-      chave, familia: p.nome_familia, guilda: p.guilda, celulas, marcouCel,
+      chave, familia: p.nome_familia, guilda: p.guilda, celulas,
       jogou: celulas.filter((c) => c === "jogou" || c === "jogou_sem_escala").length,
       provisorio: provSet.has(chave),
       marcouBot: marcouSet.has(chave),

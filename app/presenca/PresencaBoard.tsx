@@ -40,7 +40,7 @@ function tinta(fill: string): string {
 }
 
 /**
- * `m` = marcou uma função na chamada daquela guerra.
+ * `m` = marcou uma função na chamada da guerra escolhida pro provisório (só a coluna dela recebe).
  *
  * Desenhado ANTES das marcas de estado (o X de falta, a bola do silêncio, o traço da recusa), então
  * quando os dois coexistem quem manda na leitura é o estado — o M fica de pano de fundo. É a ordem
@@ -141,6 +141,8 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
 
   const nProv = linhas.filter((l) => ehProv(l.chave, l.provisorio)).length;
   const evAberto = grade.abertos.find((a) => a.eventoId === eventoProvisorio);
+  /** A guerra escolhida tem coluna na grade? Sem coluna não há quadrado onde pintar o M. */
+  const temColuna = grade.colunas.some((c) => c.eventoId === eventoProvisorio);
   const cel = { padding: "3px 5px", textAlign: "center" as const };
 
   return (
@@ -210,6 +212,14 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
             <>
               <span style={{ color: AZUL_CLARO, fontSize: 12.5, fontWeight: 700 }}>{nProv} no rascunho</span>
               <span style={{ color: COR_MARCOU, fontSize: 12.5, fontWeight: 700 }} title="marcaram uma função na chamada do bot desta guerra">{nMarcaram} marcaram no bot</span>
+              {/* sem coluna, o M não tem onde aparecer — e some sem explicação nenhuma */}
+              {!temColuna && (
+                <button onClick={() => ir({ de: evAberto.data, ate: evAberto.data > ate ? evAberto.data : ate })}
+                  title="a grade só mostra o período escolhido; esta guerra está fora dele"
+                  style={{ borderRadius: 8, border: `1px solid ${COR_MARCOU}`, background: "rgba(224,138,58,.12)", color: COR_MARCOU, padding: "4px 9px", fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>
+                  ⚠ {br(evAberto.data)} está fora do período — clique pra incluir
+                </button>
+              )}
               <span className="leg" style={{ color: C.dim, fontSize: 11 }}>
                 clique na última coluna. Provisório NÃO escala nem manda DM — ele pinta o card de azul no pool da escalação.
               </span>
@@ -254,8 +264,10 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
                     {l.celulas.map((e, i) => (
                       <td key={grade.colunas[i].eventoId} style={cel}>
                         <div style={{ display: "flex", justifyContent: "center" }}>
-                          <Quadrado estado={e} m={l.marcouCel[i]}
-                            titulo={`${l.familia} · ${grade.colunas[i].titulo}: ${rotulo(e, grade.colunas[i])}${l.marcouCel[i] ? " — marcou no bot" : ""}`} />
+                          {/* o M só na coluna da guerra ESCOLHIDA pro provisório: é nela que a
+                              pergunta "quem avisou que vem?" está sendo feita agora */}
+                          <Quadrado estado={e} m={grade.colunas[i].eventoId === eventoProvisorio && l.marcouBot}
+                            titulo={`${l.familia} · ${grade.colunas[i].titulo}: ${rotulo(e, grade.colunas[i])}${grade.colunas[i].eventoId === eventoProvisorio && l.marcouBot ? " — marcou no bot" : ""}`} />
                         </div>
                       </td>
                     ))}
@@ -292,13 +304,13 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
           {/* o M é uma CAMADA por cima do estado, não um estado — por isso vem depois, com um
               quadrado qualquer de exemplo em vez de cor própria na fileira */}
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <Quadrado estado="jogou" m titulo="marcou no bot" /> marcou no bot (M)
+            <Quadrado estado="jogou" m titulo="marcou no bot" /> marcou no bot (só na guerra escolhida)
           </span>
         </div>
         <p className="leg" style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>
-          <b>M</b> dentro do quadradinho = marcou uma função na chamada do bot <b>daquela</b> guerra. Vale pra todas as
-          colunas, e aparece por cima de qualquer estado — inclusive onde a cor esconde a marcação: quem marcou e jogou
-          fica verde, e só o M conta que ele tinha avisado.{" "}
+<b>M</b> dentro do quadradinho = marcou uma função na chamada do bot. Aparece <b>só na coluna da guerra escolhida
+          no seletor de provisório</b>, e por cima de qualquer estado — inclusive onde a cor esconde a marcação: quem
+          marcou e jogou fica verde, e aí só o M conta que ele tinha avisado.{" "}
           O número entre parênteses depois do nome é quantas vezes a pessoa JOGOU no período. Eventos ainda abertos entram
           na grade — diferente do histórico do card, que só mostra guerra fechada; aqui o que interessa é o que está em andamento.
         </p>
