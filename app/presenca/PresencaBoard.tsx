@@ -26,7 +26,27 @@ const AZUL_FUNDO = "rgba(47,95,168,.30)";
 const AZUL_CLARO = "#9dc0f0";
 const LADO = 15;
 
-function Quadrado({ estado, titulo }: { estado: EstadoWar; titulo: string }) {
+/**
+ * A tinta do M, escolhida pelo BRILHO do fundo do quadrado.
+ *
+ * Os oito estados vão de verde claro a quase-preto: uma cor fixa some em metade deles. Fundo
+ * transparente conta como escuro, porque atrás dele está o fundo da página.
+ */
+function tinta(fill: string): string {
+  const h = fill.replace("#", "");
+  if (h.length !== 6) return "rgba(255,255,255,.85)";               // 'transparent'
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return (r * 299 + g * 587 + b * 114) / 1000 > 130 ? "rgba(0,0,0,.72)" : "rgba(255,255,255,.85)";
+}
+
+/**
+ * `m` = marcou uma função na chamada daquela guerra.
+ *
+ * Desenhado ANTES das marcas de estado (o X de falta, a bola do silêncio, o traço da recusa), então
+ * quando os dois coexistem quem manda na leitura é o estado — o M fica de pano de fundo. É a ordem
+ * certa: "faltou" é a informação que a staff precisa ver primeiro; "tinha marcado" é o agravante.
+ */
+function Quadrado({ estado, titulo, m: marcou = false }: { estado: EstadoWar; titulo: string; m?: boolean }) {
   const s = ESTADO[estado];
   const m = LADO / 2;
   return (
@@ -34,6 +54,10 @@ function Quadrado({ estado, titulo }: { estado: EstadoWar; titulo: string }) {
       <title>{titulo}</title>
       <rect x={0.5} y={0.5} width={LADO - 1} height={LADO - 1} rx={2.5}
         fill={s.fill} stroke={s.stroke ?? "rgba(0,0,0,.45)"} strokeWidth={s.stroke ? 1.2 : 0.7} />
+      {marcou && (
+        <text x={m} y={m + 0.5} textAnchor="middle" dominantBaseline="middle"
+          fontSize={10} fontWeight={800} fontFamily="'Share Tech Mono', monospace" fill={tinta(s.fill)}>M</text>
+      )}
       {s.marca === "x" && (
         <g stroke="#e04b4b" strokeWidth={1.4} strokeLinecap="round">
           <line x1={4} y1={4} x2={LADO - 4} y2={LADO - 4} /><line x1={LADO - 4} y1={4} x2={4} y2={LADO - 4} />
@@ -224,20 +248,14 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
                   <tr key={l.chave} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
                     <td className="fixa" style={{ padding: "4px 10px", whiteSpace: "nowrap" }}>
                       <span style={{ color: C.texto, fontWeight: 600 }}>{l.familia}</span>
-                      {/* M = marcou na chamada DESTA guerra. Some junto com a seleção da chamada:
-                          é dado do evento que se está montando, não do jogador. */}
-                      {eventoProvisorio != null && l.marcouBot && (
-                        <span title="marcou uma função na chamada do bot desta guerra"
-                          style={{ color: COR_MARCOU, fontSize: 10.5, fontWeight: 700, marginLeft: 4,
-                            border: `1px solid ${COR_MARCOU}`, borderRadius: 4, padding: "0 3px", lineHeight: 1.35 }}>M</span>
-                      )}
                       <span style={{ color: C.dim, fontSize: 10.5 }}> ({l.jogou})</span>
                       {!guilda && <span style={{ color: C.dim, fontSize: 10 }}> {l.guilda}</span>}
                     </td>
                     {l.celulas.map((e, i) => (
                       <td key={grade.colunas[i].eventoId} style={cel}>
                         <div style={{ display: "flex", justifyContent: "center" }}>
-                          <Quadrado estado={e} titulo={`${l.familia} · ${grade.colunas[i].titulo}: ${rotulo(e, grade.colunas[i])}`} />
+                          <Quadrado estado={e} m={l.marcouCel[i]}
+                            titulo={`${l.familia} · ${grade.colunas[i].titulo}: ${rotulo(e, grade.colunas[i])}${l.marcouCel[i] ? " — marcou no bot" : ""}`} />
                         </div>
                       </td>
                     ))}
@@ -271,12 +289,16 @@ export default function PresencaBoard({ grade, de, ate, guilda, eventoProvisorio
               <Quadrado estado={e} titulo={ESTADO[e].rot} /> {ESTADO[e].rot}
             </span>
           ))}
+          {/* o M é uma CAMADA por cima do estado, não um estado — por isso vem depois, com um
+              quadrado qualquer de exemplo em vez de cor própria na fileira */}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <Quadrado estado="jogou" m titulo="marcou no bot" /> marcou no bot (M)
+          </span>
         </div>
         <p className="leg" style={{ color: C.dim, fontSize: 11, marginTop: 8 }}>
-          {eventoProvisorio != null && (
-            <><b style={{ color: COR_MARCOU }}>M</b> ao lado do nome = marcou uma função na chamada do bot <b>desta</b> guerra — some
-            quando você troca a guerra escolhida, porque é dado dela e não da pessoa. </>
-          )}
+          <b>M</b> dentro do quadradinho = marcou uma função na chamada do bot <b>daquela</b> guerra. Vale pra todas as
+          colunas, e aparece por cima de qualquer estado — inclusive onde a cor esconde a marcação: quem marcou e jogou
+          fica verde, e só o M conta que ele tinha avisado.{" "}
           O número entre parênteses depois do nome é quantas vezes a pessoa JOGOU no período. Eventos ainda abertos entram
           na grade — diferente do histórico do card, que só mostra guerra fechada; aqui o que interessa é o que está em andamento.
         </p>
