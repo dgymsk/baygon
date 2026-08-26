@@ -9,6 +9,9 @@ import Lancar from "./Lancar";
 import NovoEvento from "./NovoEvento";
 import EventosLista from "./EventosLista";
 import AgendaBoard from "./AgendaBoard";
+import CronBoard from "./CronBoard";
+import { getCronConfig, resumoCron, ultimasExecs } from "@/lib/cronLog";
+import vercelCfg from "@/vercel.json";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hub · BAYGON" };
@@ -17,9 +20,13 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
   const sp = await searchParams;
   const apagado = typeof sp.apagado === "string" ? sp.apagado : null;
   const restos = typeof sp.restos === "string" ? sp.restos : null;
-  const [eventos, serie, totais, presets, parties, canEdit, agendas] = await Promise.all([
+  const [eventos, serie, totais, presets, parties, canEdit, agendas, cronCfg, cronResumo, cronExecs] = await Promise.all([
     funilEventos(), resumoSerie(), totaisHub(), listPresets(), listParties(), canEditNow(), listAgendas(),
+    getCronConfig(), resumoCron(), ultimasExecs(15),
   ]);
+  // as entradas de cron saem do PRÓPRIO vercel.json — é a única fonte que não mente sobre o que
+  // está no ar, e evita uma lista escrita à mão na tela que envelhece no primeiro deploy
+  const cronEntradas = (vercelCfg as { crons?: { path: string; schedule: string }[] }).crons ?? [];
   // o preset é PTs + teto de gente — é isso que aparece antes de lançar
   const nomeParty = new Map(parties.map((p) => [p.id, p.nome]));
   const partiesPorPreset = Object.fromEntries(
@@ -93,6 +100,7 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
             Agenda de disparo <span style={{ color: C.mute, fontSize: 12, fontWeight: 400 }}>— {agendas.filter((a) => a.ativo).length} ativo(s)</span>
           </summary>
           <AgendaBoard agendas={agendas} presets={presets} canEdit={canEdit} />
+          <CronBoard entradas={cronEntradas} cfg={cronCfg} resumo={cronResumo} execs={cronExecs} canEdit={canEdit} nAgendas={agendas.filter((a) => a.ativo).length} />
         </details>
 
         <h2 style={{ color: C.verde, fontSize: 15, margin: "0 0 4px" }}>Série — quem marca e não joga</h2>

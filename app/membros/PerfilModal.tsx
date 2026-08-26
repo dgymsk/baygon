@@ -12,6 +12,8 @@ const DIA_NOME = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "
 /** Amarelo claro do "dia dele" — o mesmo da listra no card da escalação. */
 const DIA_CLARO = "#f0e08a";
 const VERDE_OK = "#3fbf5f";
+/** "Indefinido" é a AUSÊNCIA de papel, não um papel — e é onde está a maior parte do elenco. */
+const semGrupo = (g: string | null) => !g || g === "Indefinido";
 
 /**
  * O cartão que abre ao clicar no nome em /membros.
@@ -341,6 +343,13 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
           Dano por guerra {perfil ? `(${perfil.dano.length})` : ""}
           <span style={{ textTransform: "none", letterSpacing: 0, color: C.dim }}> · últimas 12 · % contra o core do grupo dele (sem core, contra os outros do grupo)</span>
         </div>
+        {/* sem grupo, a comparação é fraca — e o conserto é uma ação concreta, não um aviso vago */}
+        {perfil && perfil.dano.length > 0 && perfil.dano.every((p) => semGrupo(p.grupo)) && (
+          <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginBottom: 6, lineHeight: 1.5 }}>
+            Ele está sem grupo definido, então a régua abaixo é a média dos outros sem grupo — que mistura papéis e diz
+            pouco. Defina o <b>Grupo NW</b> dele na tabela de membros pra comparação passar a valer.
+          </div>
+        )}
         <div className="rolx" style={{ border: `1px solid ${C.border2}`, borderRadius: 10, marginBottom: 14 }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
             <thead>
@@ -368,11 +377,15 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
                     {formatarMetrica("dano_em_player", p.regua)}
                     {p.regua != null && p.nCore === 0 && p.nOutros > 0 && <span style={{ color: C.dim, fontSize: 10 }} title="sem core no grupo nessa guerra"> ~</span>}
                   </td>
-                  {/* grupo que o dano NÃO avalia (Indefinido, Shai…): o número existe, a comparação
-                      não significa nada — mesmo tratamento que o /eu dá às métricas fora do papel */}
-                  <td style={{ padding: "4px 8px" }}>
-                    {p.avaliada ? <BarraPct pct={p.pct} />
-                      : <span style={{ color: C.dim, fontSize: 11 }} title="o grupo dele nessa guerra não é avaliado por dano — comparar não diria nada">fora do papel</span>}
+                  {/* A % aparece sempre; o que muda é o quanto ela vale. Sem grupo definido a régua
+                      é "os outros sem grupo" — mistura healer com frontline —, e num grupo cuja
+                      função não é medida por dano a comparação é fora do papel. Nos dois casos o
+                      número fica apagado e o motivo está no title. */}
+                  <td style={{ padding: "4px 8px", opacity: p.avaliada ? 1 : 0.45 }}
+                      title={p.avaliada ? "" : semGrupo(p.grupo)
+                        ? "ele não tem grupo definido: a régua vira a média dos outros sem grupo, que mistura papéis diferentes"
+                        : `o grupo ${p.grupo} não é avaliado por dano — a comparação é fora do papel dele`}>
+                    <BarraPct pct={p.pct} />
                   </td>
                 </tr>
               ))}

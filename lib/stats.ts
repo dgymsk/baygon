@@ -183,12 +183,20 @@ export type PontoDano = {
   /**
    * O grupo dele NAQUELA guerra é avaliado por esta métrica (`grupos_metricas`)?
    *
-   * FALSE não é erro: um Shai ou alguém no grupo "Indefinido" tem dano gravado como todo mundo, mas
-   * o papel dele não é medido por dano — e comparar mesmo assim produz um número que parece
-   * julgamento e não é. O /painel e a /evolução resolvem isso com um INNER JOIN que faz a linha
-   * SUMIR; aqui a guerra continua na lista (a pessoa jogou, e isso importa) e quem some é a %.
+   * FALSE tem DOIS significados bem diferentes, e por isso vem acompanhado do `grupo`:
+   *
+   *   - grupo classificado cujo papel não é medido por dano — aí a % é mesmo um julgamento errado;
+   *   - grupo "Indefinido", que hoje é onde estão 109 dos 149 ativos: não é um papel, é a AUSÊNCIA
+   *     de um. A régua vira "a média dos outros sem grupo", que mistura healer com frontline e diz
+   *     pouco — mas o número existe e é o mesmo que o /eu mostra pra essa pessoa. Esconder seria
+   *     pior: some a informação e some também o motivo dela sumir.
+   *
+   * O /painel e a /evolução resolvem isso com um INNER JOIN que faz a linha SUMIR. Aqui a guerra
+   * continua na lista — a pessoa jogou, e isso importa — e a tela é que diz o que a % vale.
    */
   avaliada: boolean;
+  /** O grupo dele NAQUELA guerra (papel_na_war), pra tela saber qual dos dois casos explicar. */
+  grupo: string | null;
 };
 
 /**
@@ -214,6 +222,7 @@ export async function historicoDoJogador(familia: string, metrica = "dano_em_pla
     SELECT w.war_id::int AS "warId", w.data::text AS data, w.tipo, w.resultado,
            b.minha_war::float8 AS valor, b.regua::float8 AS regua,
            b.n_core AS "nCore", b.n_outros AS "nOutros",
+           (SELECT pw.grupo FROM papel_na_war pw WHERE pw.war_id = b.war_id AND pw.nome_familia = ${nome}) AS grupo,
            EXISTS (SELECT 1 FROM grupos_metricas gm
                    JOIN papel_na_war pw ON pw.war_id = b.war_id AND pw.nome_familia = ${nome}
                    WHERE gm.grupo = pw.grupo AND gm.metrica = ${metrica}) AS avaliada,

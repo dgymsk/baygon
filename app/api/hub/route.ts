@@ -16,6 +16,8 @@ import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
 import { marcarForaDaRegua } from "@/lib/foraDaRegua";
 import { limparResposta } from "@/lib/convocacao";
 import { retratarAvisosDeQuemVoltou } from "@/lib/retratarSaida";
+import { dispararAgendaDevida } from "@/lib/disparoAgenda";
+import { setCronConfig } from "@/lib/cronLog";
 import { publicarLista } from "@/lib/publicarLista";
 import { getIntencaoConfig, setIntencaoConfig } from "@/lib/intencaoConfig";
 import { listAgendas, criarAgenda, atualizarAgenda, excluirAgenda } from "@/lib/agenda";
@@ -307,7 +309,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // --- agenda de disparo (quem bate no cron é o worker, não o Vercel) ---
+    /**
+     * --- automação: rodar o disparo AGORA, e regular a rede de segurança ---
+     *
+     * "rodar agora" chama a MESMA função do cron e do worker (lib/disparoAgenda), e não o endpoint
+     * por HTTP: mandar o navegador bater em /api/intencao/cron exigiria o CRON_SECRET no cliente.
+     * Fica registrado como origem 'manual', com o nome de quem apertou.
+     */
+    case "cron-rodar": {
+      const r = await dispararAgendaDevida({ origem: "manual", quem: await quemDisparou() });
+      return NextResponse.json(r);
+    }
+    case "cron-config": return NextResponse.json(await setCronConfig({ ativo: b.ativo, toleranciaMin: b.toleranciaMin }));
+
+    // --- agenda de disparo (o worker acerta a hora; o cron da Vercel é a rede de segurança) ---
     case "agenda-criar":  return NextResponse.json((await criarAgenda(b.presetId, b.dias, b.hora, b.nomePadrao)) ?? { error: "preset, dias e hora são obrigatórios" });
     case "agenda-editar": await atualizarAgenda(b.id, { dias: b.dias, hora: b.hora, ativo: b.ativo, nomePadrao: b.nomePadrao }); return NextResponse.json({ agendas: await listAgendas() });
     case "agenda-excluir": await excluirAgenda(b.id); return NextResponse.json({ agendas: await listAgendas() });
