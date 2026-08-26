@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/intencao/cron", "schedule": "0 21 * * *" },
+    { "path": "/api/intencao/cron", "schedule": "0 22 * * *" },
+    { "path": "/api/intencao/cron", "schedule": "0 23 * * *" },
+    { "path": "/api/intencao/cron", "schedule": "0 0 * * *" },
+    { "path": "/api/intencao/cron", "schedule": "0 1 * * *" },
+    { "path": "/api/intencao/cron", "schedule": "0 2 * * *" }
+  ]
+}

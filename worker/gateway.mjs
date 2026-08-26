@@ -128,8 +128,14 @@ async function dispararAgenda() {
 if (BAYGON_URL && CRON_SECRET) {
   setTimeout(atualizarGarmoth, 15000);                 // 1ª rodada ~15s após subir
   setInterval(atualizarGarmoth, 2 * 60 * 60 * 1000);   // a cada 2h
-  // a chamada precisa sair na hora marcada; o Vercel Hobby não faz cron sub-diário, então quem
-  // acorda o disparo é este worker. 5 min casa com a tolerância de 6 min da agenda.
+  // A PRECISÃO é daqui. A chamada precisa sair na hora marcada e o cron da Vercel, no plano Hobby,
+  // roda uma vez por dia por entrada e a qualquer minuto DENTRO da hora marcada — então quem acerta
+  // o horário é este worker. 5 min casa com a tolerância de 6 min da agenda.
+  //
+  // Desde vercel.json, o cron da Vercel bate no MESMO endpoint uma vez por hora à noite, com
+  // tolerância de 2h: é a rede de segurança pra quando este processo estiver fora do ar, que é
+  // justamente quando ninguém percebe que a chamada não saiu. Os dois nunca duplicam — a agenda
+  // recusa disparo repetido no mesmo dia BR.
   setInterval(dispararAgenda, 5 * 60 * 1000);
   console.log("[garmoth] polling ligado (a cada 2h)");
 } else {

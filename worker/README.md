@@ -15,6 +15,24 @@ Discord Developer Portal → sua aplicação → **Bot** → **Privileged Gatewa
 ligue **MESSAGE CONTENT INTENT** → Save. (O bot está em poucos servidores, então não precisa
 verificação.)
 
+## Quem faz o quê (worker x cron da Vercel)
+
+| tarefa | quem faz | por quê |
+|---|---|---|
+| capturar DM digitada | **só o worker** | precisa de WebSocket sempre aberto; função serverless não segura |
+| disparar a chamada agendada | **worker** (a cada 5 min) | precisão: a chamada sai na hora marcada |
+| ídem, se o worker cair | **cron da Vercel** (de hora em hora à noite) | rede de segurança, com tolerância de 2h |
+| atualizar o Garmoth | **só o worker** (a cada 2h) | — |
+
+O cron está em `vercel.json`, apontando pro mesmo `/api/intencao/cron`. No plano **Hobby** cada
+entrada roda **uma vez por dia** e a Vercel escolhe o minuto dentro da hora (uma expressão
+sub-diária **falha o deploy**) — por isso são seis entradas, uma por hora da noite, em UTC. Num
+plano **Pro** dá pra trocar as seis por uma de cinco em cinco minutos, e aí o polling daqui vira
+redundância.
+
+Os dois caminhos nunca duplicam a chamada: `intencao_agenda.ultimo_disparo` recusa um segundo
+disparo no mesmo dia (horário de Brasília).
+
 ## 2) Variáveis de ambiente
 - `DISCORD_BOT_TOKEN` — o mesmo token do bot.
 - `DATABASE_URL` — a connection string **UNPOOLED** do Neon (a `DATABASE_URL_UNPOOLED` do `.env.local`).
