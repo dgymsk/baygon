@@ -12,7 +12,7 @@ import { tierOk } from "@/lib/tier";
 import { postarIntencao, sincronizarMensagem, fecharIntencao } from "@/lib/intencao";
 import { aplicarEscalacao, limparEscalacao, getEscalacao, reordenarParty } from "@/lib/escalacao";
 import { marcarPresenca, salvarPresenca } from "@/lib/presencaEvento";
-import { criarLoteDM, processarLoteDM } from "@/lib/loteDM";
+import { contarAlvos, criarLoteDM, processarLoteDM } from "@/lib/loteDM";
 import { marcarForaDaRegua } from "@/lib/foraDaRegua";
 import { limparResposta } from "@/lib/convocacao";
 import { retratarAvisosDeQuemVoltou } from "@/lib/retratarSaida";
@@ -346,6 +346,12 @@ export async function POST(req: Request) {
       const tipo = b.tipo === "ingame" ? "ingame" : b.tipo === "intencao" ? "intencao" : b.tipo === "desescalado" ? "desescalado" : "convocacao";
       const c = await criarLoteDM({ tipo, eventoId: eid(), publico: b.publico, porQuem: await quemDisparou() });
       return c.ok ? NextResponse.json(c) : NextResponse.json({ error: c.erro }, { status: 400 });
+    }
+    // quantos o disparo pegaria — a tela pergunta ANTES de mandar, pra confirmar com número
+    case "dm-contar": {
+      if (!Number.isFinite(eid())) return NextResponse.json({ error: "evento inválido" }, { status: 400 });
+      const tipo = b.tipo === "ingame" ? "ingame" : b.tipo === "intencao" ? "intencao" : b.tipo === "desescalado" ? "desescalado" : "convocacao";
+      return NextResponse.json({ n: await contarAlvos(tipo, eid(), b.publico) });
     }
     case "dm-processar": {
       const lid = Math.trunc(Number(b.loteId));

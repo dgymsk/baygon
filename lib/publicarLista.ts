@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
 import { getIntencaoConfig } from "@/lib/intencaoConfig";
+import { getDiscordConfig } from "@/lib/discordConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
 import { cfgDoTipo } from "@/lib/participacaoConfig";
 import { montarLista, montarEncerramento, type EscaladoL, type PartyL } from "@/lib/listaEscalacao";
@@ -37,6 +38,8 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
   if (o.soSePublicada && !(post.lista_message_id && post.lista_channel_id)) return { ok: true, editou: false };
 
   const cfg = await getIntencaoConfig();
+  // o cargo de MEMBRO REGISTRADO, o mesmo que a chamada marca (ver lib/intencao). Vazio = sem ping.
+  const pingRole = (await getDiscordConfig()).registroRoleId || "";
   // canal da lista vazio → cai no canal da chamada, senão o botão não faria nada em silêncio
   // o bot antigo só conhece nodewar/siege — cfgDoTipo devolve vazio pros demais (ex.: rosas) em vez
   // de estourar, e o erro que sobe é "nenhum canal configurado", que é a verdade
@@ -50,11 +53,18 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
    * Declaração de função (não const) de propósito: é usada logo acima, no ramo do encerramento.
    */
   async function enviar(payload: object): Promise<{ ok: boolean; erro?: string; editou?: boolean }> {
-    // As menções ficam DENTRO do embed, e embed não notifica ninguém no Discord — elas rendem o chip
-    // (nome do servidor, avatar no hover, clicável) sem ping. É o que se quer aqui: a lista é editada
-    // a cada mudança de presença ou convocação, e um ping por edição seria insuportável.
-    // Se um dia quiserem avisar de fato, o caminho é uma mensagem de texto à parte, fora do embed.
+    /**
+     * PING SÓ NA PRIMEIRA VEZ. As menções de dentro do embed nunca notificam ninguém — rendem o chip
+     * (nome, avatar no hover) e mais nada. Quem faz o Discord avisar é o `content`, e ele vai
+     * exclusivamente no POST: a mensagem da lista é EDITADA a cada mudança de presença ou de
+     * convocação, e um ping por edição seria insuportável — dezenas por noite, todas dizendo a mesma
+     * coisa. Assim a lista avisa uma vez, quando sai, e as correções seguintes são silenciosas.
+     */
     const body = JSON.stringify({ allowed_mentions: { parse: [] }, ...payload });
+    const bodyNovo = JSON.stringify({
+      ...payload,
+      ...(pingRole ? { content: `<@&${pingRole}>`, allowed_mentions: { roles: [pingRole] } } : { allowed_mentions: { parse: [] } }),
+    });
     if (post.lista_message_id && post.lista_channel_id) {
       const r = await botFetch(`/channels/${post.lista_channel_id}/messages/${post.lista_message_id}`, { method: "PATCH", body });
       if (r.ok) return { ok: true, editou: true };
@@ -65,7 +75,7 @@ export async function publicarLista(eventoId: number, o: { soSePublicada?: boole
       await sql`UPDATE intencao_post SET lista_message_id = NULL, lista_channel_id = NULL WHERE message_id = ${post.message_id}`;
       if (o.soSePublicada) return { ok: true, editou: false };
     }
-    const res = await botFetch(`/channels/${canal}/messages`, { method: "POST", body });
+    const res = await botFetch(`/channels/${canal}/messages`, { method: "POST", body: bodyNovo });
     if (!res.ok) return { ok: false, erro: `Discord ${res.status} ${(await res.text().catch(() => "")).slice(0, 120)}` };
     const msg = (await res.json()) as { id: string };
     await sql`UPDATE intencao_post SET lista_message_id = ${msg.id}, lista_channel_id = ${canal} WHERE message_id = ${post.message_id}`;

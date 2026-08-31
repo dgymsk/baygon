@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db";
 import { botFetch, botConfigurado } from "@/lib/discordApi";
+import { getDiscordConfig } from "@/lib/discordConfig";
 import { rotuloGuerra, type TipoGuerra } from "@/lib/tiposGuerra";
 import { cfgDoTipo } from "@/lib/participacaoConfig";
 import { getParticipacaoConfig } from "@/lib/participacao";
@@ -114,6 +115,18 @@ export async function postarIntencao(presetId: number, o: { titulo?: string | nu
   if (!info) return { ok: false, erro: "preset não encontrado" };
   if (!info.funcoes.length) return { ok: false, erro: "nenhuma função cadastrada — crie ao menos uma em Definições" };
   const cfg = cfgDoTipo(await getParticipacaoConfig(), info.tipo);
+  /**
+   * QUEM É PINGADO: o cargo de MEMBRO REGISTRADO (config do /discord).
+   *
+   * A chamada é o único post do bot que pede ação de todo mundo, e ficava sem menção nenhuma —
+   * dependia de a pessoa estar olhando o canal na hora. O cargo de registrado é o alvo certo, e não
+   * @everyone: quem não completou o registro não tem família vinculada, então marcar função nem
+   * funcionaria pra ele.
+   *
+   * O `pingRoleId` por tipo (config legada da /participacao) continua ganhando quando preenchido —
+   * é escolha explícita de quem configurou, e hoje está vazia nos dois tipos.
+   */
+  const pingRole = cfg.pingRoleId || (await getDiscordConfig()).registroRoleId || "";
   // canal da CHAMADA vem da config do hub; cai no da tela /participacao pra não quebrar o legado
   // prioridade: canal do PRESET → canal da chamada do tipo → canal antigo de /participacao
   const canal = info.canalId || (await getIntencaoConfig())[info.tipo as TipoGuerra]?.canalChamada || cfg.channelId;
@@ -135,10 +148,14 @@ export async function postarIntencao(presetId: number, o: { titulo?: string | nu
   });
   const res = await botFetch(`/channels/${canal}/messages`, {
     method: "POST",
+    // o ping vai DEPOIS do payload: o embed não notifica ninguém, e menção dentro dele rende só o
+    // chip. Quem faz o Discord avisar é o `content` — e o `allowed_mentions` restrito ao cargo
+    // impede que um @everyone escrito no modelo da mensagem escape junto.
     body: JSON.stringify({
-      content: cfg.pingRoleId ? `<@&${cfg.pingRoleId}>` : undefined,
-      allowed_mentions: cfg.pingRoleId ? { roles: [cfg.pingRoleId] } : { parse: [] },
       ...payload,
+      ...(pingRole
+        ? { content: `<@&${pingRole}>`, allowed_mentions: { roles: [pingRole] } }
+        : { allowed_mentions: { parse: [] } }),
     }),
   });
   if (!res.ok) return { ok: false, erro: `Discord ${res.status} ${(await res.text().catch(() => "")).slice(0, 140)}` };

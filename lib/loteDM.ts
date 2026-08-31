@@ -88,8 +88,8 @@ export const ROTULO_PUBLICO: Record<PublicoLote, string> = {
   confirmou_nao_recebeu: "confirmou e não recebeu",
   confirmou: "quem confirmou o SIM",
   faltam_ingame: "quem falta aparecer in-game",
-  calados_nao_receberam: "calados que não receberam",
-  calados: "todos os calados",
+  calados_nao_receberam: "não respondeu e não recebeu lembrete",
+  calados: "forçar: todos que não responderam",
   saiu_nao_avisado: "quem saiu e não foi avisado",
   saiu_todos: "todos que saíram",
 };
@@ -213,6 +213,21 @@ async function resolverUserIds(eventoId: number): Promise<void> {
  * isso, um lote que morreu no meio viraria um segundo lote com a lista inteira, e quem já tinha
  * recebido a DM receberia outra.
  */
+/**
+ * QUANTOS o disparo pegaria, sem disparar nada.
+ *
+ * Existe porque o botão de cobrar intenção era o único dos três sem número, e sem número ele vira
+ * roleta: o público padrão exclui quem já recebeu, então numa segunda cobrança ele costuma estar
+ * vazio — e o clique só devolvia "ninguém, nada a enviar", sem dizer que a outra opção do seletor
+ * (forçar) pegaria as trinta pessoas caladas.
+ *
+ * Usa `alvosDoTipo`, a MESMA função do envio: número que promete o que o disparo cumpre.
+ */
+export async function contarAlvos(tipo: TipoLote, eventoId: number, publico: unknown): Promise<number> {
+  if (!Number.isFinite(eventoId)) return 0;
+  return (await alvosDoTipo(tipo, eventoId, publicoOk(publico, tipo))).length;
+}
+
 export async function criarLoteDM(o: { tipo: TipoLote; eventoId: number; publico?: unknown; porQuem?: string | null }):
   Promise<{ ok: boolean; erro?: string; loteId?: number; total?: number; retomado?: boolean; publico?: PublicoLote }> {
   if (!botConfigurado()) return { ok: false, erro: "bot não configurado" };

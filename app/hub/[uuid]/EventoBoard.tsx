@@ -107,8 +107,8 @@ const ROTULOS_PUBLICO: Record<string, string> = {
   confirmou_nao_recebeu: "confirmou e não recebeu",
   confirmou: "quem confirmou o SIM",
   faltam_ingame: "quem falta aparecer in-game",
-  calados_nao_receberam: "calados que não receberam",
-  calados: "todos os calados",
+  calados_nao_receberam: "não respondeu e não recebeu lembrete",
+  calados: "forçar: todos que não responderam",
   saiu_nao_avisado: "quem saiu e não foi avisado",
   saiu_todos: "todos que saíram",
 };
@@ -699,7 +699,26 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
   async function lembrarIntencao() {
     if (!canEdit || !evento) return;
     if (!evento.messageId) { setErro("Este evento não tem chamada do bot — não há intenção pra cobrar."); return; }
-    if (!confirm(`Mandar DM pra quem ainda não respondeu a chamada — ${ROTULOS_PUBLICO[publicoIntencao]}?\n\nA mensagem leva um botão que abre a chamada no canal.`)) return;
+    /**
+     * Pergunta ao servidor QUANTOS antes de mandar. Os outros dois disparos mostram o número no
+     * próprio botão; aqui a conta depende do elenco esperado inteiro, que a tela não tem — e sem
+     * número o clique era às cegas: o público padrão exclui quem JÁ RECEBEU, então na segunda
+     * cobrança ele costuma estar vazio, e o erro não dizia que a opção de forçar pegaria o resto.
+     */
+    setSalvando(true);
+    let n = 0;
+    try {
+      const d = await api({ acao: "dm-contar", tipo: "intencao", eventoId: evento.eventoId, publico: publicoIntencao });
+      n = Number(d.n) || 0;
+    } catch (e) { setErro((e as Error).message); setSalvando(false); return; }
+    finally { setSalvando(false); }
+    if (!n) {
+      setErro(publicoIntencao === "calados"
+        ? "Ninguém está calado — todo mundo do elenco já respondeu a chamada."
+        : 'Todos os calados já receberam lembrete. Pra insistir, troque o público para "forçar: todos que não responderam".');
+      return;
+    }
+    if (!confirm(`Mandar DM para ${n} pessoa(s) que ainda não responderam a chamada — ${ROTULOS_PUBLICO[publicoIntencao]}?\n\nA mensagem leva um botão que abre a chamada no canal.`)) return;
     await enviarLote("intencao", "Lembrete de intenção", publicoIntencao);
   }
 
