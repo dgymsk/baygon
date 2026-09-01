@@ -87,9 +87,9 @@ export default function ConfirmacaoBoard({
       if (!presente(a) && a.confirmouIngame) return `${a.familia} ✖`;  // o print vai desmarcar
       return a.familia;
     };
-    const item = (a: Alvo) => ({ label: marca(a), familia: a.familia, ligado: a.confirmouIngame });
+    const item = (a: Alvo) => ({ label: marca(a), familia: a.familia, ligado: a.confirmouIngame, guilda: a.guilda });
     const extras = conc
-      ? [...conc.finais.entries()].filter(([k]) => !porChave.has(k)).map(([, n]) => ({ label: `${n} ✚`, familia: n, ligado: false })) // nem marcou no bot
+      ? [...conc.finais.entries()].filter(([k]) => !porChave.has(k)).map(([, n]) => ({ label: `${n} ✚`, familia: n, ligado: false, guilda: null })) // nem marcou no bot
       : [];
     return {
       certo: alvos.filter((a) => a.escalado && presente(a)).map(item),
@@ -314,7 +314,29 @@ export default function ConfirmacaoBoard({
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           <Col id="certo" titulo="✅ Certo" cor={C.verde} itens={colunas.certo} hint="Escalado e confirmado in-game" ctx={col} />
-          <Col id="falta" titulo="⚠ Escalado e não apareceu" cor={C.amarelo} itens={colunas.faltando} hint="Está na escalação mas não veio → cobrar, ou remanejar a PT" ctx={col} />
+          {/**
+            * QUEM FALTA APARECER vai SEPARADO POR GUILDA, uma caixa cada.
+            *
+            * Esta é a única coluna que vira trabalho: alguém tem que cutucar essa gente no Discord,
+            * e quem cutuca é o oficial da guilda DELA. Misturadas, a lista obrigava a staff a
+            * conferir nome por nome de quem era cada um antes de cobrar; separadas, cada oficial
+            * copia a sua e pronto (o ⧉ copiar de cada caixa leva só os nomes dela).
+            *
+            * As outras duas continuam inteiras: "certo" não gera ação, e "veio sem estar escalado" é
+            * decisão de quem monta a escalação, não da guilda de origem.
+            */}
+          {guildas.map((g) => (
+            <Col key={g.id} id={`falta-${g.id}`} cor={C.amarelo} ctx={col}
+              titulo={`⚠ Não apareceu · ${g.tag}`}
+              itens={colunas.faltando.filter((i) => i.guilda === g.id)}
+              hint="Escalado e ainda fora do jogo → cobrar na guilda, ou remanejar a PT" />
+          ))}
+          {/* sem guilda no cadastro: some quando não houver ninguém, pra não virar caixa fantasma */}
+          {colunas.faltando.some((i) => !i.guilda || !guildas.some((g) => g.id === i.guilda)) && (
+            <Col id="falta-sem" cor={C.amarelo} ctx={col} titulo="⚠ Não apareceu · sem guilda"
+              itens={colunas.faltando.filter((i) => !i.guilda || !guildas.some((g) => g.id === i.guilda))}
+              hint="Escalado, fora do jogo e sem guilda no cadastro — defina a guilda em /membros" />
+          )}
           <Col id="fora" titulo="⛔ Veio sem estar escalado" cor={C.vermelho} itens={colunas.semVaga} hint="Confirmado fora da escalação → decidir se entra ou retira" ctx={col} />
         </div>
         <div style={{ color: C.mute, fontSize: 11, marginTop: 8 }}>
@@ -353,7 +375,7 @@ export default function ConfirmacaoBoard({
   );
 }
 
-type Item = { label: string; familia: string; ligado: boolean };
+type Item = { label: string; familia: string; ligado: boolean; guilda: string | null };
 type ColCtx = { canEdit: boolean; copiado: string; salvandoNome: string | null; onCopiar: (n: string[], id: string) => void; onToggle: (f: string, v: boolean) => void };
 
 /**
