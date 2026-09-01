@@ -86,3 +86,34 @@ export async function agendasDevidas(toleranciaMin = 6, ms = Date.now()): Promis
 export async function marcarDisparo(id: number): Promise<void> {
   await sql`UPDATE intencao_agenda SET ultimo_disparo = now() WHERE id = ${id}`;
 }
+
+/**
+ * QUANDO SAI A PRÓXIMA — a partir de agora, olhando os próximos 8 dias.
+ *
+ * Função PURA (recebe as agendas e o instante), porque é ela que a tela usa pra dizer "próximo
+ * disparo: hoje 20:20" e é o tipo de conta que só se confere testando: fuso, virada de dia, agenda
+ * que só vale terça, e a de hoje que já passou da hora.
+ *
+ * Devolve minutos até lá, além do rótulo, pra tela decidir sozinha o que destacar.
+ */
+export function proximoDisparo(agendas: AgendaVM[], ms = Date.now()): { agenda: AgendaVM; dia: number; hhmm: string; emMin: number; hoje: boolean } | null {
+  const ativas = agendas.filter((a) => a.ativo && a.dias.length && /^\d{2}:\d{2}$/.test(a.hora));
+  if (!ativas.length) return null;
+  const agora = agoraBR(ms);
+  const minAgora = Number(agora.hhmm.slice(0, 2)) * 60 + Number(agora.hhmm.slice(3));
+
+  let melhor: { agenda: AgendaVM; dia: number; hhmm: string; emMin: number; hoje: boolean } | null = null;
+  // 8 dias: 7 cobre a semana inteira, e o oitavo cobre o caso de a única agenda ser hoje e já ter
+  // passado da hora — aí a próxima é daqui a exatamente uma semana
+  for (let d = 0; d <= 8; d++) {
+    const dia = (agora.dia + d) % 7;
+    for (const a of ativas) {
+      if (!a.dias.includes(dia)) continue;
+      const alvo = Number(a.hora.slice(0, 2)) * 60 + Number(a.hora.slice(3));
+      const emMin = d * 1440 + alvo - minAgora;
+      if (emMin < 0) continue;                       // já passou hoje
+      if (!melhor || emMin < melhor.emMin) melhor = { agenda: a, dia, hhmm: a.hora, emMin, hoje: d === 0 };
+    }
+  }
+  return melhor;
+}

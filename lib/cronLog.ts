@@ -30,10 +30,20 @@ export type CronExec = {
 
 export type CronConfig = { ativo: boolean; toleranciaMin: number };
 
-/** Config da rede de segurança. Linha única; se sumir, o padrão é ligada com 2h de tolerância. */
+/**
+ * 30 minutos, e não as 2h de antes.
+ *
+ * A janela larga existia porque no plano Hobby o cron tinha UMA chance por hora e chegava a
+ * qualquer minuto dela. No Pro ele bate a cada 5 minutos e no minuto certo, então a janela deixa de
+ * ser "quanto atraso a imprecisão do cron impõe" e passa a ser só "por quanto tempo ainda vale a
+ * pena mandar uma chamada atrasada" — o caso em que o app ou o banco estiveram fora do ar.
+ */
+export const PADRAO_TOLERANCIA = 30;
+
+/** Config da rede de segurança. Linha única; se sumir, vale ligada com a tolerância padrão. */
 export async function getCronConfig(): Promise<CronConfig> {
   const r = (await sql`SELECT ativo, tolerancia_min::int AS tol FROM cron_config WHERE id = 1`) as { ativo: boolean; tol: number }[];
-  return { ativo: r[0]?.ativo ?? true, toleranciaMin: r[0]?.tol ?? 120 };
+  return { ativo: r[0]?.ativo ?? true, toleranciaMin: r[0]?.tol ?? PADRAO_TOLERANCIA };
 }
 
 export async function setCronConfig(patch: { ativo?: unknown; toleranciaMin?: unknown }): Promise<CronConfig> {
@@ -43,7 +53,7 @@ export async function setCronConfig(patch: { ativo?: unknown; toleranciaMin?: un
   if (patch.toleranciaMin !== undefined) {
     // teto de 6h e piso de 5min: acima disso a chamada sairia tão atrasada que atrapalha em vez de
     // salvar, e abaixo a rede não pega nada, porque o cron chega a qualquer minuto da hora marcada
-    const n = Math.max(5, Math.min(360, Math.trunc(Number(patch.toleranciaMin)) || 120));
+    const n = Math.max(5, Math.min(360, Math.trunc(Number(patch.toleranciaMin)) || PADRAO_TOLERANCIA));
     await sql`UPDATE cron_config SET tolerancia_min = ${n}, atualizado = now() WHERE id = 1`;
   }
   return getCronConfig();

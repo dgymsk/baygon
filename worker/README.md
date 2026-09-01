@@ -20,15 +20,19 @@ verificação.)
 | tarefa | quem faz | por quê |
 |---|---|---|
 | capturar DM digitada | **só o worker** | precisa de WebSocket sempre aberto; função serverless não segura |
-| disparar a chamada agendada | **worker** (a cada 5 min) | precisão: a chamada sai na hora marcada |
-| ídem, se o worker cair | **cron da Vercel** (de hora em hora à noite) | rede de segurança, com tolerância de 2h |
-| atualizar o Garmoth | **só o worker** (a cada 2h) | — |
+| disparar a chamada agendada | **cron da Vercel** (a cada 5 min, plano Pro) | precisão de minuto, sem depender de processo próprio |
+| ídem | **worker** (a cada 5 min) | redundância: hoje é o cron quem garante |
+| atualizar o Garmoth | **cron da Vercel** (a cada 2h) | era só do worker, e congelou quando ele caiu |
 
-O cron está em `vercel.json`, apontando pro mesmo `/api/intencao/cron`. No plano **Hobby** cada
-entrada roda **uma vez por dia** e a Vercel escolhe o minuto dentro da hora (uma expressão
-sub-diária **falha o deploy**) — por isso são seis entradas, uma por hora da noite, em UTC. Num
-plano **Pro** dá pra trocar as seis por uma de cinco em cinco minutos, e aí o polling daqui vira
-redundância.
+O cron está em `vercel.json`, apontando pro mesmo `/api/intencao/cron`. **Desde a conta virar Pro**,
+ele bate **de 5 em 5 minutos** — a mesma cadência deste worker e com precisão de minuto —, então o
+polling daqui virou redundância: pode ser desligado sem a chamada deixar de sair. O que **não** dá
+pra tirar daqui é o Gateway: mensagem solta no privado só chega por WebSocket, e função serverless
+não segura conexão aberta.
+
+O refresh do Garmoth também passou pro cron (`0 */2 * * *`, de 2 em 2 horas). Os dois caminhos
+convivem sem estrago — o upsert do Garmoth é idempotente e a agenda recusa disparo repetido no mesmo
+dia —, mas manter os dois significa bater na API do Garmoth duas vezes por rodada.
 
 Os dois caminhos nunca duplicam a chamada: `intencao_agenda.ultimo_disparo` recusa um segundo
 disparo no mesmo dia (horário de Brasília).

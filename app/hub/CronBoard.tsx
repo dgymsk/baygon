@@ -8,10 +8,11 @@ import type { CronConfig, CronExec, ResumoCron } from "@/lib/cronLog";
 /**
  * AUTOMAÇÃO — quem dispara a chamada, quando bateu pela última vez, e o que dá pra mexer sem deploy.
  *
- * A pergunta que esta caixa responde não é "qual o cron": é "a chamada vai sair?". Por isso ela põe
- * lado a lado as duas fontes (o worker, que acerta a hora, e o cron da Vercel, que cobre a queda do
- * worker) com a contagem das últimas 24h — worker vivo bate ~288 vezes por dia; worker morto zera,
- * e a diferença salta aos olhos sem ninguém abrir log nenhum.
+ * A pergunta que esta caixa responde não é "qual o cron": é "a chamada vai sair?". Por isso ela abre
+ * dizendo QUANDO sai a próxima, e põe lado a lado as duas fontes que batem no mesmo endpoint — o
+ * worker sempre-ligado e o cron da Vercel — com a contagem das últimas 24h. Cada um bate a cada 5
+ * minutos, ou seja ~288 por dia: o que morreu aparece como zero enquanto o outro continua, sem
+ * ninguém abrir log nenhum.
  *
  * O que É controlável aqui: ligar/desligar a rede de segurança, o atraso que ela aceita, e rodar
  * agora. O que NÃO é: o horário das entradas — cron da Vercel vive no vercel.json e só muda com
@@ -19,14 +20,6 @@ import type { CronConfig, CronExec, ResumoCron } from "@/lib/cronLog";
  */
 const VERDE = "#3fbf5f";
 const OURO = "#e0bd3a";
-
-/** "0 21 * * *" -> "18:00" (o cron é UTC; aqui é UTC-3). Expressão fora do formato simples sai crua. */
-function horaBR(expr: string): string | null {
-  const [min, hora] = expr.trim().split(/\s+/);
-  if (!/^\d+$/.test(min ?? "") || !/^\d+$/.test(hora ?? "")) return null;
-  const h = (Number(hora) - 3 + 24) % 24;
-  return `${String(h).padStart(2, "0")}:${String(Number(min)).padStart(2, "0")}`;
-}
 
 /** O texto do banco vem "2026-08-26 12:00:00+00"; o T é o que faz o Date aceitar em todo navegador. */
 const quando = (iso: string | null) => {
@@ -40,9 +33,30 @@ const quando = (iso: string | null) => {
 
 const ROTULO_ORIGEM: Record<string, string> = { worker: "worker", vercel: "cron da Vercel", manual: "à mão" };
 
-export default function CronBoard({ entradas, cfg, resumo, execs, canEdit, nAgendas }: {
+/** Nome humano de cada endpoint automático — a tela não pode falar em rota. */
+const TAREFA: Record<string, string> = {
+  "/api/intencao/cron": "Disparo da chamada",
+  "/api/garmoth/refresh": "Atualização de gear (Garmoth)",
+};
+
+/** "a cada 5 min", "a cada 2 h", "todo dia 21:00" — o que a expressão de cron quer dizer. */
+function cadencia(expr: string): string {
+  const [min, hora] = expr.trim().split(/\s+/);
+  const m = /^\*\/(\d+)$/.exec(min ?? "");
+  if (m && hora === "*") return `a cada ${m[1]} min`;
+  const h = /^\*\/(\d+)$/.exec(hora ?? "");
+  if (h && /^\d+$/.test(min ?? "")) return `a cada ${h[1]} h`;
+  if (/^\d+$/.test(min ?? "") && /^\d+$/.test(hora ?? "")) {
+    const brt = (Number(hora) - 3 + 24) % 24;   // o cron é UTC; aqui é UTC-3
+    return `todo dia ${String(brt).padStart(2, "0")}:${String(Number(min)).padStart(2, "0")}`;
+  }
+  return expr;
+}
+
+export default function CronBoard({ entradas, cfg, resumo, execs, canEdit, nAgendas, proximo }: {
   entradas: { path: string; schedule: string }[];
   cfg: CronConfig; resumo: ResumoCron[]; execs: CronExec[]; canEdit: boolean; nAgendas: number;
+  proximo: { quando: string; emMin: number; preset: string; hoje: boolean } | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -74,10 +88,24 @@ export default function CronBoard({ entradas, cfg, resumo, execs, canEdit, nAgen
         Automação — quem dispara a chamada
       </div>
 
-      {/* sem agenda cadastrada, os seis crons varrem e não acham nada. É o primeiro diagnóstico. */}
+      {/* sem agenda cadastrada, o cron varre e não acha nada. É o primeiro diagnóstico da tela. */}
       {nAgendas === 0 && (
         <div style={{ border: `1px solid ${OURO}`, background: "rgba(214,178,42,.10)", borderRadius: 8, padding: "8px 10px", marginBottom: 10, color: C.texto, fontSize: 12.5 }}>
           ⚠ <b>Nenhum agendamento ativo.</b> O disparo automático não tem o que disparar — crie um horário na agenda acima.
+        </div>
+      )}
+
+      {/* O QUE A STAFF QUER SABER PRIMEIRO: quando sai a próxima. Calculado no servidor a partir
+          das agendas (lib/agenda.proximoDisparo), então bate com o que o disparo vai fazer. */}
+      {nAgendas > 0 && (
+        <div style={{ marginBottom: 11, fontSize: 13, color: C.texto }}>
+          Próximo disparo:{" "}
+          {proximo ? (
+            <>
+              <b style={{ color: VERDE }}>{proximo.hoje ? `hoje ${proximo.quando.split(" ")[1]}` : proximo.quando}</b>
+              <span style={{ color: C.mute }}> · em {proximo.emMin < 60 ? `${proximo.emMin} min` : `${Math.floor(proximo.emMin / 60)}h${String(proximo.emMin % 60).padStart(2, "0")}`} · {proximo.preset}</span>
+            </>
+          ) : <span style={{ color: C.mute }}>nenhum — as agendas ativas não têm dia marcado</span>}
         </div>
       )}
 
@@ -85,11 +113,11 @@ export default function CronBoard({ entradas, cfg, resumo, execs, canEdit, nAgen
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 11 }}>
         <div>
           <div style={{ color: agenda && agenda.worker24h > 0 ? VERDE : C.vermelho, fontSize: 19, fontWeight: 700, lineHeight: 1.1 }}>{agenda?.worker24h ?? 0}</div>
-          <div className="leg" style={{ color: C.dim, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }} title="o worker sempre-ligado bate a cada 5 min: ~288 por dia. Zero = ele está fora do ar.">worker · 24h</div>
+          <div className="leg" style={{ color: C.dim, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }} title="o worker sempre-ligado bate a cada 5 min: ~288 por dia. Zero = ele está fora do ar — e no plano Pro o cron da Vercel já cobre isso sozinho.">worker · 24h</div>
         </div>
         <div>
           <div style={{ color: agenda && agenda.vercel24h > 0 ? VERDE : C.mute, fontSize: 19, fontWeight: 700, lineHeight: 1.1 }}>{agenda?.vercel24h ?? 0}</div>
-          <div className="leg" style={{ color: C.dim, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }} title="a rede de segurança da Vercel: uma por hora, à noite">cron · 24h</div>
+          <div className="leg" style={{ color: C.dim, fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }} title="o cron da Vercel, a cada 5 minutos (plano Pro): ~288 por dia">cron · 24h</div>
         </div>
         <div>
           <div style={{ color: agenda?.falhas24h ? C.vermelho : C.mute, fontSize: 19, fontWeight: 700, lineHeight: 1.1 }}>{agenda?.falhas24h ?? 0}</div>
@@ -104,7 +132,7 @@ export default function CronBoard({ entradas, cfg, resumo, execs, canEdit, nAgen
       {/* o que dá pra mexer SEM deploy */}
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 11 }}>
         <button disabled={!canEdit || busy} style={{ ...cx, color: ativo ? VERDE : C.mute, borderColor: ativo ? VERDE : C.border2 }}
-          title="quando desligada, o cron da Vercel registra a batida e não posta nada. O worker e o botão continuam funcionando."
+          title="quando desligada, o cron da Vercel registra a batida e não posta nada — e como hoje é ele quem dispara, a chamada automática para. O worker (se estiver vivo) e o botão continuam."
           onClick={async () => { const v = !ativo; setAtivo(v); await api({ acao: "cron-config", ativo: v }, v ? "rede de segurança ligada" : "rede de segurança desligada"); }}>
           {ativo ? "● rede de segurança ligada" : "○ rede de segurança desligada"}
         </button>
@@ -129,17 +157,18 @@ export default function CronBoard({ entradas, cfg, resumo, execs, canEdit, nAgen
 
       {/* as entradas de verdade, lidas do vercel.json */}
       <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginBottom: 5 }}>
-        <b style={{ color: C.mute }}>{entradas.length} entrada(s) no vercel.json</b> — mudam só com deploy. Todas fazem a MESMA coisa:
-        varrer a agenda e postar o que venceu. Não são {entradas.length} tarefas, são {entradas.length} chances da mesma tarefa —
-        depois que uma dispara, as outras não repetem (o registro do dia barra).
+        <b style={{ color: C.mute }}>Tarefas automáticas</b> — configuradas no vercel.json, mudam só com deploy. A cadência abaixo é
+        de quanto em quanto tempo a Vercel bate; a HORA de cada chamada é a da agenda acima.
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 }}>
         {entradas.map((e, i) => {
-          const h = horaBR(e.schedule);
+          const r = resumo.find((x) => x.endpoint === e.path);
+          const q = quando(r?.ultima ?? null);
           return (
-            <span key={i} title={`${e.schedule} (UTC) → ${e.path}`}
-              style={{ border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 9px", fontSize: 11.5, color: C.mute }}>
-              {h ? `${h}` : e.schedule}
+            <span key={i} title={`${e.schedule} (UTC) → ${e.path}${q ? ` · última: ${q.exato}` : " · nunca rodou"}`}
+              style={{ border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px", fontSize: 11.5, color: C.mute }}>
+              <b style={{ color: C.texto }}>{TAREFA[e.path] ?? e.path}</b> · {cadencia(e.schedule)}
+              <span style={{ color: q ? C.mute : C.vermelho }}> · {q ? q.rel : "nunca rodou"}</span>
             </span>
           );
         })}
