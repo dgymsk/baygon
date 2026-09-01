@@ -118,6 +118,14 @@ const PUBLICOS_INTENCAO = ["calados_nao_receberam", "calados"] as const;
 const PUBLICOS_SAIDA = ["saiu_nao_avisado", "saiu_todos"] as const;
 const seletorPublico = { background: C.inputBg, color: C.mute, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "4px 6px", fontSize: 11.5, fontFamily: "inherit", cursor: "pointer", maxWidth: "min(175px, 100%)" } as const;
 
+/**
+ * Quanto tempo o palpite otimista resiste a um dado de servidor que ainda não o reflete.
+ *
+ * 25s cobre com folga o pior caso medido: um auto-refresh de 20s que saiu antes da gravação e volta
+ * depois dela. Passado o prazo, quem manda é o servidor.
+ */
+const VALIDADE_PALPITE = 25_000;
+
 const TIPO_PT = "application/x-pt";
 const arrastandoPT = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes(TIPO_PT);
 
@@ -164,7 +172,11 @@ export default function EventoBoard({
   const router = useRouter();
   const [aba, setAba] = useState<"escalacao" | "presenca" | "stats" | "chamadas">("escalacao");
   // chave -> { alvo: pra onde a tela mandou, pend: a gravação ainda está no ar }
-  const [local, setLocal] = useState<Record<string, { alvo: number | null; pend: boolean }>>({});
+  /**
+   * `ate` = até quando o palpite ainda vale depois que a gravação voltou OK. Ver o comentário
+   * grande do estado otimista, mais abaixo — é o que fecha a janela do refresh atrasado.
+   */
+  const [local, setLocal] = useState<Record<string, { alvo: number | null; pend: boolean; ate?: number }>>({});
   const [sobre, setSobre] = useState<number | "pool" | null>(null);
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -188,7 +200,7 @@ export default function EventoBoard({
   const [fechados, setFechados] = useState<Record<string, boolean>>({});
   const [busca, setBusca] = useState("");
   // posição otimista dentro da PT enquanto o servidor não confirma — mesma ideia do arrastar entre PTs
-  const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; pend: boolean }>>({});
+  const [ordemLocal, setOrdemLocal] = useState<Record<string, { alvo: number; pend: boolean; ate?: number }>>({});
   const byId = useMemo(() => new Map(guildas.map((g) => [g.id, g])), [guildas]);
   const provSet = useMemo(() => new Set(provisorios), [provisorios]);
   /**
@@ -248,9 +260,45 @@ export default function EventoBoard({
    * props novas de verdade, e é exatamente esse o momento em que o palpite deixou de ser útil.
    */
   useEffect(() => {
-    setLocal((s) => (Object.values(s).some((v) => !v.pend) ? Object.fromEntries(Object.entries(s).filter(([, v]) => v.pend)) : s));
-    setOrdemLocal((s) => (Object.values(s).some((v) => !v.pend) ? Object.fromEntries(Object.entries(s).filter(([, v]) => v.pend)) : s));
+    const agora = Date.now();
+    /**
+     * Um palpite morre quando (a) a requisição voltou E (b) o servidor CONCORDA com ele — ou quando
+     * o prazo acabou, o que vier primeiro.
+     *
+     * A regra anterior era só (a), e deixava uma janela real: esta página faz 26 consultas por
+     * carregamento e se auto-atualiza a cada 20 segundos, então um refresh que COMEÇOU antes da
+     * gravação chega DEPOIS dela trazendo o estado velho. O palpite, já não-pendente, era descartado
+     * por esse dado velho e o card voltava sozinho pro lugar de origem — com a gravação feita e
+     * salva. Foi o que aconteceu com ANF, CorvoNegroo e Japah: o banco tinha a troca certa e a tela
+     * mostrava a antiga.
+     *
+     * O PRAZO é o que impede o outro bug, já corrigido uma vez: "vale enquanto discorda" sem limite
+     * vira palpite eterno quando o servidor decide diferente de propósito — é exatamente o caso da
+     * recusa, que devolve o jogador pro pool. Passados os segundos, o servidor manda, sempre.
+     */
+    const vivo = (v: { pend: boolean; ate?: number }, concorda: boolean) =>
+      v.pend || (!concorda && v.ate != null && agora < v.ate);
+    setLocal((s) => {
+      const n = Object.fromEntries(Object.entries(s).filter(([chave, v]) => vivo(v, (todos.get(chave)?.escaladoEm ?? null) === v.alvo)));
+      return Object.keys(n).length === Object.keys(s).length ? s : n;
+    });
+    setOrdemLocal((s) => {
+      const n = Object.fromEntries(Object.entries(s).filter(([chave, v]) => vivo(v, (todos.get(chave)?.ordemPt ?? null) === v.alvo)));
+      return Object.keys(n).length === Object.keys(s).length ? s : n;
+    });
   }, [todos]);
+
+  /**
+   * Enquanto houver palpite com prazo, um timer cutuca a tela quando ele vence — senão o card
+   * ficaria no lugar palpitado até o próximo auto-refresh, que pode estar a 20 segundos.
+   */
+  useEffect(() => {
+    const prazos = [...Object.values(local), ...Object.values(ordemLocal)].map((v) => v.ate).filter((x): x is number => x != null);
+    if (!prazos.length) return;
+    const falta = Math.max(0, Math.min(...prazos) - Date.now()) + 50;
+    const t = setTimeout(() => { setLocal((s) => ({ ...s })); setOrdemLocal((s) => ({ ...s })); }, falta);
+    return () => clearTimeout(t);
+  }, [local, ordemLocal]);
   const partyDe = (j: JogadorVM) => (j.chave in overrides ? overrides[j.chave] : j.escaladoEm);
   /** As colunas de hoje, na ordem. A ordem otimista só vale enquanto DISCORDA do servidor —
    *  descartar na leitura (e não num efeito) evita que ela sobreviva ao auto-refresh de 20s. */
@@ -394,8 +442,8 @@ export default function EventoBoard({
     setSalvando(true);
     try {
       await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
-      // gravou: o palpite deixa de ser pendente e morre na próxima leva de dados (ver o efeito acima)
-      setLocal((s) => (s[chave] ? { ...s, [chave]: { ...s[chave], pend: false } } : s));
+      // gravou: sai de "pendente" e passa a valer por prazo, até o servidor confirmar (ver o efeito)
+      setLocal((s) => (s[chave] ? { ...s, [chave]: { ...s[chave], pend: false, ate: Date.now() + VALIDADE_PALPITE } } : s));
       setErro(""); router.refresh();
     } catch (e) {
       setErro((e as Error).message);
@@ -833,8 +881,9 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
         await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
       }
       await api({ acao: "escalacao-reordenar", eventoId: evento.eventoId, partyId, chaves: lista });
-      setOrdemLocal((s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, { ...v, pend: false }])));
-      setLocal((s) => (s[chaveArrastada] ? { ...s, [chaveArrastada]: { ...s[chaveArrastada], pend: false } } : s));
+      const ate = Date.now() + VALIDADE_PALPITE;
+      setOrdemLocal((s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, { ...v, pend: false, ate }])));
+      setLocal((s) => (s[chaveArrastada] ? { ...s, [chaveArrastada]: { ...s[chaveArrastada], pend: false, ate } } : s));
       setErro(""); router.refresh();
     } catch (e) {
       setErro((e as Error).message);
