@@ -109,3 +109,19 @@ export async function resumoCron(): Promise<ResumoCron[]> {
            count(*) FILTER (WHERE NOT ok          AND inicio > now() - interval '24 hours')::int AS "falhas24h"
     FROM cron_exec GROUP BY endpoint ORDER BY endpoint`) as ResumoCron[];
 }
+
+/**
+ * Poda o extrato. Chamado pela rodada do Garmoth (de 2 em 2 horas), que é o encaixe natural: uma
+ * tarefa que já roda em cadência baixa e cujo custo extra de um DELETE é irrelevante.
+ *
+ * O disparo da chamada bate a cada 5 minutos e grava uma linha por batida — ~288 por dia, mesmo sem
+ * nada vencido. Isso é de propósito (é o batimento cardíaco que mostra que o cron está vivo), mas
+ * sem poda vira centenas de milhares de linhas por ano numa tabela que a tela lê a cada visita.
+ *
+ * 30 dias porque a pergunta que o extrato responde é operacional ("rodou hoje? ontem?"), e história
+ * de dois meses atrás não muda decisão nenhuma.
+ */
+export async function podarExecs(dias = 30): Promise<number> {
+  const r = (await sql`DELETE FROM cron_exec WHERE inicio < now() - (${Math.max(7, dias)} || ' days')::interval RETURNING 1`) as unknown[];
+  return r.length;
+}

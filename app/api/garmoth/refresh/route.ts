@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireEditor } from "@/lib/requireAuth";
 import { atualizarTodos } from "@/lib/garmoth";
-import { registrarExec } from "@/lib/cronLog";
+import { podarExecs, registrarExec } from "@/lib/cronLog";
 
 /**
  * Busca a gear de todo mundo no Garmoth e atualiza `garmoth_build`.
@@ -39,7 +39,10 @@ async function executar(req: Request, origem: "vercel" | "worker" | "manual") {
       devidas: r.pedidos ?? 0, resultado: r,
       erro: r.falhasGravacao?.length ? `${r.falhasGravacao.length} não gravou: ${String(r.falhasGravacao[0]).slice(0, 100)}` : null,
     });
-    return NextResponse.json({ ok: true, ...r });
+    // faxina do extrato pega carona aqui: cadência baixa, custo irrelevante, e nunca derruba a
+    // rodada — se a poda falhar, o que importa (a gear) já foi gravado
+    const podadas = await podarExecs().catch(() => 0);
+    return NextResponse.json({ ok: true, ...r, podadas });
   } catch (e) {
     const msg = (e as Error).message;
     await registrarExec({ endpoint: ENDPOINT, origem, ms: Date.now() - t0, ok: false, erro: msg });
