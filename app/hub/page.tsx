@@ -99,9 +99,22 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
 
         {/* agenda depois dos eventos: é rotina semanal, não a decisão das 20h de terça.
             Fechada por padrão pra não empurrar o evento atual pra fora da primeira dobra. */}
-        <details style={{ marginBottom: 26 }}>
-          <summary style={{ cursor: "pointer", color: C.verde, fontSize: 15, fontWeight: 600, marginBottom: 8, listStyle: "revert" }}>
-            Agenda de disparo <span style={{ color: C.mute, fontSize: 12, fontWeight: 400 }}>— {agendas.filter((a) => a.ativo).length} ativo(s)</span>
+        {/**
+          * ABRE SOZINHA QUANDO NÃO HÁ NADA AGENDADO.
+          *
+          * Fechada por padrão, esta sanfona guarda as duas coisas que respondem "por que a chamada
+          * não sai sozinha?": o formulário que cria o horário e o painel que mostra o disparo. Quem
+          * nunca agendou via um resumo dizendo "0 ativo(s)" e não tinha motivo pra clicar — o
+          * estado vazio é justamente o que precisa aparecer.
+          */}
+        <details style={{ marginBottom: 26 }} open={agendas.length === 0}>
+          <summary style={{ cursor: "pointer", color: agendas.some((a) => a.ativo) ? C.verde : "#e0bd3a", fontSize: 15, fontWeight: 600, marginBottom: 8, listStyle: "revert" }}>
+            ⏰ Agenda de disparo automático{" "}
+            <span style={{ color: C.mute, fontSize: 12, fontWeight: 400 }}>
+              {agendas.some((a) => a.ativo)
+                ? `— ${agendas.filter((a) => a.ativo).length} horário(s) ativo(s)`
+                : "— nenhum horário cadastrado: a chamada só sai no botão"}
+            </span>
           </summary>
           <AgendaBoard agendas={agendas} presets={presets} canEdit={canEdit} />
           <CronBoard entradas={cronEntradas} cfg={cronCfg} resumo={cronResumo} execs={cronExecs} canEdit={canEdit}

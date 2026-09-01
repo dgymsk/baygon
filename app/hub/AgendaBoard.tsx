@@ -124,6 +124,14 @@ export default function AgendaBoard({ agendas, presets, canEdit }: { agendas: Ag
         {!agendas.length && <span style={{ color: C.dim, fontSize: 12.5 }}>Nenhum disparo agendado — a chamada só sai no botão.</span>}
       </div>
 
+      {/* o passo a passo só aparece pra quem ainda não tem nenhum: depois do primeiro, vira ruído */}
+      {canEdit && !agendas.length && (
+        <div className="leg" style={{ color: C.dim, fontSize: 11.5, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 11, marginBottom: -2, lineHeight: 1.6 }}>
+          <b style={{ color: C.texto }}>Pra a chamada passar a sair sozinha:</b> escolha qual chamada disparar, a hora (horário de
+          Brasília) e os dias da semana — e clique em <b style={{ color: C.verde }}>+ Agendar</b>. O nome do evento aceita{" "}
+          <b>{"{data}"}</b>, que vira o dia da guerra (o seguinte ao disparo). Ex.: às 20:20, todo dia, cria a chamada da war de amanhã.
+        </div>
+      )}
       {canEdit && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", borderTop: `1px solid ${C.borderSoft}`, paddingTop: 11 }}>
           <select value={nova.presetId} onChange={(e) => setNova({ ...nova, presetId: e.target.value })} style={{ ...input, cursor: "pointer" }}>
