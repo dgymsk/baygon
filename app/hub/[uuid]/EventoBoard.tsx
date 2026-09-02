@@ -441,12 +441,29 @@ export default function EventoBoard({
     setLocal((s) => ({ ...s, [chave]: { alvo: partyId, pend: true } }));
     setSalvando(true);
     try {
-      await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
+      const d = await api({ acao: "escalar", eventoId: evento.eventoId, ops: [{ familia: j.familia, partyId }] });
+      /**
+       * CONFERE O QUE O SERVIDOR GRAVOU, em vez de supor que 200 = feito.
+       *
+       * A resposta já traz a escalação inteira (`aplicarEscalacao` devolve `getEscalacao`), e ela
+       * custa nada pra ler. Sem esta conferência, qualquer caminho em que a gravação não faz o que
+       * foi pedido — nome que normaliza pra outra chave, op ignorada, corrida com outra pessoa
+       * editando — vira exatamente o sintoma que ninguém sabe explicar: "arrasto e a pessoa não
+       * fica na PT", sem erro nenhum na tela.
+       */
+      const linhas = (d.escalacao ?? null) as { chave: string; party_id: number | null }[] | null;
+      const gravado = linhas?.find((r) => r.chave === chave);
+      if (linhas && (gravado?.party_id ?? null) !== partyId) {
+        setLocal((s) => { const n = { ...s }; delete n[chave]; return n; });
+        setErro(`O servidor não gravou ${j.familia} onde você soltou (ficou em ${gravado?.party_id ?? "nenhuma PT"}). Recarregue a página; se repetir, me avise.`);
+        router.refresh();
+        return;
+      }
       // gravou: sai de "pendente" e passa a valer por prazo, até o servidor confirmar (ver o efeito)
       setLocal((s) => (s[chave] ? { ...s, [chave]: { ...s[chave], pend: false, ate: Date.now() + VALIDADE_PALPITE } } : s));
       setErro(""); router.refresh();
     } catch (e) {
-      setErro((e as Error).message);
+      setErro(`Não deu pra mover ${j.familia}: ${(e as Error).message}`);
       setLocal((s) => { const n = { ...s }; delete n[chave]; return n; });
     } finally { setSalvando(false); }
   }
@@ -1198,6 +1215,21 @@ Ele volta pra "ainda não respondeu" e pode ser escalado de novo. A PT não é d
       {/* releitura periódica: as respostas da DM chegam pelo Discord, não por esta aba */}
       {evento.status === "aberto" && <AutoSync ms={20000} />}
 
+      {/**
+        * O ERRO VAI FIXO NO RODAPÉ, e não só aqui no topo.
+        *
+        * Quem arrasta está no meio ou no fim de uma página longa; um aviso no topo do board é um
+        * aviso que ninguém lê. A faixa fixa aparece onde o olho está e sai no clique — e é ela que
+        * transforma "não funciona" em "não funcionou POR ISSO".
+        */}
+      {erro && (
+        <div onClick={() => setErro("")} title="clique pra fechar"
+          style={{ position: "fixed", left: "50%", bottom: 18, transform: "translateX(-50%)", zIndex: 60, maxWidth: "min(560px, 92vw)",
+            border: `1px solid ${C.vermelho}`, background: "rgba(40,10,10,.96)", color: C.texto, borderRadius: 10,
+            padding: "10px 14px", fontSize: 12.5, cursor: "pointer", boxShadow: "0 6px 24px rgba(0,0,0,.6)" }}>
+          ⚠ {erro} <span style={{ color: C.mute }}>· clique pra fechar</span>
+        </div>
+      )}
       {erro && <div style={{ color: C.vermelho, fontSize: 13, marginBottom: 8 }}>⚠ {erro}</div>}
       {aviso && <div style={{ color: C.mute, fontSize: 12.5, marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "7px 11px", background: C.inputBg }}>{aviso}</div>}
       {envio && <PainelEnvio envio={envio} onFechar={() => setEnvio(null)} />}
