@@ -186,7 +186,7 @@ export default function EuHud({
           </div>
         </div>
         <div className="hd-right">
-          <div className="navx"><a href="/painel">Painel</a><a href="/confirmados">Confirmados</a><a href="/evolucao">Evolução</a></div>
+          <div className="navx"><a href="/painel">Painel</a><a href="/hub">Hub</a><a href="/evolucao">Evolução</a></div>
           <div className="live"><span className="dot" />Telemetria</div>
           <div className="k" style={{ marginTop: 6 }}>Janela</div>
           <div className="v">{win.label}</div>

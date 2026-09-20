@@ -58,7 +58,7 @@ export default function EmojiConfigForm({ initial, emojis, classes, guildas, can
             BAYGON <span style={{ color: C.mute, fontSize: 14, letterSpacing: 2 }}>· EMOJIS</span>
           </h1>
           <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-            <Link className="navlink" href="/participacao">← Participação</Link>
+            <Link className="navlink" href="/hub/config">← Definições</Link>
             <Link className="navlink" href="/membros">Membros</Link>
             {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ salvo</span>}

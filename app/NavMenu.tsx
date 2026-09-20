@@ -9,12 +9,10 @@ import { C } from "@/lib/theme";
 const LINKS: { href: string; label: string; staff?: boolean }[] = [
   { href: "/painel", label: "🏠 Painel" },
   { href: "/membros", label: "👥 Membros" },
-  { href: "/participacao", label: "📢 Participação" },
-  { href: "/confirmados", label: "✅ Confirmados (Apollo)" },
-  { href: "/confirmados-bot", label: "🤖 Confirmados (bot)" },
-  { href: "/eventos", label: "📅 Eventos" },
-  { href: "/presenca", label: "🗓️ Presença (grade)", staff: true },
+  // participação/confirmados (Apollo e bot) e o /eventos antigo saíram do menu: o hub absorveu os
+  // três. As páginas continuam no ar pelo endereço, pra quem ainda tiver link salvo.
   { href: "/hub", label: "🧩 Hub de eventos", staff: true },
+  { href: "/presenca", label: "🗓️ Presença (grade)", staff: true },
   { href: "/gear", label: "⚔️ Gear" },
   { href: "/evolucao", label: "📈 Evolução" },
   { href: "/eu", label: "🧍 Minhas stats" },

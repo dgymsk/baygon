@@ -50,7 +50,6 @@ export default async function HubPage({ searchParams }: { searchParams: Promise<
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
             {canEdit && <Link className="navlink" href="/hub/presets">📣 Chamadas</Link>}
             {canEdit && <Link className="navlink" href="/hub/config">⚙ Definições</Link>}
-            <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/painel">← Painel</Link>
           </div>
         </div>

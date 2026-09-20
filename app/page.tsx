@@ -35,7 +35,7 @@ export default async function Home() {
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center" }}>
         <Tile href="/eu" titulo="Minhas stats" desc="Suas médias na guerra (avatar, classe, grupo)" />
         <Tile href="/painel" titulo="Painel" desc="Radar e ranking por war/grupo" />
-        <Tile href="/confirmados" titulo="Confirmados" desc="Quem confirmou a próxima node war (Apollo)" />
+        <Tile href="/hub" titulo="Hub de eventos" desc="Chamada, escalação, convocação e conferência in-game" />
         <Tile href="/evolucao" titulo="Evolução" desc="Performance no tempo (player/grupo/geral)" />
         <Tile href="/membros" titulo="Membros" desc="Adicionar, remover e gerenciar grupos/classes" />
         <Tile href="/config" titulo="Configuração" desc="Cores e métricas de cada grupo" />

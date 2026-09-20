@@ -54,7 +54,6 @@ export default function DiscordConfigForm({ initial, canEdit }: { initial: Disco
           </div>
           <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
             <Link className="navlink" href="/painel">← Painel</Link>
-            <Link className="navlink" href="/participacao">Participação</Link>
             {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             {status.kind === "ok" && <span style={{ color: C.verde, fontSize: 13 }}>✓ salvo</span>}
             {status.kind === "err" && <span style={{ color: C.vermelho, fontSize: 13 }}>⚠ {status.msg}</span>}

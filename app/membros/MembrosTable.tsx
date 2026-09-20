@@ -130,6 +130,32 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
     } catch (e) { setStatus({ kind: "err", msg: (e as Error).message }); return false; }
   }
 
+  /**
+   * BARRA HORIZONTAL DE CIMA — uma calha vazia com a largura da tabela, sincronizada com a caixa.
+   *
+   * A barra nativa fica no rodapé da caixa. Com a tela fixa ela já está sempre visível, mas o
+   * pedido foi "um slider em cima", e faz sentido: quem está lendo o cabeçalho quer rolar de lado
+   * sem descer o olho. Sincronia nos dois sentidos; atribuir o mesmo scrollLeft não dispara evento,
+   * então não há eco.
+   */
+  const caixaRef = useRef<HTMLDivElement>(null);
+  const topoRef = useRef<HTMLDivElement>(null);
+  const [larguraTabela, setLarguraTabela] = useState(0);
+  const [larguraCaixa, setLarguraCaixa] = useState(0);
+  useEffect(() => {
+    const el = caixaRef.current;
+    if (!el) return;
+    const medir = () => { setLarguraTabela(el.scrollWidth); setLarguraCaixa(el.clientWidth); };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [tab, rows.length]);
+  const sincronizar = (de: HTMLDivElement | null, para: HTMLDivElement | null) => {
+    if (de && para && para.scrollLeft !== de.scrollLeft) para.scrollLeft = de.scrollLeft;
+  };
+
   // auto-save: a cada 10s grava as alterações pendentes (se não estiver salvando)
   const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
   const savingRef = useRef(false); savingRef.current = status.kind === "saving";
@@ -179,7 +205,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
   );
 
   return (
-    <div className="pg" style={{ background: C.bgGlow, minHeight: "100vh", padding: "26px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
+    <div className="pg tela-fixa" style={{ background: C.bgGlow, minHeight: "100vh", padding: "26px 24px", fontFamily: "'Chakra Petch', system-ui, sans-serif", color: C.texto }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;500;600;700&display=swap');
         a.navlink{color:${C.mute};text-decoration:none;font-size:13px;letter-spacing:1px} a.navlink:hover{color:${C.verde}}
         input:focus,select:focus{border-color:${C.verde}}
@@ -189,7 +215,7 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
         input[type=checkbox]{accent-color:${C.verde}}
       `}</style>
 
-      <div style={{ maxWidth: 1320, margin: "0 auto" }}>
+      <div className="miolo" style={{ maxWidth: 1320, margin: "0 auto", width: "100%" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -210,7 +236,6 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             {ro && <span style={{ color: C.amarelo, fontSize: 12, border: `1px solid ${C.border2}`, borderRadius: 999, padding: "3px 10px" }}>🔒 somente leitura</span>}
             <Link className="navlink" href="/painel">← Painel</Link>
-            <Link className="navlink" href="/confirmados">Confirmados</Link>
             <Link className="navlink" href="/evolucao">Evolução</Link>
             <Link className="navlink" href="/gear">Gear</Link>
             <Link className="navlink" href="/emojis">Emojis</Link>
@@ -278,8 +303,16 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
           </div>
         </div>
 
-        {/* tabela */}
-        <div className="rolx" style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflowX: "auto", background: C.surface }}>
+        {/* barra de rolagem de cima: só existe quando a tabela é mais larga que a caixa */}
+        {larguraTabela > larguraCaixa && (
+          <div ref={topoRef} className="barra-topo no-mob" onScroll={() => sincronizar(topoRef.current, caixaRef.current)}
+            title="rola a tabela de lado" style={{ marginBottom: 2 }}>
+            <div style={{ width: larguraTabela }} />
+          </div>
+        )}
+        {/* tabela: a caixa rola nos DOIS eixos e o cabeçalho (th sticky) fica preso no topo dela */}
+        <div ref={caixaRef} className="rolx rolxy" onScroll={() => sincronizar(caixaRef.current, topoRef.current)}
+          style={{ border: `1px solid ${C.border}`, borderRadius: 12, overflowX: "auto", background: C.surface }}>
           <table>
             <thead>
               <tr>

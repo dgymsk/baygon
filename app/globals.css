@@ -133,3 +133,19 @@ body {
 @media (hover: none) {
   .ref:hover, .m:hover, .bead:hover { transform: none !important; }
 }
+
+/* 9. TELA FIXA COM MIOLO ROLANTE (desktop). A página não rola: cabeçalho, abas e filtros ficam
+   parados, e SÓ a caixa da tabela rola — nos dois eixos. É o que põe a barra horizontal sempre
+   à vista (ela fica no rodapé da caixa, que agora é o rodapé da tela) em vez de escondida embaixo
+   de 150 linhas. Só no desktop: no celular a página inteira rolando é o comportamento certo, e uma
+   caixa de altura fixa briga com teclado e barra de URL. */
+@media (min-width: 761px) {
+  /* border-box: a casca tem padding inline, e sem isto 100vh + padding estoura a tela e a página
+     volta a rolar exatamente os 52px que o padding mede */
+  .tela-fixa { height: 100vh; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; }
+  .tela-fixa > .miolo { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .tela-fixa .rolxy { flex: 1 1 auto; min-height: 0; overflow: auto; }
+}
+/* a barra de rolagem horizontal "de cima": uma calha fina, sincronizada por script com a caixa */
+.barra-topo { overflow-x: auto; overflow-y: hidden; height: 14px; }
+.barra-topo > div { height: 1px; }
