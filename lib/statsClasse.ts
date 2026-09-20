@@ -1,6 +1,9 @@
 import { sql } from "@/lib/db";
-import { STAT_METRICAS } from "@/lib/stats";
+import { STAT_METRICAS, JANELAS, janelaOk } from "@/lib/statsConst";
 import { TIPOS_SEM_REGUA } from "@/lib/tiposGuerra";
+
+// reexportadas pra quem já importava daqui; a definição mora em lib/statsConst (sem banco)
+export { JANELAS, janelaOk };
 
 /**
  * COMPARATIVO POR CLASSE — "essa Ranger está indo bem PRA UMA RANGER?"
@@ -43,12 +46,6 @@ export type LinhaClasse = {
   pctClasse: number | null;
   foiCore: boolean;
   grupoRecente: string | null;
-};
-
-export const JANELAS = [5, 10, 20, 999] as const;
-export const janelaOk = (v: unknown): number => {
-  const n = Math.trunc(Number(v));
-  return (JANELAS as readonly number[]).includes(n) ? n : 10;
 };
 
 /** As últimas N wars DA GUILDA com régua — a lista compara pessoas entre si, todas nas mesmas noites. */

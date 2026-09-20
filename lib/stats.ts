@@ -14,7 +14,10 @@ import { TIPOS_SEM_REGUA } from "@/lib/tiposGuerra";
  * participações do player.
  */
 
-export const STAT_METRICAS = ["dano_em_player", "dano_do_pino", "ccs", "cura_aliados", "tempo_morto"];
+// a lista mora em lib/statsConst (sem banco) pra componente cliente poder importá-la sem trazer o
+// lib/db junto — foi assim que /classes morreu no navegador. Reexportada aqui pra quem já importava.
+export { STAT_METRICAS } from "@/lib/statsConst";
+import { STAT_METRICAS } from "@/lib/statsConst";
 
 export type MediasMap = Record<string, Record<string, number>>; // nome -> metrica -> pct médio
 

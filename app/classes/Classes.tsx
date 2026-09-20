@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
-import { STAT_METRICAS } from "@/lib/stats";
+// SÓ constantes e tipos de módulos de servidor: importar um VALOR de lib/stats ou lib/statsClasse
+// puxaria lib/db pro navegador, que lança erro sem DATABASE_URL — foi o "This page couldn't load"
+import { STAT_METRICAS, JANELAS } from "@/lib/statsConst";
 import { METRICAS_RESULTADO } from "@/lib/metricasResultado";
 import { formatarMetrica } from "@/lib/formatarMetrica";
-import { JANELAS, type CadastroClasse, type ComboClasse, type LinhaClasse } from "@/lib/statsClasse";
+import type { CadastroClasse, ComboClasse, LinhaClasse } from "@/lib/statsClasse";
 import { BarraPct } from "@/app/BarraPct";
 
 /**

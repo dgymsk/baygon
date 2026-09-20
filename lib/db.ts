@@ -1,3 +1,7 @@
+// server-only: importar este modulo de um componente cliente passa a FALHAR NA BUILD. Sem isto, o
+// arquivo entrava no bundle do navegador e lancava "DATABASE_URL ausente" na primeira linha — foi
+// assim que /classes morreu com "This page couldn't load" e nenhuma pista.
+import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 /**
