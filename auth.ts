@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import Discord from "next-auth/providers/discord";
 import { getDiscordConfig } from "@/lib/discordConfig";
+import { ehDono } from "@/lib/donos";
 
 // O servidor ativo e os cargos de staff vêm da CONFIG (discord_config, com fallback pro env).
 
@@ -50,8 +51,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   pages: { signIn: "/login" },
   callbacks: {
-    /** Só entra quem está no servidor ATIVO (da config). Fail-closed. */
+    /** Só entra quem está no servidor ATIVO (da config). Fail-closed — exceto o DONO (lib/donos),
+     *  que entra mesmo com a config quebrada: é o único jeito de consertar a config pela tela. */
     async signIn({ account }) {
+      if (ehDono(account?.providerAccountId)) return true;
       const { guildId } = await getDiscordConfig();
       if (!guildId) return false;
       const token = account?.access_token;
@@ -72,9 +75,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { guildId, staffRoleIds } = await getDiscordConfig();
         const d = await dadosMembro(account.access_token, guildId, staffRoleIds);
         const t = token as { canEdit?: boolean; familia?: string | null; discordId?: string | null };
-        t.canEdit = d.canEdit;
-        t.familia = d.familia;
         t.discordId = account.providerAccountId ?? (typeof token.sub === "string" ? token.sub : null);
+        // dono edita sempre: é o quebra-vidro de lib/donos, e passa por cima de cargo e de config
+        t.canEdit = d.canEdit || ehDono(t.discordId);
+        t.familia = d.familia;
       }
       return token;
     },
