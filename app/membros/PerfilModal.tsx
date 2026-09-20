@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { C } from "@/lib/theme";
 import { formatarMetrica } from "@/lib/formatarMetrica";
+import { BarraPct } from "@/app/BarraPct";
 import type { PlayerRow } from "@/lib/players";
 import type { PerfilPlayer } from "@/lib/perfilPlayer";
 
@@ -11,7 +12,6 @@ const DIA_CURTO = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const DIA_NOME = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
 /** Amarelo claro do "dia dele" — o mesmo da listra no card da escalação. */
 const DIA_CLARO = "#f0e08a";
-const VERDE_OK = "#3fbf5f";
 /** "Indefinido" é a AUSÊNCIA de papel, não um papel — e é onde está a maior parte do elenco. */
 const semGrupo = (g: string | null) => !g || g === "Indefinido";
 
@@ -44,28 +44,6 @@ const Linha = ({ k, v }: { k: string; v: React.ReactNode }) => (
     <span style={{ color: C.texto, fontSize: 12, textAlign: "right" }}>{v}</span>
   </div>
 );
-
-/**
- * Uma guerra na régua. A barra é 100% da largura quando a pessoa empatou com a referência, então o
- * traço vertical no meio é a régua — dá pra ler a linha inteira sem ler número nenhum.
- *
- * O teto visual é 200%: acima disso a barra satura, e o número ao lado continua dizendo a verdade.
- * Sem teto, uma noite de 400% comprimiria todas as outras a nada.
- */
-const BarraPct = ({ pct }: { pct: number | null }) => {
-  if (pct == null) return <span style={{ color: C.dim, fontSize: 11 }} title="jogou sozinho no grupo nessa guerra — não há com quem comparar">sem régua</span>;
-  const larg = Math.max(2, Math.min(pct, 200) / 2);   // 200% -> 100% da caixa
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div style={{ position: "relative", flex: "1 1 auto", height: 7, background: C.inputBg, borderRadius: 4, overflow: "hidden", minWidth: 40 }}>
-        <div style={{ width: `${larg}%`, height: "100%", background: pct >= 100 ? VERDE_OK : C.mute, opacity: pct >= 100 ? 0.85 : 0.55 }} />
-        {/* a régua: 100% cai exatamente no meio da caixa */}
-        <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: C.border2 }} />
-      </div>
-      <span style={{ color: pct >= 100 ? VERDE_OK : C.mute, fontSize: 11.5, fontWeight: 700, minWidth: 38, textAlign: "right" }}>{Math.round(pct)}%</span>
-    </div>
-  );
-};
 
 export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado, elenco = [] }: { row: PlayerRow; onClose: () => void; canEdit?: boolean; onRenomeado?: (novo: string) => void; elenco?: string[] }) {
   const [perfil, setPerfil] = useState<PerfilPlayer | null>(null);
@@ -341,6 +319,11 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
             referência, senão o percentual tende a 100 por construção. */}
         <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
           Dano por guerra {perfil ? `(${perfil.dano.length})` : ""}
+          {row.classe_bdo && row.classe_tipo && (
+            <a href={`/classes?classe=${encodeURIComponent(row.classe_bdo)}&tipo=${encodeURIComponent(row.classe_tipo)}&foco=${encodeURIComponent(row.nome_familia)}`}
+              style={{ color: C.verde, textTransform: "none", letterSpacing: 0, marginLeft: 8, textDecoration: "none" }}
+              title="ver todo mundo da mesma classe, contra o core e entre si">comparar com as outras {row.classe_bdo} →</a>
+          )}
           <span style={{ textTransform: "none", letterSpacing: 0, color: C.dim }}> · últimas 12 · % contra o core do grupo dele (sem core, contra os outros do grupo)</span>
         </div>
         {/* sem grupo, a comparação é fraca — e o conserto é uma ação concreta, não um aviso vago */}

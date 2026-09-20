@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db";
 import { parseGarmothId } from "@/lib/garmothId";
 import { chaveNome } from "@/lib/nomes";
+import { canonicalClasse } from "@/lib/bdoClasses";
 
 export type PerfilGearRow = { guilda: string; classe: string | null; gs: number | null };
 /** Mapa chaveNome(família) → {guilda, classe, GS} p/ enriquecer o embed/roster do bot. GS = (ap+aap)/2+dp. */
@@ -88,7 +89,7 @@ export async function addPlayer(
 ): Promise<boolean> {
   const rows = await sql`
     INSERT INTO players (nome_familia, grupo, is_core, classe_bdo, classe_tipo, guilda, ativo)
-    VALUES (${nome.trim()}, ${grupoOr(grupo)}, FALSE, ${classe?.trim() || null}, ${tipo?.trim() || null}, ${guildaOr(guilda)}, ${ativo})
+    VALUES (${nome.trim()}, ${grupoOr(grupo)}, FALSE, ${canonicalClasse(classe?.trim()) || null}, ${tipo?.trim() || null}, ${guildaOr(guilda)}, ${ativo})
     ON CONFLICT (nome_familia) DO NOTHING
     RETURNING nome_familia
   `;
@@ -137,7 +138,7 @@ export async function updatePlayers(updates: PlayerUpdate[]): Promise<void> {
         -- o CASE olha o garmoth_id QUE ESTÁ SENDO GRAVADO, não o da linha antiga: lendo o antigo,
         -- limpar o link e corrigir a classe no mesmo save era impossível — o CASE via o id velho e
         -- descartava o que a staff digitou, sem dizer nada
-        classe_bdo  = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_bdo  ELSE ${u.classe_bdo?.trim() || null} END,
+        classe_bdo  = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_bdo  ELSE ${canonicalClasse(u.classe_bdo?.trim()) || null} END,
         classe_tipo = CASE WHEN ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null}::text IS NOT NULL THEN classe_tipo ELSE ${u.classe_tipo?.trim() || null} END,
         is_core = ${u.is_core}, guilda = ${guildaOr(u.guilda)}, registro = ${!!u.registro},
         pt_preferida = ${ptOr(u.pt_preferida)}, garmoth_id = ${u.garmoth_id ? parseGarmothId(u.garmoth_id) : null},
