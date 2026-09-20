@@ -215,7 +215,9 @@ export default function MembrosTable({ initial, guildas, gruposExtra = [], media
         input[type=checkbox]{accent-color:${C.verde}}
       `}</style>
 
-      <div className="miolo" style={{ maxWidth: 1320, margin: "0 auto", width: "100%" }}>
+      {/* a largura acompanha o monitor: 13 colunas em 1320px era o teto de um laptop; num monitor
+          de 1920 ou 2560 sobrava um terço da tela vazio dos dois lados */}
+      <div className="miolo" style={{ maxWidth: 2400, margin: "0 auto", width: "100%" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

@@ -149,3 +149,15 @@ body {
 /* a barra de rolagem horizontal "de cima": uma calha fina, sincronizada por script com a caixa */
 .barra-topo { overflow-x: auto; overflow-y: hidden; height: 14px; }
 .barra-topo > div { height: 1px; }
+
+/* 10. BARRAS DE ROLAGEM NO TEMA. Trilho no preto da página, polegar em aço, carmesim ao passar o
+   mouse — a barra cinza-clara padrão do sistema era a única coisa fora da paleta na tela inteira.
+   Global de propósito: vale pra caixa da tabela, pra calha de cima, pro menu e pra própria página. */
+* { scrollbar-width: thin; scrollbar-color: #3a3a3a #0d0d0d; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: #0d0d0d; }
+*::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 6px; border: 2px solid #0d0d0d; }
+*::-webkit-scrollbar-thumb:hover { background: #cc0000; }
+*::-webkit-scrollbar-corner { background: #0d0d0d; }
+/* a calha de cima é mais fina e mais discreta: é um controle, não uma borda */
+.barra-topo::-webkit-scrollbar { height: 8px; }
