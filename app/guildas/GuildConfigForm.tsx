@@ -23,7 +23,7 @@ export default function GuildConfigForm({ initial, discord, canEdit }: { initial
 
   const setA = (k: keyof GuildMeta["alliance"], v: string) => setMeta((m) => ({ ...m, alliance: { ...m.alliance, [k]: v } }));
   const setG = (i: number, k: keyof GuildEntry, v: string) => setMeta((m) => ({ ...m, guildas: m.guildas.map((g, j) => (j === i ? { ...g, [k]: v } : g)) }));
-  const addG = () => setMeta((m) => ({ ...m, guildas: [...m.guildas, { id: "", tag: "", nome: "", icone: "", cor: "#a6a6a6" }] }));
+  const addG = () => setMeta((m) => ({ ...m, guildas: [...m.guildas, { id: "", tag: "", nome: "", icone: "", cor: "#a6a6a6", roleId: "" }] }));
   const delG = (i: number) => setMeta((m) => ({ ...m, guildas: m.guildas.filter((_, j) => j !== i) }));
   const puxar = () => discord && setMeta((m) => ({ ...m, alliance: { ...m.alliance, nome: discord.nome || m.alliance.nome, icone: discord.icone || m.alliance.icone, banner: discord.banner || m.alliance.banner } }));
 
@@ -95,6 +95,8 @@ export default function GuildConfigForm({ initial, discord, canEdit }: { initial
                 <div style={{ width: 56 }}><label style={lbl}>Tag</label><input value={g.tag} disabled={ro} onChange={(e) => setG(i, "tag", e.target.value)} title="letra que o Apollo marca no apelido, ex [M]" style={{ ...inp, width: "100%", textTransform: "uppercase" }} /></div>
                 <div style={{ flex: "1 1 140px" }}><label style={lbl}>Nome</label><input value={g.nome} disabled={ro} onChange={(e) => setG(i, "nome", e.target.value)} style={{ ...inp, width: "100%" }} /></div>
                 <div style={{ flex: "1 1 180px" }}><label style={lbl}>Ícone</label><input value={g.icone} disabled={ro} onChange={(e) => setG(i, "icone", e.target.value)} placeholder="URL / :emoji:" style={{ ...inp, width: "100%" }} /></div>
+                {/* o cargo que a jornada de registro dá a quem escolhe ESTA guilda; vazio = nenhum */}
+                <div style={{ width: 190 }}><label style={lbl} title="ID do cargo do Discord que a jornada de registro dá a quem escolhe esta guilda (e tira das outras). Precisa ficar ABAIXO do cargo do bot — ver /discord.">Cargo no Discord (ID)</label><input value={g.roleId} disabled={ro} onChange={(e) => setG(i, "roleId", e.target.value.replace(/[^0-9]/g, ""))} placeholder="ID do cargo" style={{ ...inp, width: "100%" }} /></div>
                 <div><label style={lbl}>Cor</label><input type="color" value={g.cor || "#a6a6a6"} disabled={ro} onChange={(e) => setG(i, "cor", e.target.value)} style={swatch} /></div>
                 {canEdit && <button onClick={() => delG(i)} title="remover guilda" style={{ height: 30, width: 34, borderRadius: 6, border: `1px solid ${C.border2}`, background: "transparent", color: C.vermelho, cursor: "pointer", fontSize: 14 }}>🗑</button>}
               </div>

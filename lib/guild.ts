@@ -4,7 +4,8 @@
  * do Discord ficam em lib/guildConfig.ts (server-only).
  */
 
-export type GuildEntry = { id: string; tag: string; nome: string; icone: string; cor: string };
+/** `roleId` = o cargo do Discord que a pessoa ganha ao se registrar nesta guilda. Vazio = nenhum. */
+export type GuildEntry = { id: string; tag: string; nome: string; icone: string; cor: string; roleId: string };
 export type Alliance = { nome: string; icone: string; banner: string; cor: string };
 export type GuildMeta = { alliance: Alliance; guildas: GuildEntry[] };
 
@@ -13,8 +14,8 @@ export function guildMetaPadrao(): GuildMeta {
   return {
     alliance: { nome: "BAYGON", icone: "", banner: "", cor: "#cc0000" },
     guildas: [
-      { id: "MANI", tag: "M", nome: "Manicômio", icone: "/guilds/manicomio.png", cor: "#cc0000" },
-      { id: "RESO", tag: "R", nome: "Resonance", icone: "/guilds/resonance.png", cor: "#a6a6a6" },
+      { id: "MANI", tag: "M", nome: "Manicômio", icone: "/guilds/manicomio.png", cor: "#cc0000", roleId: "" },
+      { id: "RESO", tag: "R", nome: "Resonance", icone: "/guilds/resonance.png", cor: "#a6a6a6", roleId: "" },
     ],
   };
 }
@@ -23,12 +24,14 @@ const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice
 const hex = (v: unknown) => { const s = str(v, 7); return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : ""; };
 const idOk = (v: unknown) => str(v, 12).toUpperCase().replace(/[^A-Z0-9]/g, "");
 const tagOk = (v: unknown) => str(v, 3).toUpperCase().replace(/[^A-Z0-9]/g, "");
+// id de cargo é snowflake: só dígitos. Qualquer outra coisa vira vazio = "sem cargo".
+const roleOk = (v: unknown) => str(v, 25).replace(/[^0-9]/g, "");
 
 function sanitizaEntry(raw: unknown, i: number): GuildEntry | null {
   const o = (raw ?? {}) as Record<string, unknown>;
   const id = idOk(o.id) || `G${i + 1}`;
   const nome = str(o.nome, 40) || id;
-  return { id, tag: tagOk(o.tag) || id.slice(0, 1), nome, icone: str(o.icone, 240), cor: hex(o.cor) || "#a6a6a6" };
+  return { id, tag: tagOk(o.tag) || id.slice(0, 1), nome, icone: str(o.icone, 240), cor: hex(o.cor) || "#a6a6a6", roleId: roleOk(o.roleId) };
 }
 
 export function parseGuildMeta(raw: unknown): GuildMeta {

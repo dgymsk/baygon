@@ -115,28 +115,72 @@ async function aplicar(userId: string, guildId: string, familiaTyped: string, ap
   await limparEtapa1(userId); // dado já commitado → some com o estado temporário
 
   // 2) EFEITOS no Discord (best-effort; o dado já está salvo). Falhas/erros viram aviso, não desfazem o dado.
+  const nomeGuilda = meta.guildas.find((x) => x.id === guilda)?.nome ?? guilda;
   const cfg = await getDiscordConfig();
   const gid = guildId || cfg.guildId;
   const avisos: string[] = [];
   // roda o efeito, loga o motivo REAL do Discord (status+corpo) e devolve um aviso específico p/ 403 (permissão/hierarquia/dono).
-  const efeito = async (o: string, fn: () => Promise<Response>, aviso403: string, avisoOutro: string) => {
+  const efeito = async (o: string, fn: () => Promise<Response>, aviso403: string, avisoOutro: string): Promise<boolean> => {
     try {
       const r = await fn();
-      if (r.ok) return;
+      if (r.ok) return true;
       const corpo = (await r.text().catch(() => "")).slice(0, 200);
       console.error(`[registro] ${o} falhou ${r.status}: ${corpo}`);
-      avisos.push(r.status === 403 ? aviso403 : avisoOutro);
+      // 404 em cargo NÃO é transitório: é o cargo que não existe mais no servidor (apagado e recriado,
+      // ID de outro servidor). Dizer "agora" aqui faria a pessoa refazer o registro à toa e a staff
+      // nunca descobrir que o ID em /discord ou /guildas apodreceu.
+      avisos.push(r.status === 403 ? aviso403 : r.status === 404 ? `${o}: esse cargo não existe mais no servidor — a staff precisa atualizar o ID` : avisoOutro);
     } catch (e) { console.error(`[registro] ${o} erro`, (e as Error).message); avisos.push(avisoOutro); }
+    return false;
   };
-  if (cfg.registroRoleId && gid) await efeito("cargo", () => botFetch(`/guilds/${gid}/members/${userId}/roles/${cfg.registroRoleId}`, { method: "PUT" }), "não te dei o cargo — o bot precisa de Gerenciar Cargos e o cargo de registrado tem que estar ABAIXO do cargo do bot", "não consegui te dar o cargo agora");
+  const cargo = (roleId: string) => `/guilds/${gid}/members/${userId}/roles/${roleId}`;
+  if (cfg.registroRoleId && gid) await efeito("cargo", () => botFetch(cargo(cfg.registroRoleId), { method: "PUT" }), "não te dei o cargo — o bot precisa de Gerenciar Cargos e o cargo de registrado tem que estar ABAIXO do cargo do bot", "não consegui te dar o cargo agora");
   else avisos.push("cargo de registrado não configurado (avise a staff)");
+
+  /**
+   * CARGO DA GUILDA e CARGO PENDENTE, nesta ordem e com esta dependência.
+   *
+   * A guilda escolhida na jornada tem um cargo próprio configurado em /guildas (vazio = nenhum). O
+   * cargo de "registro pendente" é o que a staff dá pra quem ainda precisa se registrar — e só sai
+   * DEPOIS que o da guilda entrou. Se o da guilda falhar (permissão, hierarquia), o pendente FICA:
+   * a pessoa continua visivelmente "a resolver" em vez de virar alguém sem cargo nenhum, que é o
+   * estado em que ninguém nota que algo deu errado.
+   */
+  const cargoGuilda = meta.guildas.find((x) => x.id === guilda)?.roleId ?? "";
+  let guildaOk = !cargoGuilda;   // sem cargo configurado pra guilda, nada a dar — e nada impede tirar o pendente
+  if (cargoGuilda && gid) {
+    guildaOk = await efeito("cargo da guilda", () => botFetch(cargo(cargoGuilda), { method: "PUT" }), `não te dei o cargo da ${nomeGuilda} — o bot precisa de Gerenciar Cargos e o cargo tem que estar ABAIXO do cargo do bot`, `não consegui te dar o cargo da ${nomeGuilda} agora`);
+  }
+  /**
+   * TIRAR cargo no Discord é idempotente: tirar um que a pessoa não tem devolve 204. Então 404 aqui
+   * nunca é "não tinha" — é "esse cargo não existe mais", e o `efeito` já transforma isso no aviso
+   * certo em vez de esconder.
+   */
+  const tirar = (roleId: string) => botFetch(cargo(roleId), { method: "DELETE" });
+  if (gid && guildaOk) {
+    /**
+     * RE-REGISTRO TROCANDO DE GUILDA: o cadastro muda (ON CONFLICT ... guilda = EXCLUDED.guilda), o
+     * cargo novo entra, e o da guilda antiga FICARIA — a pessoa continuaria vendo os canais da antiga
+     * e sendo contada nas duas em qualquer audiência por cargo. Por isso, depois que o da guilda
+     * escolhida entrou, os cargos das OUTRAS guildas configuradas saem. Idempotente (tirar o que não
+     * tem é 204), então não precisa saber qual era a anterior; pula guilda que divide o mesmo cargo.
+     */
+    for (const outra of meta.guildas) {
+      if (outra.id === guilda || !outra.roleId || outra.roleId === cargoGuilda) continue;
+      await efeito(`tirar cargo da ${outra.nome}`, () => tirar(outra.roleId),
+        `não tirei o cargo da ${outra.nome} — o bot precisa de Gerenciar Cargos e o cargo tem que estar ABAIXO do cargo do bot`, `não consegui tirar o cargo da ${outra.nome} agora`);
+    }
+  }
+  if (cfg.pendenteRoleId && gid && guildaOk) {
+    await efeito("tirar pendente", () => tirar(cfg.pendenteRoleId),
+      "não tirei o cargo de registro pendente — o bot precisa de Gerenciar Cargos e o cargo tem que estar ABAIXO do cargo do bot", "não consegui tirar o cargo de registro pendente agora");
+  }
   if (gid) {
     const suf = ` [${familia}]`;
     const nick = (apelido.slice(0, Math.max(1, 32 - suf.length)) + suf).slice(0, 32); // reserva o sufixo — nunca corta o colchete
     await efeito("nick", () => botFetch(`/guilds/${gid}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ nick }) }), "não troquei seu nick — se você é o DONO do server o Discord não deixa (troque à mão); senão o bot precisa de Gerenciar Apelidos e cargo acima do seu", "não consegui trocar seu nick agora");
   }
 
-  const nomeGuilda = meta.guildas.find((x) => x.id === guilda)?.nome ?? guilda;
   const base = `✅ Registro concluído! Bem-vindo(a), **${apelido} [${familia}]** · ${nomeGuilda}.\nGS **${gs ?? "—"}** · AP ${g.ap} / AAP ${g.aap} / DP ${g.dp}${g.classeBdo ? ` · ${g.classeBdo}${g.classeTipo ? ` (${g.classeTipo})` : ""}` : ""}`;
   return { ok: true, msg: avisos.length ? `${base}\n⚠ ${avisos.join(" · ")}` : base };
 }

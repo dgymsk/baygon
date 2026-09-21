@@ -6,7 +6,8 @@ import { sql } from "@/lib/db";
  * Usado pelo gate de login (auth.ts), pelas operações do bot (emojis, comandos) e na leitura
  * das confirmações (lib/confirmados.ts).
  */
-export type DiscordConfig = { guildId: string; staffRoleIds: string[]; confirmNodewar: string; confirmSiege: string; logChannel: string; reportChannel: string; registroRoleId: string; registerChannel: string };
+/** `pendenteRoleId` = cargo de "registro pendente": a staff dá pra quem precisa se registrar; a jornada TIRA ao concluir. */
+export type DiscordConfig = { guildId: string; staffRoleIds: string[]; confirmNodewar: string; confirmSiege: string; logChannel: string; reportChannel: string; registroRoleId: string; registerChannel: string; pendenteRoleId: string };
 
 const dig = (s: unknown) => (typeof s === "string" ? s.replace(/[^0-9]/g, "").slice(0, 25) : "");
 /** LISTA de IDs de canal (CSV). O Apollo pode postar em N canais — no Psicose é um por dia
@@ -35,6 +36,7 @@ export function parseDiscordConfig(raw: unknown): DiscordConfig {
     logChannel: dig(c.logChannel) || (process.env.DISCORD_LOG_CHANNEL_ID ?? ""),
     reportChannel: dig(c.reportChannel) || (process.env.DISCORD_REPORT_CHANNEL_ID ?? ""),
     registroRoleId: dig(c.registroRoleId),
+    pendenteRoleId: dig(c.pendenteRoleId),
     registerChannel: dig(c.registerChannel),
   };
 }
@@ -43,7 +45,7 @@ export function parseDiscordConfig(raw: unknown): DiscordConfig {
 function sanitizaStore(raw: unknown): DiscordConfig {
   const c = (raw ?? {}) as Partial<DiscordConfig>;
   const roles = Array.isArray(c.staffRoleIds) ? [...new Set(c.staffRoleIds.map(dig).filter(Boolean))] : (typeof c.staffRoleIds === "string" ? (c.staffRoleIds as string).split(",").map(dig).filter(Boolean) : []);
-  return { guildId: dig(c.guildId), staffRoleIds: roles, confirmNodewar: digs(c.confirmNodewar), confirmSiege: digs(c.confirmSiege), logChannel: dig(c.logChannel), reportChannel: dig(c.reportChannel), registroRoleId: dig(c.registroRoleId), registerChannel: dig(c.registerChannel) };
+  return { guildId: dig(c.guildId), staffRoleIds: roles, confirmNodewar: digs(c.confirmNodewar), confirmSiege: digs(c.confirmSiege), logChannel: dig(c.logChannel), reportChannel: dig(c.reportChannel), registroRoleId: dig(c.registroRoleId), registerChannel: dig(c.registerChannel), pendenteRoleId: dig(c.pendenteRoleId) };
 }
 
 export async function getDiscordConfig(): Promise<DiscordConfig> {
