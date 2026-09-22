@@ -10,7 +10,7 @@ import { parseColado } from "@/lib/parseColado";
 import { lerPrintOCR, type LeituraOCR } from "./ocrCliente";
 
 /** de onde a célula veio — "ia" (Opus, no servidor), "ocr" (tesseract, no navegador) ou "colado" (planilha) */
-type Fonte = "ia" | "ocr" | "colado";
+type Fonte = "ia" | "ocr" | "ocr2" | "colado";
 type Cell = { val: string; raw?: string; fonte?: Fonte;
   /** o OCR leu algo sem a cara da coluna (tempo sem ":", abreviado sem sufixo) — conferir no print */
   suspeito?: boolean;
@@ -18,7 +18,7 @@ type Cell = { val: string; raw?: string; fonte?: Fonte;
    *  vezes, então o esperado é bater; divergir significa que uma das leituras errou. */
   divergente?: string; divergenteFonte?: Fonte };
 
-const QUEM: Record<Fonte, string> = { ia: "a IA", ocr: "o OCR", colado: "a planilha" };
+const QUEM: Record<Fonte, string> = { ia: "a IA", ocr: "o OCR", ocr2: "a outra passada do OCR", colado: "a planilha" };
 function dicaCelula(c?: Cell): string {
   if (!c) return "";
   const quem = c.fonte ? QUEM[c.fonte] : "a leitura";
@@ -250,7 +250,9 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
             return { familiaLida: l.familia, nome_familia: m, novo: !m,
               valores: Object.fromEntries(Object.entries(l.valores).map(([k, raw]) => {
                 const v = normalizarValor(raw);
-                return [k, { val: v != null ? String(v) : raw, raw, fonte: "ocr" as const, suspeito: l.suspeitos.includes(k) || undefined }];
+                const alt = l.alternativas?.[k];   // as duas passadas do OCR discordaram: mostra como divergência
+                return [k, { val: v != null ? String(v) : raw, raw, fonte: "ocr" as const, suspeito: l.suspeitos.includes(k) || undefined,
+                  divergente: alt, divergenteFonte: alt ? ("ocr2" as const) : undefined }];
               })) };
           }));
           const incompletas = r.linhas.filter((l) => l.aviso).length;
@@ -465,7 +467,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
           {semNome > 0 && <div style={{ color: C.amarelo, fontSize: 12, marginBottom: 6 }}>⚠ {semNome} linha(s) marcadas “ignorar” — não serão gravadas.</div>}
           {(divergentes > 0 || suspeitos > 0) && (
             <div style={{ color: C.laranja, fontSize: 12, marginBottom: 6 }}>
-              {divergentes > 0 && <>⚠ {divergentes} célula(s) em <b>laranja</b>: duas leituras (outro print, ou IA × OCR) deram valores diferentes pra mesma pessoa. Vale o que está no campo — passe o mouse pra ver quem leu o quê e corrija se preciso. Nada é somado. </>}
+              {divergentes > 0 && <>⚠ {divergentes} célula(s) em <b>laranja</b>: duas leituras (outro print, IA × OCR, ou as duas passadas do OCR) deram valores diferentes pra mesma pessoa. Vale o que está no campo — passe o mouse pra ver quem leu o quê e corrija se preciso. Nada é somado. </>}
               {suspeitos > 0 && <>⚠ {suspeitos} célula(s) que o OCR leu sem a cara da coluna (tempo sem “:”, abreviado sem k/M) — confira no print.</>}
             </div>
           )}

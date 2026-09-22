@@ -24,6 +24,10 @@ export type LinhaOCR = {
   tokens: string[];
   /** presente quando a linha veio com menos (ou mais) valores do que colunas: a staff precisa olhar */
   aviso?: string;
+  /** centro Y da linha na imagem — é como duas passadas do OCR casam a mesma linha (nome pode variar) */
+  y: number;
+  /** duas passadas leram valores DIFERENTES pra mesma célula: o outro valor, por métrica */
+  alternativas?: Record<string, string>;
 };
 export type ResultadoOCR = {
   linhas: LinhaOCR[];
@@ -206,11 +210,12 @@ export function montarLinhasOCR(palavras: PalavraOCR[], metricas: string[], form
   // na tabela de 15 colunas, menos de 5 números é lixo (cabeçalho lido como "9 2 4"); na Rosas (2) precisa dos dois
   const minVals = N <= 3 ? N : 5;
   const descartadas: ResultadoOCR["descartadas"] = [];
-  type Bruta = { nome: string; vals: Tok[]; texto: string };
+  type Bruta = { nome: string; vals: Tok[]; texto: string; y: number };
   const brutas: Bruta[] = [];
 
   for (const linha of agruparLinhas(palavras)) {
     const texto = linha.map((p) => p.text).join(" ");
+    const y = linha.reduce((s, p) => s + (p.y0 + p.y1) / 2, 0) / linha.length;
     const toks: Tok[] = linha.map((p) => ({ t: limparToken(p.text), xc: (p.x0 + p.x1) / 2 })).filter((p) => p.t);
     const vals: Tok[] = [];
     const cabeca: string[] = [];
@@ -223,9 +228,10 @@ export function montarLinhasOCR(palavras: PalavraOCR[], metricas: string[], form
     const nome = escolherNome(cabeca);
     if (!vals.length) { descartadas.push({ texto, motivo: "sem números" }); continue; }
     if (vals.length < minVals) { descartadas.push({ texto, motivo: `só ${vals.length} número(s)` }); continue; }
-    if (!nome) { descartadas.push({ texto, motivo: "números sem nome (linha de total, ou nome não lido)" }); continue; }
+    // nome de família tem 2+ caracteres; uma letra solta é o cabeçalho de ícones lido como "a a a a"
+    if (!nome || nome.replace(/[^\p{L}\p{N}]/gu, "").length < 2) { descartadas.push({ texto, motivo: "números sem nome (linha de total, ou nome não lido)" }); continue; }
     if (CABECALHO.test(nome)) { descartadas.push({ texto, motivo: "cabeçalho" }); continue; }
-    brutas.push({ nome, vals, texto });
+    brutas.push({ nome, vals, texto, y });
   }
 
   const centros = estimarColunas(brutas, N);
@@ -246,8 +252,50 @@ export function montarLinhasOCR(palavras: PalavraOCR[], metricas: string[], form
     if (lidos < minVals) { descartadas.push({ texto: b.texto, motivo: `só ${lidos} número(s) nas colunas` }); continue; }
     const aviso = lidos === N ? undefined
       : `leu ${lidos} de ${N} valores${fora ? ` (ignorei ${fora} fora das colunas)` : ""} — as colunas vazias precisam ser conferidas`;
-    linhas.push({ familia: b.nome, valores, suspeitos, tokens: b.vals.map((v) => v.t), aviso });
+    linhas.push({ familia: b.nome, valores, suspeitos, tokens: b.vals.map((v) => v.t), aviso, y: b.y });
   }
 
   return { linhas, descartadas, colunas: centros };
+}
+
+/**
+ * Funde duas leituras do MESMO print (ex.: tesseract em PSM 6 e em PSM 4 — cada modo perde células
+ * diferentes). Linha casa por ALTURA, não por nome (o nome também varia entre passadas). Célula
+ * vazia numa passada pega o valor da outra; valores diferentes: fica o que cabe no formato da coluna
+ * e o outro vai pra `alternativas`, pra revisão mostrar. Linha que só a 2ª passada leu entra avisada.
+ */
+export function fundirLeituras(a: ResultadoOCR, b: ResultadoOCR, metricas: string[], formatos: Record<string, string> = {}): ResultadoOCR {
+  const N = metricas.length;
+  const linhas: LinhaOCR[] = a.linhas.map((l) => ({ ...l, valores: { ...l.valores }, suspeitos: [...l.suspeitos], alternativas: { ...(l.alternativas ?? {}) } }));
+  const ys = [...a.linhas, ...b.linhas].map((l) => l.y).sort((p, q) => p - q);
+  const difs = ys.slice(1).map((v, i) => v - ys[i]).filter((d) => d > 2).sort((p, q) => p - q);
+  const passo = difs.length ? difs[Math.floor(difs.length / 2)] : 20;
+  const usados = new Set<number>();
+  const aviso = (l: LinhaOCR) => {
+    const lidos = Object.keys(l.valores).length;
+    l.aviso = lidos === N ? undefined : `leu ${lidos} de ${N} valores — as colunas vazias precisam ser conferidas`;
+  };
+  for (const lb of b.linhas) {
+    let melhor = -1, dist = Infinity;
+    linhas.forEach((la, i) => { if (usados.has(i)) return; const d = Math.abs(la.y - lb.y); if (d < dist) { dist = d; melhor = i; } });
+    if (melhor < 0 || dist > passo * 0.5) {
+      linhas.push({ ...lb, valores: { ...lb.valores }, suspeitos: [...lb.suspeitos], alternativas: {}, aviso: lb.aviso ?? "só a 2ª passada do OCR leu esta linha — confira no print" });
+      continue;
+    }
+    usados.add(melhor);
+    const la = linhas[melhor];
+    for (const [m, vb] of Object.entries(lb.valores)) {
+      const va = la.valores[m];
+      if (va == null) { la.valores[m] = vb; if (lb.suspeitos.includes(m)) la.suspeitos.push(m); continue; }
+      if (va === vb) continue;
+      const okA = cabeNoFormato(va, formatos[m]), okB = cabeNoFormato(vb, formatos[m]);
+      if (!okA && okB) { la.valores[m] = vb; la.suspeitos = la.suspeitos.filter((x) => x !== m); la.alternativas![m] = va; }
+      else la.alternativas![m] = vb;
+    }
+    if (!la.familia && lb.familia) la.familia = lb.familia;
+    aviso(la);
+  }
+  linhas.sort((p, q) => p.y - q.y);
+  for (const l of linhas) if (l.alternativas && !Object.keys(l.alternativas).length) delete l.alternativas;
+  return { linhas, descartadas: a.descartadas, colunas: a.colunas ?? b.colunas };
 }

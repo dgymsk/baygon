@@ -8,24 +8,26 @@
  *
  * O worker é um singleton: subir o tesseract custa segundos, ler um print custa menos de um.
  */
-import { montarLinhasOCR, type PalavraOCR, type ResultadoOCR } from "@/lib/ocrResultado";
+import { montarLinhasOCR, fundirLeituras, type PalavraOCR, type ResultadoOCR } from "@/lib/ocrResultado";
 
 type TWorker = import("tesseract.js").Worker;
+type TPSM = import("tesseract.js").PSM;
 type Log = { status?: string; progress?: number };
 
 export type LeituraOCR = ResultadoOCR & { texto: string; ms: number; escala: number; palavras: number };
 
-let workerP: Promise<TWorker> | null = null;
+let workerP: Promise<{ w: TWorker; psm: { bloco: TPSM; coluna: TPSM } }> | null = null;
 let onLog: ((m: Log) => void) | null = null;
 
-async function getWorker(): Promise<TWorker> {
+async function getWorker() {
   if (!workerP) {
     workerP = (async () => {
       const T = await import("tesseract.js");
       const w = await T.createWorker("eng", 1, { logger: (m: Log) => onLog?.(m) });
-      // PSM 6 = "um bloco uniforme de texto": foi o que melhor manteve as linhas da tabela inteiras
-      await w.setParameters({ tessedit_pageseg_mode: T.PSM.SINGLE_BLOCK, preserve_interword_spaces: "1", user_defined_dpi: "300" });
-      return w;
+      await w.setParameters({ preserve_interword_spaces: "1", user_defined_dpi: "300" });
+      // PSM 6 ("um bloco uniforme") manteve as linhas da tabela inteiras; PSM 4 ("uma coluna") acha
+      // células que o 6 perde e vice-versa — por isso o print é lido nos dois e as leituras fundidas
+      return { w, psm: { bloco: T.PSM.SINGLE_BLOCK, coluna: T.PSM.SINGLE_COLUMN } };
     })().catch((e) => { workerP = null; throw e; });
   }
   return workerP;
@@ -49,11 +51,15 @@ function rotulo(m: Log): string {
  * e estica o contraste pelos percentis 2/98. Devolve o canvas e a escala (pra desfazer nas caixas).
  */
 async function preparar(file: File): Promise<{ canvas: HTMLCanvasElement; escala: number }> {
-  const bmp = await createImageBitmap(file);
+  const orig = await createImageBitmap(file);
   const MAX_AREA = 16e6;
-  let escala = Math.min(3, Math.max(1, 3300 / bmp.width));
-  if (bmp.width * bmp.height * escala * escala > MAX_AREA) escala = Math.sqrt(MAX_AREA / (bmp.width * bmp.height));
-  const W = Math.round(bmp.width * escala), H = Math.round(bmp.height * escala);
+  let escala = Math.min(3, Math.max(1, 3300 / orig.width));
+  if (orig.width * orig.height * escala * escala > MAX_AREA) escala = Math.sqrt(MAX_AREA / (orig.width * orig.height));
+  const W = Math.round(orig.width * escala), H = Math.round(orig.height * escala);
+  // o redimensionamento do próprio createImageBitmap ("high") é mais nítido que o drawImage escalado —
+  // dígito pequeno borrado é célula perdida. Se o navegador não aceitar as opções, cai no drawImage.
+  let bmp = orig;
+  try { bmp = await createImageBitmap(orig, { resizeWidth: W, resizeHeight: H, resizeQuality: "high" }); orig.close(); } catch { bmp = orig; }
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -95,15 +101,25 @@ export async function lerPrintOCR(
   const { canvas, escala } = await preparar(file);
   onLog = (m) => onProg?.(rotulo(m));
   try {
-    const w = await getWorker();
-    onProg?.("lendo o print…");
-    const { data } = await w.recognize(canvas, {}, { text: true, blocks: true });
-    const palavras: PalavraOCR[] = [];
-    for (const b of data.blocks ?? []) for (const p of b.paragraphs) for (const l of p.lines) for (const wd of l.words) {
-      palavras.push({ text: wd.text, x0: wd.bbox.x0 / escala, y0: wd.bbox.y0 / escala, x1: wd.bbox.x1 / escala, y1: wd.bbox.y1 / escala, conf: wd.confidence });
+    const { w, psm } = await getWorker();
+    const chaves = metricas.map((m) => m.metrica);
+    const formatos = Object.fromEntries(metricas.map((m) => [m.metrica, m.formato]));
+    let res: ResultadoOCR | null = null;
+    let texto = "", nPalavras = 0;
+    for (const [rotuloPassada, modo] of [["1ª passada (bloco)", psm.bloco], ["2ª passada (coluna)", psm.coluna]] as const) {
+      onProg?.(`lendo o print — ${rotuloPassada}…`);
+      await w.setParameters({ tessedit_pageseg_mode: modo });
+      const { data } = await w.recognize(canvas, {}, { text: true, blocks: true });
+      const palavras: PalavraOCR[] = [];
+      for (const b of data.blocks ?? []) for (const p of b.paragraphs) for (const l of p.lines) for (const wd of l.words) {
+        palavras.push({ text: wd.text, x0: wd.bbox.x0 / escala, y0: wd.bbox.y0 / escala, x1: wd.bbox.x1 / escala, y1: wd.bbox.y1 / escala, conf: wd.confidence });
+      }
+      const r = montarLinhasOCR(palavras, chaves, formatos);
+      res = res ? fundirLeituras(res, r, chaves, formatos) : r;
+      texto += `— ${rotuloPassada}: ${palavras.length} palavras —\n${data.text ?? ""}\n`;
+      nPalavras += palavras.length;
     }
-    const res = montarLinhasOCR(palavras, metricas.map((m) => m.metrica), Object.fromEntries(metricas.map((m) => [m.metrica, m.formato])));
-    return { ...res, texto: data.text ?? "", ms: Math.round(performance.now() - t0), escala, palavras: palavras.length };
+    return { ...res!, texto, ms: Math.round(performance.now() - t0), escala, palavras: nPalavras };
   } finally {
     onLog = null;
     canvas.width = 0; canvas.height = 0; // solta a memória do bitmap

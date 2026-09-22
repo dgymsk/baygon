@@ -4,7 +4,7 @@
 import sharp from "sharp";
 import { createWorker } from "tesseract.js";
 import { readFileSync, writeFileSync } from "node:fs";
-import { montarLinhasOCR } from "../lib/ocrResultado.ts";
+import { montarLinhasOCR, fundirLeituras } from "../lib/ocrResultado.ts";
 import { METRICAS_RESULTADO } from "../lib/metricasResultado.ts";
 import { normalizarValor } from "../lib/normalizarValor.ts";
 
@@ -43,22 +43,28 @@ if (args.includes("--dump")) writeFileSync(img + ".pre.png", pre.png);
 console.log(`pré: escala ${pre.escala}x, ${pre.escuro ? "invertido (fundo escuro)" : "sem inversão"}, luminância média ${pre.media}`);
 
 const worker = await createWorker("eng", 1, { logger: () => {} });
-await worker.setParameters({ tessedit_pageseg_mode: PSM, preserve_interword_spaces: "1", user_defined_dpi: "300" });
-const { data } = await worker.recognize(pre.png, {}, { text: true, blocks: true });
-await worker.terminate();
-
-const palavras = [];
-for (const b of data.blocks ?? []) for (const p of b.paragraphs ?? []) for (const l of p.lines ?? []) for (const w of l.words ?? [])
-  palavras.push({ text: w.text, x0: w.bbox.x0 / pre.escala, y0: w.bbox.y0 / pre.escala, x1: w.bbox.x1 / pre.escala, y1: w.bbox.y1 / pre.escala, conf: w.confidence });
-console.log(`OCR: ${palavras.length} palavras em ${Date.now() - t0} ms (psm ${PSM})`);
-
+await worker.setParameters({ preserve_interword_spaces: "1", user_defined_dpi: "300" });
+// duas passadas (PSM 6 e 4), como o navegador faz — cada modo perde células diferentes. --psm N = uma só.
+const passadas = opt("psm") ? [PSM] : ["6", "4"];
 const metricas = METRICAS_RESULTADO.map((m) => m.metrica);
 const formatos = Object.fromEntries(METRICAS_RESULTADO.map((m) => [m.metrica, m.formato]));
-const res = montarLinhasOCR(palavras, metricas, formatos);
-console.log(`linhas: ${res.linhas.length} | descartadas: ${res.descartadas.length} | com aviso: ${res.linhas.filter((l) => l.aviso).length}`);
+let res = null;
+for (const psm of passadas) {
+  await worker.setParameters({ tessedit_pageseg_mode: psm });
+  const { data } = await worker.recognize(pre.png, {}, { text: true, blocks: true });
+  const palavras = [];
+  for (const b of data.blocks ?? []) for (const p of b.paragraphs ?? []) for (const l of p.lines ?? []) for (const w of l.words ?? [])
+    palavras.push({ text: w.text, x0: w.bbox.x0 / pre.escala, y0: w.bbox.y0 / pre.escala, x1: w.bbox.x1 / pre.escala, y1: w.bbox.y1 / pre.escala, conf: w.confidence });
+  console.log(`OCR psm ${psm}: ${palavras.length} palavras (${Date.now() - t0} ms acumulados)`);
+  const r = montarLinhasOCR(palavras, metricas, formatos);
+  res = res ? fundirLeituras(res, r, metricas, formatos) : r;
+}
+await worker.terminate();
+const alternativas = res.linhas.reduce((n, l) => n + Object.keys(l.alternativas ?? {}).length, 0);
+console.log(`linhas: ${res.linhas.length} | descartadas: ${res.descartadas.length} | com aviso: ${res.linhas.filter((l) => l.aviso).length} | alternativas: ${alternativas}`);
 for (const d of res.descartadas.slice(0, 8)) console.log(`  ✗ ${d.motivo}: ${d.texto.slice(0, 90)}`);
 if (res.colunas) console.log("colunas (x):", res.colunas.map((c) => Math.round(c)).join(" "));
-for (const l of res.linhas) console.log(`  ${l.familia.padEnd(18)} ${metricas.map((m) => (l.valores[m] ?? "·").padStart(7)).join(" ")}${l.aviso ? "  ⚠ " + l.aviso : ""}${args.includes("--tokens") ? "\n      tokens: " + l.tokens.join(" ") : ""}`);
+for (const l of res.linhas) console.log(`  ${l.familia.padEnd(18)} ${metricas.map((m) => (l.valores[m] ?? "·").padStart(7)).join(" ")}${l.aviso ? "  ⚠ " + l.aviso : ""}${l.alternativas ? "  ≠ " + Object.entries(l.alternativas).map(([m, v]) => `${m}:${v}`).join(" ") : ""}${args.includes("--tokens") ? "\n      tokens: " + l.tokens.join(" ") : ""}`);
 
 if (CSV) {
   const csv = readFileSync(CSV, "utf8").trim().split(/\r?\n/);
