@@ -136,43 +136,66 @@ export function cabeNoFormato(t: string, formato?: string): boolean {
 }
 
 /**
- * Casa os valores de uma linha com as colunas.
+ * Descobre ONDE ficam as N colunas de valor olhando a imagem inteira: junta o centro X de todo
+ * número lido em todas as linhas e corta em grupos onde há um vão. Coluna de verdade tem um número
+ * em quase toda linha; o que o OCR inventa a partir do ícone de classe, ou de uma lista fantasma
+ * atrás da tabela, cai em grupos ralos (ou fora de qualquer grupo). Ficam os N grupos com mais
+ * apoio; empate derruba o da esquerda, que é onde mora a coluna de classe.
  *
- * Linha completa (N valores) casa por ordem — MAS confere contra os centros de coluna: se algum
- * valor está a mais de meia coluna do lugar esperado, é sinal de que um número sumiu e outro se
- * partiu em dois (a contagem bate por acidente), e aí vale a posição. Linha incompleta casa cada
- * valor com o centro mais próximo, deixando VAZIAS as colunas sem valor — em vez de deslizar tudo
- * pra esquerda e gravar a war errada.
+ * Contar valores por linha, que era o critério anterior, quebrava justamente aí: dois ícones lidos
+ * como "2" e "4" faziam a linha ter 17 números e tudo deslizava.
  */
-function casarColunas(vals: Tok[], N: number, centros: number[] | null): (string | null)[] {
-  const out: (string | null)[] = new Array(N).fill(null);
-  const porPosicao = () => {
-    if (!centros) return false;
-    let col = 0;
-    for (const v of vals) {
-      let melhor = -1, dist = Infinity;
-      for (let c = col; c < N; c++) { const d = Math.abs(centros[c] - v.xc); if (d < dist) { dist = d; melhor = c; } }
-      if (melhor < 0) break;
-      out[melhor] = v.t; col = melhor + 1;
+function estimarColunas(linhas: { vals: Tok[] }[], N: number): number[] | null {
+  const xs = linhas.flatMap((l) => l.vals.map((v) => v.xc)).sort((a, b) => a - b);
+  if (xs.length < N || linhas.length < 2) return null;
+  const span = xs[xs.length - 1] - xs[0];
+  if (span <= 0) return null;
+  const minApoio = Math.max(2, Math.ceil(linhas.length * 0.3));
+  // o corte começa em meio passo (contando colunas extras de lixo) e aperta se sobrarem grupos colados
+  for (let corte = (span / (N + 2)) * 0.5, tent = 0; tent < 4; corte *= 0.7, tent++) {
+    const grupos: number[][] = [[xs[0]]];
+    for (let i = 1; i < xs.length; i++) {
+      if (xs[i] - xs[i - 1] > corte) grupos.push([xs[i]]); else grupos[grupos.length - 1].push(xs[i]);
     }
-    return true;
-  };
-  if (vals.length === N) {
-    if (centros && N > 1) {
-      const passo = (centros[N - 1] - centros[0]) / (N - 1);
-      const desvio = Math.max(...vals.map((v, i) => Math.abs(v.xc - centros[i])));
-      if (desvio > passo * 0.45 && porPosicao()) return out;
-    }
-    vals.forEach((v, i) => { out[i] = v.t; });
-    return out;
+    const fortes = grupos.map((g, i) => ({ i, apoio: g.length, centro: g[Math.floor(g.length / 2)] })).filter((g) => g.apoio >= minApoio);
+    if (fortes.length < N) continue;
+    // sobra grupo: derruba o de menos apoio; empate derruba o mais à esquerda
+    fortes.sort((a, b) => a.apoio - b.apoio || a.i - b.i);
+    return fortes.slice(fortes.length - N).sort((a, b) => a.centro - b.centro).map((g) => g.centro);
   }
-  if (vals.length < N && porPosicao()) return out;
-  // sem referência (ou valores DEMAIS): âncora pelas duas últimas se forem tempo, senão pela esquerda
+  return null;
+}
+
+/**
+ * Casa os valores de UMA linha com a grade: cada número vai pra coluna mais próxima. Número longe
+ * de qualquer coluna (mais de meio passo) é lixo e cai fora; dois na mesma coluna, fica o mais
+ * centrado. Coluna sem número fica VAZIA — em vez de deslizar o resto e gravar a war errada.
+ */
+function casarPorGrade(vals: Tok[], centros: number[]): { out: (string | null)[]; fora: number } {
+  const N = centros.length;
+  const out: (string | null)[] = new Array(N).fill(null);
+  const dist: number[] = new Array(N).fill(Infinity);
+  const passo = N > 1 ? (centros[N - 1] - centros[0]) / (N - 1) : 60;
+  let fora = 0;
+  for (const v of vals) {
+    let melhor = -1, d = Infinity;
+    for (let c = 0; c < N; c++) { const dd = Math.abs(centros[c] - v.xc); if (dd < d) { d = dd; melhor = c; } }
+    if (melhor < 0 || d > passo * 0.5) { fora++; continue; }
+    if (d < dist[melhor]) { if (out[melhor] != null) fora++; out[melhor] = v.t; dist[melhor] = d; } else fora++;
+  }
+  return { out, fora };
+}
+
+/** Sem grade (poucas linhas): casa por ordem, ancorando pelas duas últimas se forem tempo. */
+function casarPorOrdem(vals: Tok[], N: number): (string | null)[] {
+  const out: (string | null)[] = new Array(N).fill(null);
   const doFim = vals.length >= 2 && TEMPO.test(vals[vals.length - 1].t) && TEMPO.test(vals[vals.length - 2].t);
   if (doFim) { const k = Math.min(vals.length, N); for (let i = 0; i < k; i++) out[N - 1 - i] = vals[vals.length - 1 - i].t; }
   else { for (let i = 0; i < Math.min(vals.length, N); i++) out[i] = vals[i].t; }
   return out;
 }
+
+const CABECALHO = /^(nome|name|classe|class|fam[ií]lia|family|jogador|player)$/i;
 
 /**
  * @param metricas chaves na ORDEM das colunas do print (METRICAS_RESULTADO ou METRICAS_ROSAS)
@@ -201,21 +224,15 @@ export function montarLinhasOCR(palavras: PalavraOCR[], metricas: string[], form
     if (!vals.length) { descartadas.push({ texto, motivo: "sem números" }); continue; }
     if (vals.length < minVals) { descartadas.push({ texto, motivo: `só ${vals.length} número(s)` }); continue; }
     if (!nome) { descartadas.push({ texto, motivo: "números sem nome (linha de total, ou nome não lido)" }); continue; }
+    if (CABECALHO.test(nome)) { descartadas.push({ texto, motivo: "cabeçalho" }); continue; }
     brutas.push({ nome, vals, texto });
   }
 
-  // centros de coluna = mediana do centro X, por índice, nas linhas COMPLETAS
-  const completas = brutas.filter((b) => b.vals.length === N);
-  let centros: number[] | null = null;
-  if (completas.length) {
-    centros = Array.from({ length: N }, (_, c) => {
-      const xs = completas.map((b) => b.vals[c].xc).sort((a, b) => a - b);
-      return xs[Math.floor(xs.length / 2)];
-    });
-  }
+  const centros = estimarColunas(brutas, N);
 
-  const linhas: LinhaOCR[] = brutas.map((b) => {
-    const casados = casarColunas(b.vals, N, centros);
+  const linhas: LinhaOCR[] = [];
+  for (const b of brutas) {
+    const { out: casados, fora } = centros ? casarPorGrade(b.vals, centros) : { out: casarPorOrdem(b.vals, N), fora: 0 };
     const valores: Record<string, string> = {};
     const suspeitos: string[] = [];
     casados.forEach((v, c) => {
@@ -225,11 +242,12 @@ export function montarLinhasOCR(palavras: PalavraOCR[], metricas: string[], form
       if (!cabeNoFormato(valores[m], formatos[m])) suspeitos.push(m);
     });
     const lidos = Object.keys(valores).length;
+    // depois de tirar o lixo da grade, a linha precisa ter números de verdade — senão era cabeçalho/fantasma
+    if (lidos < minVals) { descartadas.push({ texto: b.texto, motivo: `só ${lidos} número(s) nas colunas` }); continue; }
     const aviso = lidos === N ? undefined
-      : b.vals.length > N ? `leu ${b.vals.length} valores pra ${N} colunas — sobrou número, confira o alinhamento`
-      : `leu ${lidos} de ${N} valores — as colunas vazias precisam ser conferidas`;
-    return { familia: b.nome, valores, suspeitos, tokens: b.vals.map((v) => v.t), aviso };
-  });
+      : `leu ${lidos} de ${N} valores${fora ? ` (ignorei ${fora} fora das colunas)` : ""} — as colunas vazias precisam ser conferidas`;
+    linhas.push({ familia: b.nome, valores, suspeitos, tokens: b.vals.map((v) => v.t), aviso });
+  }
 
   return { linhas, descartadas, colunas: centros };
 }

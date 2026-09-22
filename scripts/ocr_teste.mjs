@@ -57,7 +57,8 @@ const formatos = Object.fromEntries(METRICAS_RESULTADO.map((m) => [m.metrica, m.
 const res = montarLinhasOCR(palavras, metricas, formatos);
 console.log(`linhas: ${res.linhas.length} | descartadas: ${res.descartadas.length} | com aviso: ${res.linhas.filter((l) => l.aviso).length}`);
 for (const d of res.descartadas.slice(0, 8)) console.log(`  ✗ ${d.motivo}: ${d.texto.slice(0, 90)}`);
-for (const l of res.linhas) console.log(`  ${l.familia.padEnd(18)} ${metricas.map((m) => (l.valores[m] ?? "·").padStart(7)).join(" ")}${l.aviso ? "  ⚠ " + l.aviso : ""}`);
+if (res.colunas) console.log("colunas (x):", res.colunas.map((c) => Math.round(c)).join(" "));
+for (const l of res.linhas) console.log(`  ${l.familia.padEnd(18)} ${metricas.map((m) => (l.valores[m] ?? "·").padStart(7)).join(" ")}${l.aviso ? "  ⚠ " + l.aviso : ""}${args.includes("--tokens") ? "\n      tokens: " + l.tokens.join(" ") : ""}`);
 
 if (CSV) {
   const csv = readFileSync(CSV, "utf8").trim().split(/\r?\n/);
