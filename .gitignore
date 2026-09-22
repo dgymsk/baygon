@@ -50,3 +50,6 @@ next-env.d.ts
 baygon-backup-latest.json
 backup/
 backups/
+
+# dados de idioma que o harness do OCR (scripts/ocr_teste.mjs) baixa na raiz
+*.traineddata

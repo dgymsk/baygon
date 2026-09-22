@@ -1,17 +1,43 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/theme";
 import { chaveNome, acharSimilar } from "@/lib/nomes";
 import { normalizarValor } from "@/lib/normalizarValor";
 import { metricasDoTipo } from "@/lib/metricasResultado";
 import { parseColado } from "@/lib/parseColado";
+import { lerPrintOCR, type LeituraOCR } from "./ocrCliente";
 
-type Cell = { val: string; raw?: string;
+/** de onde a célula veio — "ia" (Opus, no servidor), "ocr" (tesseract, no navegador) ou "colado" (planilha) */
+type Fonte = "ia" | "ocr" | "colado";
+type Cell = { val: string; raw?: string; fonte?: Fonte;
+  /** o OCR leu algo sem a cara da coluna (tempo sem ":", abreviado sem sufixo) — conferir no print */
+  suspeito?: boolean;
   /** outro print trouxe valor diferente pra esta célula. NUNCA somamos — é a mesma war lida duas
    *  vezes, então o esperado é bater; divergir significa que uma das leituras errou. */
-  divergente?: string };
+  divergente?: string; divergenteFonte?: Fonte };
+
+const QUEM: Record<Fonte, string> = { ia: "a IA", ocr: "o OCR", colado: "a planilha" };
+function dicaCelula(c?: Cell): string {
+  if (!c) return "";
+  const quem = c.fonte ? QUEM[c.fonte] : "a leitura";
+  if (c.divergente) return `⚠ ${c.divergenteFonte ? QUEM[c.divergenteFonte] : "outro print"} leu ${c.divergente} aqui; ${quem} leu ${c.raw ?? c.val} — confira qual está certo`;
+  if (c.suspeito) return `⚠ ${quem} leu “${c.raw}” — não tem a cara desta coluna, confira no print`;
+  return c.raw ? `${quem} leu: ${c.raw}` : "";
+}
+
+/**
+ * QUEM lê o print: a IA (Opus, no servidor, paga) ou o OCR (tesseract, no navegador, grátis).
+ * A escolha fica no navegador. É um store externo (e não useState + effect) pra hidratar como
+ * "ia" no servidor e trocar pro valor salvo sem aviso de hidratação nem setState em effect.
+ */
+type Leitor = "ia" | "ocr";
+const LEITOR_KEY = "res-leitor";
+const leitorOuvintes = new Set<() => void>();
+const lerLeitor = (): Leitor => { try { return localStorage.getItem(LEITOR_KEY) === "ocr" ? "ocr" : "ia"; } catch { return "ia"; } };
+const gravarLeitor = (v: Leitor) => { try { localStorage.setItem(LEITOR_KEY, v); } catch { /* sem storage: só não lembra */ } leitorOuvintes.forEach((f) => f()); };
+const assinarLeitor = (f: () => void) => { leitorOuvintes.add(f); return () => { leitorOuvintes.delete(f); }; };
 // novo = cadastrar familiaLida como player novo (guilda Manicômio); nome_familia = player existente escolhido.
 type RowState = { key: string; familiaLida: string; nome_familia: string; valores: Record<string, Cell>; tocado?: boolean; novo?: boolean };
 type ExtraiResp = { linhas?: { familiaLida: string; familia: string | null; valores: Record<string, { raw: string; valor: number | null }> }[]; error?: string };
@@ -67,6 +93,9 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
   const [msg, setMsg] = useState("");
   const [warId, setWarId] = useState<number | null>(warIdInicial);
   const [colarTxt, setColarTxt] = useState<string | null>(null); // null = fechado
+  const leitor = useSyncExternalStore(assinarLeitor, lerLeitor, () => "ia" as const);
+  // o que o OCR leu em cada print (texto cru, linhas incompletas, descartes) — é o "ver o que ele pegou"
+  const [ocrInfo, setOcrInfo] = useState<(LeituraOCR & { arquivo: string })[]>([]);
   // alianças em campo: contexto que explica o resultado (perder pra duas grandes ≠ perder pra uma)
   const [aliancas, setAliancas] = useState<string[]>(aliancasIniciais ?? []);
   // o estado é semeado no MOUNT, e no hub esta aba fica montada o tempo todo (só escondida por
@@ -188,7 +217,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
           // a MESMA pessoa veio noutro print. Não soma e não sobrescreve: o primeiro valor fica e a
           // divergência aparece na célula, porque em tese os dois prints diziam a mesma coisa —
           // números diferentes significam que uma das leituras errou, e só a staff sabe qual.
-          if (atual !== novo) valores[m] = { ...valores[m], divergente: novo };
+          if (atual !== novo) valores[m] = { ...valores[m], divergente: novo, divergenteFonte: c.fonte };
         }
         // decisão de jogador (nome_familia/novo): row nova usa a do item; row tocada preserva a da staff;
         // row não-tocada aceita um match melhor de uma fonte posterior (senão mantém a decisão atual).
@@ -210,7 +239,25 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
     setBusy(true); setErro(""); setMsg("");
     try {
       for (let i = 0; i < arr.length; i++) {
-        setProg(`lendo print ${i + 1}/${arr.length}…`);
+        const pref = arr.length > 1 ? `print ${i + 1}/${arr.length}: ` : "";
+        if (leitor === "ocr") {
+          // OCR no navegador: a imagem não sai da máquina. O casamento de nome é o mesmo da colagem.
+          const r = await lerPrintOCR(arr[i], METRICAS, (s) => setProg(pref + s));
+          setOcrInfo((p) => [...p.slice(-4), { ...r, arquivo: arr[i].name || `print ${i + 1}` }]);
+          if (!r.linhas.length) throw new Error(`o OCR não achou nenhuma linha de jogador${r.descartadas.length ? ` (${r.descartadas.length} linha(s) descartadas — veja “o que o OCR leu”)` : ""}`);
+          absorver(r.linhas.map((l) => {
+            const m = casar(l.familia);
+            return { familiaLida: l.familia, nome_familia: m, novo: !m,
+              valores: Object.fromEntries(Object.entries(l.valores).map(([k, raw]) => {
+                const v = normalizarValor(raw);
+                return [k, { val: v != null ? String(v) : raw, raw, fonte: "ocr" as const, suspeito: l.suspeitos.includes(k) || undefined }];
+              })) };
+          }));
+          const incompletas = r.linhas.filter((l) => l.aviso).length;
+          setMsg(`🔍 OCR: ${r.linhas.length} linha(s) em ${(r.ms / 1000).toFixed(1)}s` + (incompletas ? ` · ⚠ ${incompletas} incompleta(s)` : "") + (r.descartadas.length ? ` · ${r.descartadas.length} descartada(s)` : ""));
+          continue;
+        }
+        setProg(`${pref}lendo com a IA…`);
         const image = await fileToBase64(arr[i]);
         const res = await fetch(`/api/eventos/${id}/resultado/extrair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) });
         const j = (await res.json().catch(() => ({}))) as ExtraiResp;
@@ -219,7 +266,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
           familiaLida: l.familiaLida,
           nome_familia: l.familia || "",
           novo: !l.familia, // não casou com player existente → cadastrar por default (staff pode trocar p/ ignorar)
-          valores: Object.fromEntries(Object.entries(l.valores).map(([m, c]) => [m, { val: c.valor != null ? String(c.valor) : (c.raw ?? ""), raw: c.raw }])),
+          valores: Object.fromEntries(Object.entries(l.valores).map(([m, c]) => [m, { val: c.valor != null ? String(c.valor) : (c.raw ?? ""), raw: c.raw, fonte: "ia" as const }])),
         })));
       }
     } catch (e) { setErro((e as Error).message); } finally { setBusy(false); setProg(""); }
@@ -265,7 +312,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
         // tirava a célula da tabela ANTES da staff poder olhar, e apagava o melhor resultado
         // possível das métricas menor_melhor (0 morte, 0 tempo morto)
         if (v == null) continue;
-        valores[m] = { val: String(v), raw };
+        valores[m] = { val: String(v), raw, fonte: "colado" };
         temNum = true;
       }
       if (temNum) { const m = casar(p.familia); itens.push({ familiaLida: p.familia, nome_familia: m, novo: !m, valores }); }
@@ -309,6 +356,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
   const semNome = linhas.filter((r) => (r.novo ? !r.familiaLida.trim() : !r.nome_familia)).length; // não serão gravadas (ignorar, ou novo sem nome)
   const novosCount = linhas.filter((r) => r.novo && r.familiaLida.trim()).length;
   const divergentes = linhas.reduce((n, r) => n + Object.values(r.valores).filter((c) => c.divergente).length, 0);
+  const suspeitos = linhas.reduce((n, r) => n + Object.values(r.valores).filter((c) => c.suspeito && !c.divergente).length, 0);
   const th = { color: C.mute, fontSize: 10, fontWeight: 700, padding: "4px 5px", textAlign: "center" as const, whiteSpace: "nowrap" as const, borderBottom: `1px solid ${C.border2}` };
   const cellInput = { width: 62, background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 5, color: C.texto, padding: "3px 4px", fontSize: 11.5, textAlign: "right" as const, outline: "none" } as const;
 
@@ -319,8 +367,19 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
           <>
             <input ref={inputRef} type="file" accept="image/*" multiple onChange={(e) => e.target.files?.length && extrair(e.target.files)} style={{ display: "none" }} id="res-file" />
             <label htmlFor="res-file" style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: busy ? C.inputBg : C.verdeTint, color: C.verde, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-              {busy ? (prog || "processando…") : "📷 Extrair do print (Opus)"}
+              {busy ? (prog || "processando…") : leitor === "ocr" ? "📷 Extrair do print (OCR)" : "📷 Extrair do print (Opus)"}
             </label>
+            {!busy && (
+              <span title="Quem lê o print. IA = Claude Opus no servidor (paga, mais esperta). OCR = tesseract no seu navegador (grátis; a imagem não sai da máquina). Leia a mesma war com os dois pra comparar: as células que divergirem acendem em laranja, com quem leu o quê."
+                style={{ display: "inline-flex", border: `1px solid ${C.border2}`, borderRadius: 8, overflow: "hidden", fontSize: 11.5, fontWeight: 700 }}>
+                {(["ia", "ocr"] as const).map((v) => (
+                  <button key={v} onClick={() => gravarLeitor(v)}
+                    style={{ border: "none", padding: "6px 10px", cursor: "pointer", fontFamily: "inherit", background: leitor === v ? C.verdeTint : "transparent", color: leitor === v ? C.verde : C.mute }}>
+                    {v === "ia" ? "🤖 IA" : "🔍 OCR"}
+                  </button>
+                ))}
+              </span>
+            )}
             {!busy && (
               <button onClick={() => setColarTxt(colarTxt == null ? "" : null)} style={{ borderRadius: 8, border: `1px solid ${colarTxt != null ? C.amarelo : C.border2}`, background: colarTxt != null ? C.amareloTint : "transparent", color: colarTxt != null ? C.amarelo : C.mute, padding: "6px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                 {colarTxt != null ? "× fechar" : "📋 Colar da planilha"}
@@ -384,15 +443,30 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
       {erro && <div style={{ color: C.vermelho, fontSize: 12.5, marginBottom: 8 }}>⚠ {erro}</div>}
       {msg && <div style={{ color: C.verde, fontSize: 12.5, marginBottom: 8 }}>{msg}</div>}
 
+      {ocrInfo.length > 0 && (
+        <details style={{ marginBottom: 8, border: `1px solid ${C.border2}`, borderRadius: 10, background: C.inputBg, padding: "6px 10px" }}>
+          <summary style={{ cursor: "pointer", color: C.mute, fontSize: 11.5 }}>🔍 o que o OCR leu ({ocrInfo.length} print{ocrInfo.length > 1 ? "s" : ""}) — texto cru, linhas incompletas e descartes</summary>
+          {ocrInfo.map((o, i) => (
+            <div key={i} style={{ marginTop: 6 }}>
+              <div style={{ color: C.texto, fontSize: 11.5 }}><b>{o.arquivo}</b> — {o.linhas.length} linha(s), {o.palavras} palavras, {(o.ms / 1000).toFixed(1)}s, escala {o.escala.toFixed(2)}×</div>
+              {o.linhas.filter((l) => l.aviso).map((l, k) => <div key={k} style={{ color: C.laranja, fontSize: 11 }}>⚠ {l.familia}: {l.aviso} · lido: {l.tokens.join(" ")}</div>)}
+              {o.descartadas.length > 0 && <div style={{ color: C.dim, fontSize: 11 }}>descartadas: {o.descartadas.map((d) => `[${d.motivo}] ${d.texto.slice(0, 60)}`).join(" · ")}</div>}
+              <pre style={{ margin: "4px 0 0", maxHeight: 220, overflow: "auto", color: C.dim, fontSize: 10.5, fontFamily: "'Share Tech Mono', monospace", whiteSpace: "pre" }}>{o.texto}</pre>
+            </div>
+          ))}
+        </details>
+      )}
+
       {linhas.length === 0 ? (
-        <div style={{ color: C.dim, fontSize: 12.5 }}>{canEdit ? (tipo === "rosas" ? "Cole o print da LISTA DE PARTICIPAÇÃO da Rosas com Ctrl+V (Nome · Cargo · Abates · Mortes), ou escolha o arquivo. A IA transcreve; você revisa e grava — quem estiver na lista é marcado como presente. Vários prints acumulam." : "Cole o print com Ctrl+V em qualquer lugar da página (Shift+Win+S pra recortar), ou escolha o arquivo. A IA (Opus) transcreve os números; você revisa e grava. Vários prints acumulam — mescla por jogador.") : "Sem stats extraídos."}</div>
+        <div style={{ color: C.dim, fontSize: 12.5 }}>{canEdit ? (tipo === "rosas" ? "Cole o print da LISTA DE PARTICIPAÇÃO da Rosas com Ctrl+V (Nome · Cargo · Abates · Mortes), ou escolha o arquivo. A IA transcreve; você revisa e grava — quem estiver na lista é marcado como presente. Vários prints acumulam." : "Cole o print com Ctrl+V em qualquer lugar da página (Shift+Win+S pra recortar), ou escolha o arquivo. Quem transcreve é o leitor escolhido ali em cima — 🤖 IA (Opus) ou 🔍 OCR no navegador; você revisa e grava. Vários prints acumulam — mescla por jogador, e ler a mesma war com IA e OCR mostra onde eles discordam.") : "Sem stats extraídos."}</div>
       ) : (
         <>
           {novosCount > 0 && <div style={{ color: C.verde, fontSize: 12, marginBottom: 6 }}>➕ {novosCount} jogador(es) fora da base entram em <a href="/membros" style={{ color: C.verde }}><b>Membros</b></a> como <b>não registrados</b> (grupo Indefinido) ao gravar, e ficam ali até fazerem a jornada de registro — é só ajustar grupo/classe/guilda. Se algum for leitura errada, troque pra “— ignorar —”.</div>}
           {semNome > 0 && <div style={{ color: C.amarelo, fontSize: 12, marginBottom: 6 }}>⚠ {semNome} linha(s) marcadas “ignorar” — não serão gravadas.</div>}
-          {divergentes > 0 && (
+          {(divergentes > 0 || suspeitos > 0) && (
             <div style={{ color: C.laranja, fontSize: 12, marginBottom: 6 }}>
-              ⚠ {divergentes} célula(s) em <b>laranja</b>: dois prints leram valores diferentes pra mesma pessoa. Vale o que está no campo — passe o mouse pra ver o outro e corrija se preciso. Nada é somado.
+              {divergentes > 0 && <>⚠ {divergentes} célula(s) em <b>laranja</b>: duas leituras (outro print, ou IA × OCR) deram valores diferentes pra mesma pessoa. Vale o que está no campo — passe o mouse pra ver quem leu o quê e corrija se preciso. Nada é somado. </>}
+              {suspeitos > 0 && <>⚠ {suspeitos} célula(s) que o OCR leu sem a cara da coluna (tempo sem “:”, abreviado sem k/M) — confira no print.</>}
             </div>
           )}
           {erroRegua && <div style={{ color: C.vermelho, fontSize: 12, marginBottom: 6 }}>⚠ {erroRegua}</div>}
@@ -402,7 +476,7 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
             </div>
           )}
           <div style={{ color: C.mute, fontSize: 11, marginBottom: 6 }}>
-            {linhas.length} linha(s). Valores já normalizados (635.1k→635100, 09:56→596s) — edite se a IA errou; passe o mouse pra ver o valor cru lido.
+            {linhas.length} linha(s). Valores já normalizados (635.1k→635100, 09:56→596s) — edite se a leitura errou; passe o mouse pra ver o valor cru e quem leu.
             {podeMexerRegua && warId != null && <> Clique no <b>○</b> ao lado do nome pra tirar alguém das médias desta war.</>}
           </div>
           <div className="rolx" style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 10 }}>
@@ -446,10 +520,8 @@ export default function ResultadoExtrair({ id, canEdit, players, warIdInicial, s
                     {METRICAS.map((m) => (
                       <td key={m.metrica} style={{ padding: "2px 3px" }}>
                         <input value={r.valores[m.metrica]?.val ?? ""} onChange={(e) => setCell(r.key, m.metrica, e.target.value)}
-                          title={r.valores[m.metrica]?.divergente
-                            ? `⚠ outro print leu ${r.valores[m.metrica]?.divergente} aqui — confira qual está certo`
-                            : r.valores[m.metrica]?.raw ? `lido: ${r.valores[m.metrica]?.raw}` : ""}
-                          style={r.valores[m.metrica]?.divergente ? { ...cellInput, borderColor: C.laranja, color: C.laranja } : cellInput} />
+                          title={dicaCelula(r.valores[m.metrica])}
+                          style={r.valores[m.metrica]?.divergente || r.valores[m.metrica]?.suspeito ? { ...cellInput, borderColor: C.laranja, color: C.laranja } : cellInput} />
                       </td>
                     ))}
                     <td style={{ padding: "2px 4px", textAlign: "center" }}>
