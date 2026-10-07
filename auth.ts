@@ -47,7 +47,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: { maxAge: 60 * 60 * 8 }, // 8h — re-login re-checa servidor + cargos
   providers: [
-    Discord({ authorization: { params: { scope: "identify guilds guilds.members.read" } } }),
+    // `issuer` é OBRIGATÓRIO desde 2026-10-06: o Discord passou a devolver `iss=https://discord.com` no
+    // callback (RFC 9207) e o @auth/core compara com provider.issuer — sem ele cai no placeholder
+    // "https://authjs.dev" e TODO login morre em CallbackRouteError ("unexpected iss").
+    Discord({ issuer: "https://discord.com", authorization: { params: { scope: "identify guilds guilds.members.read" } } }),
   ],
   pages: { signIn: "/login" },
   callbacks: {
