@@ -6,6 +6,7 @@ import { formatarMetrica } from "@/lib/formatarMetrica";
 import { BarraPct } from "@/app/BarraPct";
 import type { PlayerRow } from "@/lib/players";
 import type { PerfilPlayer } from "@/lib/perfilPlayer";
+import type { ContaDiscord, VinculoAtual } from "@/lib/trocarDiscord";
 
 /** 0 = domingo … 6 = sábado — a convenção de Date.getUTCDay(), a mesma de intencao_agenda. */
 const DIA_CURTO = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
@@ -58,6 +59,18 @@ export default function PerfilModal({ row, onClose, canEdit = false, onRenomeado
   /** Dias otimistas: o clique pinta na hora e o servidor confirma depois (ver `alternarDia`). */
   const [dias, setDias] = useState<number[] | null>(null);
   const [diasErro, setDiasErro] = useState("");
+  /**
+   * DISCORD — o vínculo de identidade. `undefined` = ainda carregando, `null` = não deu pra ler.
+   * Buscado à parte do perfil porque passa pelo bot (uma ida ao Discord pra resolver o nome da
+   * conta), e o funil não tem por que esperar por isso. `contas` null = nada buscado ainda.
+   */
+  const [vinculo, setVinculo] = useState<VinculoAtual | null | undefined>(undefined);
+  const [trocandoDiscord, setTrocandoDiscord] = useState(false);
+  const [buscaDiscord, setBuscaDiscord] = useState("");
+  const [contas, setContas] = useState<ContaDiscord[] | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  const [discErro, setDiscErro] = useState("");
+  const [discAviso, setDiscAviso] = useState("");
   /**
    * A ordem importa: palpite otimista > resposta do servidor > o que a TABELA já sabia.
    *
@@ -153,6 +166,74 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
     finally { setSalvando(false); }
   }
 
+  /**
+   * TROCAR O DISCORD — a conta mudou (hackeada, perdida), a pessoa e o nome de família não.
+   *
+   * A jornada de registro recusa ligar uma família que já tem dono a outra conta — é a trava
+   * anti-sequestro, e ela está certa. O efeito colateral é que quem perdeu a conta fica trancado
+   * até a staff trocar o vínculo por aqui. Dois caminhos: VINCULAR direto (a staff acha a conta
+   * nova no servidor) ou DESVINCULAR (a pessoa roda /register na conta nova e recebe cargo +
+   * apelido junto). O servidor é quem recusa conta já usada por outro cadastro — aqui só se mostra.
+   */
+  async function gravarDiscord(discordId: string | null, rotulo: string) {
+    const pergunta = discordId
+      ? `Vincular "${row.nome_familia}" à conta ${rotulo}?
+
+A partir daqui é ESSA conta que o app reconhece como ${row.nome_familia} — /eu, convocação por DM e chamada do bot. A conta antiga deixa de valer.`
+      : `Desvincular o Discord de "${row.nome_familia}"?
+
+A pessoa some do /eu e das DMs até se registrar de novo (/register na conta nova, que passa a ser aceito).`;
+    if (!confirm(pergunta)) return;
+    setSalvando(true); setDiscErro(""); setDiscAviso("");
+    try {
+      const res = await fetch("/api/players/discord", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: row.nome_familia, discordId }) });
+      const d = (await res.json().catch(() => ({}))) as { error?: string; conta?: ContaDiscord | null; para?: string | null; escalacoesMovidas?: number };
+      if (!res.ok) throw new Error(d.error ?? `erro ${res.status}`);
+      setVinculo((v) => ({ id: d.para ?? null, conta: d.conta ?? null, registro: v?.registro ?? row.registro }));
+      setTrocandoDiscord(false); setBuscaDiscord(""); setContas(null);
+      setDiscAviso(discordId
+        ? `✓ vinculado${d.conta && !d.conta.noServidor ? " — atenção: essa conta NÃO está no servidor" : ""}${d.escalacoesMovidas ? ` · ${d.escalacoesMovidas} escalação(ões) em aberto passaram pra conta nova` : ""}. Cargos e apelido no Discord não mudam por aqui — a pessoa pode rodar /register na conta nova pra receber.`
+        : "✓ desvinculado — peça pra pessoa rodar /register na conta nova.");
+    } catch (e) { setDiscErro((e as Error).message); }
+    finally { setSalvando(false); }
+  }
+
+  // o vínculo de Discord: só pra staff (a rota é de editor), e à parte do perfil (passa pelo bot)
+  useEffect(() => {
+    if (!canEdit) return;
+    let vivo = true;
+    fetch(`/api/players/discord?nome=${encodeURIComponent(row.nome_familia)}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((d as { error?: string }).error ?? `erro ${r.status}`);
+        if (vivo) setVinculo((d as { vinculo: VinculoAtual }).vinculo);
+      })
+      .catch((e) => { if (vivo) { setVinculo(null); setDiscErro((e as Error).message); } });
+    return () => { vivo = false; };
+  }, [row.nome_familia, canEdit]);
+
+  // a busca da conta nova espera a pessoa parar de digitar: cada letra seria uma ida ao Discord.
+  // Menos de 2 letras não busca — e quem limpa o resultado nesse caso é o onChange do input.
+  useEffect(() => {
+    if (!trocandoDiscord) return;
+    const q = buscaDiscord.trim();
+    if (q.length < 2) return;
+    let vivo = true;
+    const t = setTimeout(() => {
+      setBuscando(true);
+      fetch(`/api/players/discord?q=${encodeURIComponent(q)}`)
+        .then(async (r) => {
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error((d as { error?: string }).error ?? `erro ${r.status}`);
+          if (vivo) setContas((d as { contas: ContaDiscord[] }).contas);
+        })
+        .catch((e) => vivo && setDiscErro((e as Error).message))
+        .finally(() => vivo && setBuscando(false));
+    }, 350);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [buscaDiscord, trocandoDiscord]);
+
   useEffect(() => {
     let vivo = true;
     /**
@@ -213,6 +294,24 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
           <Linha k="Classe" v={row.classe_bdo ? `${row.classe_bdo}${row.classe_tipo ? ` · ${row.classe_tipo}` : ""}` : "—"} />
           <Linha k="AP / AAP / DP" v={row.garmoth ? `${row.garmoth.ap ?? "?"} / ${row.garmoth.aap ?? "?"} / ${row.garmoth.dp ?? "?"}` : "sem Garmoth"} />
           <Linha k="Registro" v={row.registro ? "concluído" : <span style={{ color: C.laranja }}>não registrado</span>} />
+          {/* a CONTA do Discord, não só "registrado": é o que a staff precisa ver quando alguém diz
+              "perdi minha conta" — qual conta o app acha que é essa pessoa hoje */}
+          {canEdit && (
+            <Linha k="Discord" v={
+              vinculo === undefined ? "…"
+              : !vinculo?.id ? <span style={{ color: C.laranja }}>não vinculado</span>
+              : <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  {vinculo.conta?.avatar && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={vinculo.conta.avatar} alt="" width={16} height={16} style={{ borderRadius: 999 }} />
+                  )}
+                  {vinculo.conta
+                    ? <>{vinculo.conta.nome} <span style={{ color: C.dim }}>@{vinculo.conta.username}</span></>
+                    : <span style={{ color: C.dim }} title="o bot não achou essa conta (nem no servidor, nem no Discord)">ID {vinculo.id}</span>}
+                  {vinculo.conta && !vinculo.conta.noServidor && <span style={{ color: C.laranja }} title="essa conta não está no servidor ativo">· fora do servidor</span>}
+                </span>
+            } />
+          )}
           <Linha k="Wars com estatística" v={perfil ? `${perfil.wars.comEstatistica}${perfil.wars.primeira ? ` · de ${br(perfil.wars.primeira)} a ${br(perfil.wars.ultima)}` : ""}` : "…"} />
           {!row.ativo && <Linha k="Saída" v={`${row.saida_tipo ?? "—"}${row.saida_data ? ` · ${br(row.saida_data)}` : ""}`} />}
         </div>
@@ -310,6 +409,67 @@ Só confirme se você JÁ renomeou no jogo: os prints são lidos pelo nome, e um
                 </div>
               </div>
             )}
+
+            {/* TROCAR O DISCORD fica junto dos dois acima pelo mesmo motivo: a staff chega aqui com
+                "é a mesma pessoa, mudou o quê?" — o nome (renomear), o cadastro (fundir) ou a CONTA. */}
+            {!trocandoDiscord ? (
+              <button onClick={() => { setTrocandoDiscord(true); setDiscErro(""); setDiscAviso(""); }}
+                style={{ background: "none", border: "none", color: C.mute, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: 7, display: "block" }}>
+                ⟳ a pessoa trocou de conta no Discord…
+              </button>
+            ) : (
+              <div style={{ marginTop: 9, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 9 }}>
+                <div className="leg" style={{ color: C.mute, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Trocar o Discord</div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  <input value={buscaDiscord} autoFocus placeholder="username, apelido ou ID da conta nova"
+                    onChange={(e) => { setBuscaDiscord(e.target.value); if (e.target.value.trim().length < 2) setContas(null); }}
+                    onKeyDown={(e) => { if (e.key === "Escape") setTrocandoDiscord(false); }}
+                    style={{ background: C.inputBg, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.texto, padding: "6px 10px", fontSize: 13, fontFamily: "inherit", flex: "1 1 220px", minWidth: 0 }} />
+                  {vinculo?.id && (
+                    <button onClick={() => gravarDiscord(null, "")} disabled={salvando} title="tira o vínculo; a pessoa se registra de novo na conta nova"
+                      style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.vermelho, padding: "6px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      {salvando ? "…" : "desvincular"}
+                    </button>
+                  )}
+                  <button onClick={() => { setTrocandoDiscord(false); setBuscaDiscord(""); setContas(null); setDiscErro(""); }}
+                    style={{ borderRadius: 8, border: `1px solid ${C.border2}`, background: "transparent", color: C.mute, padding: "6px 11px", fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>cancelar</button>
+                </div>
+                {buscando && <div style={{ color: C.dim, fontSize: 11.5, marginTop: 6 }}>procurando no servidor…</div>}
+                {contas && !buscando && contas.length === 0 && (
+                  <div style={{ color: C.dim, fontSize: 11.5, marginTop: 6 }}>
+                    ninguém no servidor começa com isso — a busca é pelo COMEÇO do username ou do apelido. Se a conta ainda não
+                    entrou no servidor, cole o ID dela (no Discord: botão direito no usuário → Copiar ID do usuário).
+                  </div>
+                )}
+                {contas && contas.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 7 }}>
+                    {contas.map((c) => (
+                      <button key={c.id} onClick={() => gravarDiscord(c.id, `${c.nome} (@${c.username})`)} disabled={salvando || c.id === vinculo?.id}
+                        style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", borderRadius: 8, border: `1px solid ${C.border2}`, background: C.inputBg, color: C.texto, padding: "6px 10px", fontSize: 12.5, cursor: c.id === vinculo?.id ? "default" : "pointer", fontFamily: "inherit", opacity: c.id === vinculo?.id ? 0.55 : 1 }}>
+                        {c.avatar && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={c.avatar} alt="" width={20} height={20} style={{ borderRadius: 999 }} />
+                        )}
+                        <span>{c.nome}</span>
+                        <span style={{ color: C.dim }}>@{c.username}</span>
+                        {!c.noServidor && <span style={{ color: C.laranja, fontSize: 11 }}>fora do servidor</span>}
+                        <span style={{ marginLeft: "auto", color: c.id === vinculo?.id ? C.dim : C.verde, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+                          {c.id === vinculo?.id ? "já é este" : "vincular →"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="leg" style={{ color: C.dim, fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
+                  Pra quem perdeu a conta (hackeada, banida) e continua com o <b>mesmo nome de família</b>. O /register recusa
+                  ligar uma família que já tem dono a outra conta — por isso a troca é por aqui. <b>Vincular</b> resolve na
+                  hora: estatística, /eu e DMs passam pra conta nova. <b>Desvincular</b> deixa a pessoa se registrar de novo
+                  na conta nova, e aí ela recebe cargo e apelido junto. Cargos no Discord não mudam por aqui.
+                </div>
+              </div>
+            )}
+            {discErro && <div style={{ color: C.vermelho, fontSize: 12, marginTop: 7 }}>⚠ {discErro}</div>}
+            {discAviso && <div style={{ color: C.verde, fontSize: 12, marginTop: 7 }}>{discAviso}</div>}
           </div>
         )}
 
